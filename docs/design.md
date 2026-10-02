@@ -26,10 +26,10 @@ A ballot is an ordered list of candidate ids. Position 0 fills the highest slot,
 
 That form cannot express two candidates in one slot, one candidate in two slots without repeating the id, or a skipped slot. Map- or object-shaped ballots are rejected rather than interpreted.
 
-A ballot is valid when all of the following hold:
+A ballot can be cast when all of the following hold:
 
 - it is an array of strings without holes;
-- its length equals the number of active slots: shorter is `incomplete`, longer is `inactive-slot`;
+- it is empty (a blank ballot), or its length equals the number of active slots: a partly filled ballot is `incomplete`, a longer one is `inactive-slot`;
 - every id names a candidate of the contest (`unknown-candidate` otherwise);
 - no id appears twice (`duplicate-candidate` otherwise).
 
@@ -37,7 +37,7 @@ Validation errors carry positions and counts only, never candidate ids, so a rej
 
 ### Completeness
 
-Every active slot must be filled. With `n` ≤ 6 candidates on a Schulsprecher ballot every candidate appears exactly once; with more, exactly six distinct candidates are ranked and the rest receive zero points from that ballot.
+Every active slot must be filled, unless the ballot is blank. With `n` ≤ 6 candidates on a Schulsprecher ballot every candidate appears exactly once; with more, exactly six distinct candidates are ranked and the rest receive zero points from that ballot.
 
 Completeness is a validity rule, not a convenience. The lower slots decide the deputies, the SGA substitutes and point-based runoff tiebreaks. A voter who could award the top points and withhold the rest could steer those positions strategically.
 
@@ -55,7 +55,11 @@ The equivalence depends on complete ballots; with optional rankings the offset w
 
 ## Blank ballots
 
-Version 1 has no blank ballot. A voter who does not want to vote in a contest leaves it; the entitlement stays unused, and the base for the majority rule is unambiguously the number of valid ballots. If a blank vote is wanted later, it becomes a separate, explicitly counted ballot form that is excluded from that base.
+A voter can cast a blank ballot in any contest, whatever the number of candidates: an explicit choice to submit no ranking. It uses up the voter's entitlement for that contest and is counted and reported on its own. It is an invalid vote, since the count distinguishes valid from invalid votes (§ 12 Abs. 1 of the regulation), and it gives nobody points or a first place. Whether blank ballots count toward the base of the majority rule is an open ruling, listed below.
+
+A partly filled ballot is rejected instead of being cast as an invalid vote, so a slip on a phone cannot void a vote unnoticed. A blank ballot is always a deliberate choice.
+
+There is no "no" option on any ballot.
 
 ## Determinism
 
@@ -65,18 +69,22 @@ Counting arithmetic is integer-only, and per-candidate output follows the contes
 
 ## Statutory rulings
 
-Cases the regulation leaves open, or where the reading must be confirmed with the school community committee before result computation is implemented. Each confirmed row becomes a test fixture. Result computation is not implemented yet; when it is, any case whose row is not confirmed must produce an explicit unresolved or lot-required result and must never fall back to an alphabetical, id-based or random order.
+How results are decided, read from the regulation on the election of school representatives (RIS Gesetzesnummer 10009897, checked against the consolidated text of 2 October 2026) or decided for this project where the regulation is silent. Paragraph references are to that regulation. Each confirmed row becomes a test fixture once result computation is implemented; until a row is confirmed, the code must produce an explicit unresolved or lot-required result for that case and never fall back to an alphabetical, id-based or random order.
 
 Alphabetical order is only the order in which candidates are listed on a ballot, the runoff ballot included. It never decides a place.
 
 | Case | Ruling | Status |
 | --- | --- | --- |
-| Principal position: elected in round 1 only with more than half of the valid ballots as first places | Strictly greater than 50 % of first places, counted directly, never inferred from points | To implement |
-| Two candidates with exactly 50 % of first places each | Nobody has more than half of the first places, so nobody is elected in round 1 and both candidates go to the runoff. First-round points play no part in this; the runoff ballot lists the two alphabetically | Confirmed |
-| Tie for the second runoff place on first places | First-round points decide among the tied candidates. If their points are equal as well, the result is lot-required: officials draw the lot and an authorised user records the outcome, which is audited | Confirmed |
-| Ties at the deputy or SGA substitute boundaries: lot directly, or first places as a secondary discriminator | | Pending |
-| Zero valid ballots in a contest | | Pending |
-| A contest with a single candidate | | Pending |
-| Vacancies when fewer candidates stand than there are positions | | Pending |
-| Class and department representatives use the same majority and runoff rule as the principal position | | Pending |
-| Tie in a two-candidate runoff | | Pending |
+| Who is elected in round 1, for every representative (Klassen- or Jahrgangssprecher, Vertreter der Klassensprecher, Abteilungs-, Tages- and Schulsprecher) | Whoever is ranked first, with the ballot's top points (2 or 6), on more than half of the ballots: "wer auf mehr als der Hälfte der Stimmzettel durch die Vergabe der jeweils höchstmöglichen Zahl an Wahlpunkten an erster Stelle gereiht wurde" (§ 12 Abs. 3). Counted from first places, never inferred from point totals | Confirmed |
+| Base of "more than half": every ballot cast, blank ones included, or only valid ballots | § 12 Abs. 3 says "Stimmzettel", not "gültige Stimmen"; the recall rule in § 18 Abs. 3 does say "gültigen Stimmen". With every ballot as the base, blank ballots can prevent a first-round win; with valid ballots only, they cannot | Pending |
+| Two candidates with exactly 50 % of first places each | Nobody has more than half of the first places, so nobody is elected in round 1 and the two go to the runoff (§ 12 Abs. 3). First-round points play no part in this; the runoff ballot lists the two alphabetically | Confirmed |
+| More than two candidates would enter the runoff on first places | First-round points decide which two enter; if that still leaves more than two, the lot decides (§ 12 Abs. 3). The result is lot-required: officials draw the lot and an authorised user records the outcome, which is audited | Confirmed |
+| Scope of that points step: only the candidates tied for the second place, or every candidate who would enter, including a clear first-place leader | § 12 Abs. 3 says points decide "zwischen welchen beiden Kandidaten die Stichwahl durchzuführen ist", without limiting the comparison to the tied candidates | Pending |
+| Who wins the runoff, and a tie in the runoff | Neither the regulation nor § 59a SchUG says how the runoff is decided or what a tie in it means | Pending |
+| Deputies and SGA substitutes | Decided by first-round points, with the elected representative's own points left out; the runoff never changes them. The deputy of a class, department or day representative has the highest total (§ 12 Abs. 4); the Schulsprecher's deputies have the highest and second-highest (§ 12 Abs. 5); at schools with a Schulgemeinschaftsausschuss the three SGA substitutes have the third- to fifth-highest (§ 12 Abs. 6) | Confirmed |
+| Ties at the deputy or SGA substitute boundaries | The lot decides directly: "Bei gleicher Punktezahl entscheidet das Los" (§ 12 Abs. 4, 5 and 6). First places are not a secondary discriminator | Confirmed |
+| Class and department representatives use the same rule as the Schulsprecher | Yes: § 12 Abs. 3 covers every representative, and § 12 Abs. 4 gives each of them one deputy by first-round points | Confirmed |
+| Zero valid ballots in a contest | The regulation has no rule for it. Not decided by the software: the result is an explicit "decision by the school committee required" state with no winner, no lot and no derived positions | Confirmed |
+| A contest with a single candidate | A vote takes place and the same rule applies: the candidate is elected with more than half of the ballots as first places. Whether blank ballots can prevent that follows from the base ruling above. If the candidate is not elected, a runoff is impossible and the regulation is silent, so the school committee decides | Confirmed |
+| Fewer candidates than positions | Slots beyond the number of candidates do not exist on the ballot, and positions nobody can fill stay vacant; the result lists them as vacant. With three Schulsprecher candidates, one becomes Schulsprecher and two become deputies, and the three SGA substitute positions stay vacant (§ 12 Abs. 6 starts at the third-highest remaining total). Filling them later is outside the software | Confirmed |
+| By-elections (Neuwahl, § 19) | Different rules apply: the lot decides runoff entry directly, and deputies are elected by most votes (§ 19 Abs. 2) | Out of scope for v1 |
