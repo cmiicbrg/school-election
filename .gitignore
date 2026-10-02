@@ -8,6 +8,7 @@ coverage/
 .env
 .env.*
 !.env.example
+.secrets/
 .vscode/
 .idea/
 .DS_Store
