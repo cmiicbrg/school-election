@@ -32,7 +32,7 @@ await app.register(helmet, {
   },
 })
 
-app.get('/api/health', async () => ({ status: 'ok' }))
+app.get('/api/health', () => ({ status: 'ok' }))
 
 if (existsSync(webDist)) {
   await app.register(fastifyStatic, { root: webDist })

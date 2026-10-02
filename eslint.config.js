@@ -121,7 +121,7 @@ export default [
       'no-restricted-imports': ['error', {
         patterns: [
           {
-            regex: '^(?!\\.{1,2}/)',
+            regex: String.raw`^(?!\.{1,2}/)`,
             message: 'election-core is a pure domain module: only relative imports inside the package are allowed.',
           },
         ],
