@@ -44,8 +44,11 @@ settings=(
   -v "${password_file}:/run/secrets/owner-password:ro" \
   "$image" "${settings[@]}" >/dev/null
 
+# Probe TCP, not the socket: on first start the image runs a temporary,
+# socket-only server for initialisation, and only the final server, started
+# after the database exists, listens on TCP.
 for _ in $(seq 1 60); do
-  if "$engine" exec "$name" pg_isready -q -U postgres -d school_election; then
+  if "$engine" exec "$name" pg_isready -q -h 127.0.0.1 -p 5432 -U postgres -d school_election; then
     echo "PostgreSQL ready on 127.0.0.1:${port}"
     exit 0
   fi

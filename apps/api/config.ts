@@ -114,6 +114,13 @@ function databaseUrl(env: Env, urlName: string, secretName: string): string {
   if (url.password !== '') {
     throw new ConfigError(`${urlName} must not contain a password; set ${secretName}_FILE instead`)
   }
+  // The driver lets query parameters override the URL: ?password= would
+  // bypass the secret file, ?user= switch roles, ?options= change session
+  // settings, ?host= redirect the connection. Only the TLS mode may be set.
+  const extra = [...url.searchParams.keys()].filter((key) => key !== 'sslmode')
+  if (extra.length > 0 || url.hash !== '') {
+    throw new ConfigError(`${urlName} may carry no query parameters except sslmode, got ${extra.join(', ') || 'a fragment'}`)
+  }
   if (url.username === '' || url.pathname.length <= 1) {
     throw new ConfigError(`${urlName} must name a user and a database`)
   }

@@ -44,7 +44,7 @@ export async function checkDatabaseSettings(db: Pick<Database, 'query'>): Promis
   }
   for (const name of PRELOAD_SETTINGS) {
     const libraries = (await show(db, name)).split(',').map((s) => s.trim().replace(/^"|"$/g, ''))
-    if (libraries.some((library) => /(^|\/)auto_explain$/.test(library))) {
+    if (libraries.some((library) => /(^|\/)auto_explain(\.so)?$/.test(library))) {
       problems.push(`${name} loads auto_explain, which logs statements with their parameters`)
     }
   }

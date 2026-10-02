@@ -113,6 +113,12 @@ test('the runtime database password comes from a file, never from the URL', () =
   for (const url of ['mysql://u@h/db', 'postgres://127.0.0.1/db', 'postgres://u@127.0.0.1/', 'not a url']) {
     assert.match(problem({ ...valid, DATABASE_URL: url }), /DATABASE_URL/, url)
   }
+  // Query parameters override the URL in the driver.
+  for (const query of ['password=inline', 'user=postgres', 'options=-c%20log_statement%3Dall', 'host=evil.example', 'sslmode=require&user=postgres']) {
+    assert.match(problem({ ...valid, DATABASE_URL: `${DB_ENV.DATABASE_URL}?${query}` }), /may carry no query parameters except sslmode/, query)
+  }
+  assert.match(problem({ ...valid, DATABASE_URL: `${DB_ENV.DATABASE_URL}#x` }), /no query parameters except sslmode, got a fragment/)
+  assert.match(loadConfig({ ...valid, DATABASE_URL: `${DB_ENV.DATABASE_URL}?sslmode=require` }).databaseUrl, /\?sslmode=require$/)
 })
 
 test('a password with special characters is encoded into the URL', () => {

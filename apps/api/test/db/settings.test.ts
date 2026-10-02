@@ -51,7 +51,7 @@ test('each unsafe setting is named, whatever NODE_ENV says', async () => {
 
 test('auto_explain in any preload list is refused', async () => {
   for (const name of ['shared_preload_libraries', 'session_preload_libraries', 'local_preload_libraries']) {
-    for (const value of ['auto_explain', 'pg_stat_statements, auto_explain', '"$libdir/plugins/auto_explain"']) {
+    for (const value of ['auto_explain', 'auto_explain.so', '$libdir/auto_explain.so', 'pg_stat_statements, auto_explain', '"$libdir/plugins/auto_explain"']) {
       const problems = await checkDatabaseSettings(serverWith({ [name]: value }))
       assert.deepEqual(problems, [`${name} loads auto_explain, which logs statements with their parameters`], value)
     }

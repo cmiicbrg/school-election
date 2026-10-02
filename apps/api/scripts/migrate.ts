@@ -65,6 +65,15 @@ export async function migrate(options: MigrateOptions): Promise<string[]> {
       }
     }
 
+    // Forward-only: a new file must sort after every applied one, or two
+    // databases with the same records could have run them in different
+    // orders.
+    const newest = [...applied.keys()].sort((a, b) => a.localeCompare(b)).at(-1)
+    const late = files.find((file) => !applied.has(file.name) && newest !== undefined && file.name < newest)
+    if (late) {
+      throw new MigrationError(`${late.name} sorts before the applied ${newest}; renumber it after the newest applied migration`)
+    }
+
     const ran: string[] = []
     for (const file of files) {
       const recorded = applied.get(file.name)

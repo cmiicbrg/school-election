@@ -35,6 +35,14 @@ dbTest('an applied migration that was edited or removed stops the run', async (t
   await assert.rejects(run(db.ownerUrl, MIGRATIONS_DIR), (err: Error) => err instanceof MigrationError && /0002_second.sql is missing/.test(err.message))
 })
 
+dbTest('a new migration that sorts before an applied one is refused', async (t) => {
+  const db = await createTestDatabase(t, { migrated: false })
+  const dir = await migrationsWith({ '0003_third.sql': 'create table third (id int);' })
+  await run(db.ownerUrl, dir)
+  await writeFile(path.join(dir, '0002_second.sql'), 'create table second (id int);')
+  await assert.rejects(run(db.ownerUrl, dir), /0002_second.sql sorts before the applied 0003_third.sql/)
+})
+
 dbTest('a misnamed file is refused before anything runs', async (t) => {
   const db = await createTestDatabase(t, { migrated: false })
   const dir = await migrationsWith({ '2_oops.sql': 'select 1;' })
