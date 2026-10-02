@@ -159,10 +159,12 @@ test('unknown API paths get JSON; other page paths get the web app', async (t) =
   const { app } = await buildTestApp({ WEB_DIST_DIR: fakeWebDist() })
   t.after(() => app.close())
 
-  const api = await app.inject({ method: 'GET', url: '/api/nope' })
-  assert.equal(api.statusCode, 404)
-  assert.deepEqual(api.json(), { error: 'not_found' })
-  assert.equal(api.headers['cache-control'], 'no-store')
+  for (const url of ['/api/nope', '/api']) {
+    const api = await app.inject({ method: 'GET', url })
+    assert.equal(api.statusCode, 404, url)
+    assert.deepEqual(api.json(), { error: 'not_found' })
+    assert.equal(api.headers['cache-control'], 'no-store', url)
+  }
 
   const page = await app.inject({ method: 'GET', url: '/admin/elections/42?tab=x' })
   assert.equal(page.statusCode, 200)
@@ -170,7 +172,11 @@ test('unknown API paths get JSON; other page paths get the web app', async (t) =
   assert.match(page.body, /<title>app<\/title>/)
   assert.equal(page.headers['cache-control'], 'no-cache')
 
-  assert.equal((await app.inject({ method: 'GET', url: '/assets/missing.js' })).statusCode, 404)
+  for (const url of ['/assets/missing.js', '/assets/chunk', '/assets']) {
+    const asset = await app.inject({ method: 'GET', url })
+    assert.equal(asset.statusCode, 404, url)
+    assert.deepEqual(asset.json(), { error: 'not_found' })
+  }
   assert.equal((await app.inject({ method: 'POST', url: '/admin/x', headers: sameOrigin })).statusCode, 404)
 })
 

@@ -57,7 +57,8 @@ export function loadConfig(env: Env): Config {
   }
 
   if (problems.length > 0) {
-    throw new ConfigError(`invalid configuration:\n${problems.map((p) => `  - ${p}`).join('\n')}`)
+    const list = problems.map((problem) => '  - ' + problem).join('\n')
+    throw new ConfigError(`invalid configuration:\n${list}`)
   }
   return config
 }
