@@ -52,10 +52,14 @@ test('TRUST_PROXY takes addresses and CIDRs only', () => {
   }
 })
 
-test('debug logging is refused unless the origin is loopback', () => {
-  assert.match(problem({ ...valid, LOG_LEVEL: 'debug' }), /LOG_LEVEL=debug is allowed only with a loopback/)
+test('debug logging is refused unless both the origin and the listening address are loopback', () => {
+  assert.match(problem({ ...valid, LOG_LEVEL: 'debug' }), /LOG_LEVEL=debug is allowed only with a loopback PUBLIC_ORIGIN and HOST/)
   assert.match(problem({ ...valid, LOG_LEVEL: 'trace' }), /LOG_LEVEL=trace/)
+  for (const HOST of ['0.0.0.0', '::', '192.168.1.10']) {
+    assert.match(problem({ PUBLIC_ORIGIN: 'http://localhost:5173', HOST, LOG_LEVEL: 'debug' }), /LOG_LEVEL=debug/, HOST)
+  }
   assert.equal(loadConfig({ PUBLIC_ORIGIN: 'http://localhost:5173', LOG_LEVEL: 'debug' }).logLevel, 'debug')
+  assert.equal(loadConfig({ PUBLIC_ORIGIN: 'http://localhost:5173', HOST: '::1', LOG_LEVEL: 'trace' }).logLevel, 'trace')
   assert.equal(loadConfig({ ...valid, LOG_LEVEL: 'warn' }).logLevel, 'warn')
 })
 

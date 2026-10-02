@@ -36,7 +36,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
           type: err.name,
           message: verbose ? err.message : '[not logged]',
           code: typeof err.code === 'string' ? err.code : undefined,
-          stack: verbose ? (err.stack ?? '') : stackFrames(err.stack),
+          stack: verbose ? (err.stack ?? '') : stackFrames(err),
         }),
       },
       ...(options.logStream ? { stream: options.logStream } : {}),
@@ -102,7 +102,15 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   return app
 }
 
-/** The `at …` lines of a stack trace, without the message line(s) above them. */
-function stackFrames(stack: string | undefined): string {
-  return (stack ?? '').split('\n').filter((line) => /^\s+at /.test(line)).join('\n')
+/**
+ * The frames of a stack trace without the message. V8 starts the stack with
+ * `Name: message`, and the message may span lines that look like frames, so
+ * that exact header is cut off first. A stack that does not start with it
+ * (the message was changed after the error was created) is dropped whole.
+ */
+function stackFrames(err: Error): string {
+  const stack = err.stack ?? ''
+  const header = err.message === '' ? err.name : `${err.name}: ${err.message}`
+  if (!stack.startsWith(header)) return ''
+  return stack.slice(header.length).split('\n').filter((line) => /^\s+at /.test(line)).join('\n')
 }

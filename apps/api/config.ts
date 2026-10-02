@@ -45,12 +45,14 @@ export function loadConfig(env: Env): Config {
   }
 
   const publicOrigin = check(() => parsePublicOrigin(env.PUBLIC_ORIGIN), undefined)
+  const host = env.HOST?.trim() || '127.0.0.1'
+  const local = (publicOrigin?.loopback ?? false) && isLoopbackHost(host)
   const config: Config = {
-    host: env.HOST?.trim() || '127.0.0.1',
+    host,
     port: check(() => parsePort(env.PORT), 0),
     publicOrigin: publicOrigin?.origin ?? '',
     trustProxy: check(() => parseTrustProxy(env.TRUST_PROXY), []),
-    logLevel: check(() => parseLogLevel(env.LOG_LEVEL, publicOrigin?.loopback ?? false), 'info'),
+    logLevel: check(() => parseLogLevel(env.LOG_LEVEL, local), 'info'),
     webDistDir: env.WEB_DIST_DIR?.trim() || path.resolve(here, '..', 'web', 'dist'),
   }
 
@@ -139,14 +141,16 @@ function isAddressOrCidr(entry: string): boolean {
   return /^\d+$/.test(prefix) && Number(prefix) <= (family === 4 ? 32 : 128)
 }
 
-// debug and trace exist for local development only; on a real origin they
-// are refused, so a verbose mode cannot be switched on during an election.
-function parseLogLevel(raw: string | undefined, loopbackOrigin: boolean): LogLevel {
+// debug and trace exist for local development only. They log error
+// messages, so they need both a loopback origin and a loopback listening
+// address: a server anyone else can reach, such as a container listening on
+// 0.0.0.0, cannot switch them on, whatever its origin says.
+function parseLogLevel(raw: string | undefined, local: boolean): LogLevel {
   const value = raw?.trim() || 'info'
   if (value === 'info' || value === 'warn' || value === 'error') return value
-  if ((value === 'debug' || value === 'trace') && loopbackOrigin) return value
+  if ((value === 'debug' || value === 'trace') && local) return value
   if (value === 'debug' || value === 'trace') {
-    throw new ConfigError(`LOG_LEVEL=${value} is allowed only with a loopback PUBLIC_ORIGIN`)
+    throw new ConfigError(`LOG_LEVEL=${value} is allowed only with a loopback PUBLIC_ORIGIN and HOST`)
   }
   throw new ConfigError(`LOG_LEVEL must be info, warn or error, got ${value}`)
 }

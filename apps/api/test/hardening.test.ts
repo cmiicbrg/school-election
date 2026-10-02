@@ -13,6 +13,17 @@ async function appWithTestRoutes(env: Record<string, string> = {}) {
   built.app.post('/api/test/throw', () => {
     throw Object.assign(new Error('Key (credential_hash)=(MESSAGESECRET) already exists'), { code: '23505', detail: 'DETAILSECRET' })
   })
+  // A message whose lines look like stack frames.
+  built.app.post('/api/test/throw-multiline', () => {
+    throw new Error('first line\n    at FRAMELIKESECRET (key.ts:1:1)')
+  })
+  // A message changed after the stack was captured.
+  built.app.post('/api/test/throw-mutated', () => {
+    const err = new Error('original')
+    err.message = 'MUTATEDSECRET'
+    err.stack = 'Error: MUTATEDSECRET\n    at MUTATEDFRAME (key.ts:1:1)'.replace('MUTATEDSECRET', 'STACKSECRET')
+    throw err
+  })
   return built
 }
 
@@ -108,6 +119,19 @@ test('a failing request logs no query, address or body and answers without a sta
   for (const secret of ['QUERYSECRET', '198.51.100.23', 'BODYSECRET', 'AGENTSECRET', 'COOKIESECRET', 'MESSAGESECRET', 'DETAILSECRET', 'remoteAddress', 'remotePort']) {
     assert.ok(!output.includes(secret), `log contains ${secret}`)
   }
+})
+
+test('message lines are never logged as stack frames', async (t) => {
+  const { app, logs } = await appWithTestRoutes()
+  t.after(() => app.close())
+  for (const url of ['/api/test/throw-multiline', '/api/test/throw-mutated']) {
+    const res = await app.inject({ method: 'POST', url, headers: sameOrigin, payload: {} })
+    assert.equal(res.statusCode, 500)
+  }
+  for (const secret of ['FRAMELIKESECRET', 'MUTATEDSECRET', 'STACKSECRET', 'MUTATEDFRAME']) {
+    assert.ok(!logs().includes(secret), `log contains ${secret}`)
+  }
+  assert.match(logs(), /hardening\.test\.ts/)
 })
 
 test('only a local debug log shows the error message', async (t) => {
