@@ -101,7 +101,11 @@ export function validateBallot(contest: Contest, input: unknown): BallotResult {
     case 'no':
       return offersNo(contest) ? cast(contest, 'no', []) : fail({ kind: 'no-not-offered' })
     case 'ranking': {
-      const { ranking, confirmInvalid } = input as { ranking?: unknown, confirmInvalid?: unknown }
+      // formOf returned a form, so input is a non-array object. Own properties
+      // only, like `kind`: an inherited confirmInvalid is not the voter's
+      // confirmation.
+      const ranking = ownProperty(input as object, 'ranking')
+      const confirmInvalid = ownProperty(input as object, 'confirmInvalid')
       const checked = checkRanking(contest, slotCount, ranking)
       if ('error' in checked) return fail(checked.error)
       if (checked.filled === slotCount) return cast(contest, 'ranking', checked.ranking)
@@ -116,9 +120,12 @@ export function validateBallot(contest: Contest, input: unknown): BallotResult {
 
 function formOf(input: unknown): 'ranking' | 'no' | undefined {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return undefined
-  if (!Object.hasOwn(input, 'kind')) return undefined
-  const kind = (input as { kind: unknown }).kind
+  const kind = ownProperty(input, 'kind')
   return kind === 'ranking' || kind === 'no' ? kind : undefined
+}
+
+function ownProperty(object: object, key: string): unknown {
+  return Object.hasOwn(object, key) ? (object as Record<string, unknown>)[key] : undefined
 }
 
 function checkRanking(
@@ -136,10 +143,13 @@ function checkRanking(
 
   const candidates = new Set(contest.candidateIds)
   const seen = new Set<string>()
-  const entries = input as unknown[]
+  // Copied by index once, so the values checked are exactly the values kept:
+  // spreading or iterating could run an array's own iterator and yield
+  // something other than what was validated.
+  const entries = Array.from({ length: input.length }, (_, i) => Object.hasOwn(input, i) ? input[i] as unknown : HOLE)
   for (let position = 0; position < entries.length; position++) {
-    if (!Object.hasOwn(entries, position)) return { error: { kind: 'malformed', reason: 'sparse-array' } }
     const entry = entries[position]
+    if (entry === HOLE) return { error: { kind: 'malformed', reason: 'sparse-array' } }
     if (entry === null) continue
     if (typeof entry !== 'string') return { error: { kind: 'malformed', reason: 'invalid-entry' } }
     if (!candidates.has(entry)) return { error: { kind: 'unknown-candidate', position } }
@@ -148,6 +158,8 @@ function checkRanking(
   }
   return { ranking: entries as string[], filled: seen.size }
 }
+
+const HOLE = Symbol('hole')
 
 function cast(contest: Contest, kind: BallotKind, ranking: readonly string[]): BallotResult {
   const ballot = Object.freeze({ kind, ranking: Object.freeze([...ranking]) }) as unknown as CastBallot

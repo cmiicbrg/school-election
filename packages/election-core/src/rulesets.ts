@@ -62,8 +62,8 @@ export function isRulesetId(value: unknown): value is RulesetId {
 
 /**
  * The slots that exist on a ballot with `candidateCount` candidates: the first
- * min(candidateCount, slots) statutory slots. Every one of them must be
- * filled; slots beyond the candidate count are not on that ballot at all.
+ * min(candidateCount, slots) statutory slots. A valid vote fills every one of
+ * them; slots beyond the candidate count are not on that ballot at all.
  */
 export function activeSlots(ruleset: Ruleset, candidateCount: number): readonly Slot[] {
   if (!Number.isSafeInteger(candidateCount) || candidateCount < 1) {

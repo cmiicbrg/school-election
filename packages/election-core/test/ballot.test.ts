@@ -42,7 +42,7 @@ test('an unknown candidate is rejected', () => {
   assert.deepEqual(rejection(contest(2), ranked(['', 'c1'])), { kind: 'unknown-candidate', position: 0 })
 })
 
-test('anything but the three ballot forms is malformed', () => {
+test('anything but the two ballot forms is malformed, the former blank form included', () => {
   const c = contest(3)
   for (const input of [
     undefined, null, 'c1', 42, [], ['c1', 'c2', 'c3'],
@@ -127,6 +127,28 @@ test('only an explicit confirmInvalid: true casts an invalid vote', () => {
   }
 })
 
+test('an inherited confirmInvalid or ranking is ignored, like an inherited kind', () => {
+  const c = contest(3)
+  const inheritedConfirmation = Object.assign(Object.create({ confirmInvalid: true }) as object, { kind: 'ranking', ranking: ['c1'] })
+  assert.deepEqual(rejection(c, inheritedConfirmation), { kind: 'incomplete', activeSlots: 3, filled: 1 })
+  const inheritedRanking = Object.assign(Object.create({ ranking: ['c1', 'c2', 'c3'] }) as object, { kind: 'ranking' })
+  assert.deepEqual(rejection(c, inheritedRanking), { kind: 'malformed', reason: 'not-an-array' })
+})
+
+test('the values checked are the values kept, whatever the array\'s iterator yields', () => {
+  const c = contest(2)
+  const tampered = ['c1', 'c2']
+  Object.defineProperty(tampered, Symbol.iterator, {
+    * value() {
+      yield 'c1'
+      yield 'c1'
+    },
+  })
+  const result = validateBallot(c, ranked(tampered))
+  assert.ok(result.ok)
+  assert.deepEqual(result.ballot.ranking, ['c1', 'c2'])
+})
+
 test('a complete ranking stays valid even when confirmInvalid is set', () => {
   const result = validateBallot(contest(2), confirmedInvalid(['c2', 'c1']))
   assert.ok(result.ok)
@@ -181,7 +203,19 @@ for (let n = 1; n <= 6; n++) {
     for (const ordering of permutations(c.candidateIds)) {
       assert.ok(validateBallot(c, ranked(ordering)).ok)
       for (let length = 0; length < n; length++) {
-        assert.deepEqual(rejection(c, ranked(ordering.slice(0, length))), { kind: 'incomplete', activeSlots: n, filled: length })
+        const prefix = ordering.slice(0, length)
+        const padded = [...prefix, ...Array.from({ length: n - length }, () => null)]
+        for (const partial of [prefix, padded]) {
+          assert.deepEqual(rejection(c, ranked(partial)), { kind: 'incomplete', activeSlots: n, filled: length })
+          const confirmed = validateBallot(c, confirmedInvalid(partial))
+          assert.ok(confirmed.ok && confirmed.ballot.kind === 'invalid' && confirmed.ballot.ranking.length === 0)
+        }
+      }
+      // One slot left empty anywhere, including the top one.
+      for (let gap = 0; gap < n; gap++) {
+        const withGap = ordering.map((id, i) => (i === gap ? null : id))
+        assert.deepEqual(rejection(c, ranked(withGap)), { kind: 'incomplete', activeSlots: n, filled: n - 1 })
+        assert.ok(validateBallot(c, confirmedInvalid(withGap)).ok)
       }
     }
   })

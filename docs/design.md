@@ -31,7 +31,7 @@ The ranking form cannot express two candidates in one slot. Map- or object-shape
 
 A ranking is refused outright when it cannot come from a correct client:
 
-- it is not an array, has holes, or holds an entry that is neither a candidate id nor `null` (`malformed`);
+- it is not an array, has holes, or holds an entry that is neither a string nor `null` (`malformed`);
 - it is longer than the number of active slots (`inactive-slot`);
 - it names a candidate who is not in the contest (`unknown-candidate`), or the same candidate twice (`duplicate-candidate`).
 
