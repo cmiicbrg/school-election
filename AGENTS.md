@@ -1,14 +1,15 @@
 # Agent instructions
 
-Self-hosted system for anonymous, in-person school elections. Read the invariants below before changing election behaviour.
+Self-hosted system for anonymous, in-person school elections. Read the invariants below before changing election behaviour, and [`docs/design.md`](docs/design.md) for the reasoning behind the election model.
 
 ## Layout
 
 ```text
-packages/election-core/   pure domain: presets, ballot validation, tally (no I/O)
+packages/election-core/   pure domain: rulesets, ballot validation, counting (no I/O, no clock, no randomness)
 apps/api/                 Fastify on Node 26, raw TypeScript; serves apps/web/dist
 apps/web/                 Vue 3 + Vite SPA
 scripts/lint-deps.mjs     exact-pin check across all workspaces
+docs/design.md            design decisions; update it with the behaviour it describes
 ```
 
 npm workspaces share one root `package-lock.json`. Shared tooling (ESLint, TypeScript, markdownlint) lives in the root `package.json`; runtime dependencies live in the workspace that uses them.
