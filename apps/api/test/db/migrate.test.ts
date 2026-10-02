@@ -67,6 +67,21 @@ dbTest('the runtime role cannot run migrations', async (t) => {
   await assert.rejects(run(db.runtimeUrl), /must not run as the runtime role/)
 })
 
+dbTest('a database owner that is not a superuser is refused before anything runs', async (t) => {
+  const db = await createTestDatabase(t, { migrated: false })
+  const admin = process.env.TEST_DATABASE_URL ?? ''
+  await withClient(admin, async (c) => {
+    await c.query('create role se_plain_owner login password \'plain\'')
+    await c.query(`alter database ${db.name} owner to se_plain_owner`)
+  })
+  // Runs after the database is dropped, which needs the role gone last.
+  t.after(() => withClient(admin, (c) => c.query('drop role if exists se_plain_owner')))
+  const url = new URL(db.ownerUrl)
+  url.username = 'se_plain_owner'
+  url.password = 'plain'
+  await assert.rejects(run(url.toString()), /must run as a PostgreSQL superuser/)
+})
+
 dbTest('concurrent runs are serialised', async (t) => {
   const db = await createTestDatabase(t, { migrated: false })
   const dir = await migrationsWith({ '0002_slow.sql': 'select pg_sleep(0.5); create table slow (id int);' })

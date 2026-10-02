@@ -65,10 +65,16 @@ test('auto_explain in any preload list is refused', async () => {
 
 test('a privileged connected role is refused', async () => {
   assert.deepEqual(await checkDatabaseSettings(serverWith({}, { name: 'postgres', attributes: ['superuser', 'createrole'] })), [
+    'the server connects as postgres; it must connect as school_election_app',
     'the server connects as postgres, which has superuser, createrole; it must use the unprivileged runtime role',
   ])
   assert.deepEqual(await checkDatabaseSettings(serverWith({}, { name: 'school_election', owner: true })), [
+    'the server connects as school_election; it must connect as school_election_app',
     'the server connects as school_election, which owns the database; it must use the unprivileged runtime role',
+  ])
+  // A plain role with no attributes or memberships is still the wrong role.
+  assert.deepEqual(await checkDatabaseSettings(serverWith({}, { name: 'reporting' })), [
+    'the server connects as reporting; it must connect as school_election_app',
   ])
   assert.deepEqual(await checkDatabaseSettings(serverWith({}, { memberships: ['pg_monitor'] })), [
     'the server connects as school_election_app, which is a member of pg_monitor; the runtime role must hold nothing else',

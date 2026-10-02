@@ -1,5 +1,8 @@
 import pg from 'pg'
 
+/** The unprivileged role the server connects as; created by the migrator. */
+export const RUNTIME_ROLE = 'school_election_app'
+
 export interface Database {
   query: <R extends pg.QueryResultRow = pg.QueryResultRow>(text: string, values?: unknown[]) => Promise<pg.QueryResult<R>>
   /** Runs fn in a transaction: commit on success, rollback on throw, client always released. */

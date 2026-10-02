@@ -22,7 +22,7 @@ npm workspaces share one root `package-lock.json`. Shared tooling (ESLint, TypeS
 npm ci --ignore-scripts
 npm run lint        # ESLint + markdownlint + lint:deps + typecheck
 npm test            # node:test in every workspace; database tests need TEST_DATABASE_URL
-npm run migrate     # apply pending migrations as the database owner
+npm run migrate     # apply pending migrations as the PostgreSQL superuser
 npm run build       # web app → apps/web/dist
 npm run dev:api     # API on :3000
 npm run dev:web     # Vite dev server, proxies /api to :3000

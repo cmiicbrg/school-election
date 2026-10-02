@@ -3,7 +3,7 @@
 // to the application's sessions. Any other value stops the server, in every
 // environment: these are not tuning knobs.
 
-import type { Database } from './db.ts'
+import { RUNTIME_ROLE, type Database } from './db.ts'
 
 interface Requirement {
   readonly name: string
@@ -78,6 +78,8 @@ async function checkConnectedRole(db: Pick<Database, 'query'>): Promise<string[]
   if (!role) return ['cannot identify the connected role']
   const problems: string[] = []
   const who = `the server connects as ${role.name}`
+  // Any other role could own tables or hold grants this check cannot see.
+  if (role.name !== RUNTIME_ROLE) problems.push(`${who}; it must connect as ${RUNTIME_ROLE}`)
   if (role.attributes.length > 0) problems.push(`${who}, which has ${role.attributes.join(', ')}; it must use the unprivileged runtime role`)
   if (role.owner) problems.push(`${who}, which owns the database; it must use the unprivileged runtime role`)
   if (role.memberships.length > 0) problems.push(`${who}, which is a member of ${role.memberships.join(', ')}; the runtime role must hold nothing else`)

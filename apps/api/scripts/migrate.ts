@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Applies the SQL migrations in ../migrations, in filename order, one
-// transaction per file. Run with the database owner's credentials as a
-// one-shot step before the server starts; a run with nothing to do is a
-// no-op, so a redeploy can always run it.
+// transaction per file. Run as a PostgreSQL superuser, because it creates
+// and adjusts the runtime role, as a one-shot step before the server
+// starts; a run with nothing to do is a no-op, so a redeploy can always run
+// it.
 //
 // Deterministic: each applied file is recorded with its SHA-256, and an
 // applied file that was edited or removed stops the run, so two databases
@@ -14,9 +15,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 import { ConfigError, loadMigrationConfig } from '../config.ts'
+import { RUNTIME_ROLE } from '../lib/db.ts'
 import { SQLSTATE, sqlState } from '../lib/pg-errors.ts'
 
-export const RUNTIME_ROLE = 'school_election_app'
+export { RUNTIME_ROLE }
 export const MIGRATIONS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'migrations')
 
 // One fixed key: pg_advisory_lock serialises concurrent runs on a database.
@@ -53,9 +55,16 @@ export async function migrate(options: MigrateOptions): Promise<string[]> {
   await client.connect()
   try {
     await client.query('select pg_advisory_lock($1)', [LOCK_KEY])
-    const { rows } = await client.query<{ current_user: string }>('select current_user')
+    const { rows } = await client.query<{ current_user: string, superuser: boolean }>(
+      'select current_user, (select rolsuper from pg_roles where rolname = current_user) as superuser',
+    )
     if (rows[0]?.current_user === RUNTIME_ROLE) {
       throw new MigrationError(`migrations must not run as the runtime role ${RUNTIME_ROLE}`)
+    }
+    // Checked up front rather than failing halfway at CREATE ROLE: owning
+    // the database is not enough to create and adjust the runtime role.
+    if (rows[0]?.superuser !== true) {
+      throw new MigrationError('migrations must run as a PostgreSQL superuser: they create and adjust the runtime role')
     }
     await ensureRuntimeRole(client, runtimePassword)
     await client.query(`create table if not exists schema_migrations (
