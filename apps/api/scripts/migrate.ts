@@ -55,18 +55,9 @@ export async function migrate(options: MigrateOptions): Promise<string[]> {
   await client.connect()
   try {
     await client.query('select pg_advisory_lock($1)', [LOCK_KEY])
-    const { rows } = await client.query<{ current_user: string, superuser: boolean }>(
-      'select current_user, (select rolsuper from pg_roles where rolname = current_user) as superuser',
-    )
-    if (rows[0]?.current_user === RUNTIME_ROLE) {
-      throw new MigrationError(`migrations must not run as the runtime role ${RUNTIME_ROLE}`)
-    }
-    // Checked up front rather than failing halfway at CREATE ROLE: owning
-    // the database is not enough to create and adjust the runtime role.
-    if (rows[0]?.superuser !== true) {
-      throw new MigrationError('migrations must run as a PostgreSQL superuser: they create and adjust the runtime role')
-    }
+    await assertMigrationRole(client)
     await ensureRuntimeRole(client, runtimePassword)
+    await resetRuntimePrivileges(client)
     await client.query(`create table if not exists schema_migrations (
       filename text primary key,
       sha256 text not null,
@@ -76,53 +67,81 @@ export async function migrate(options: MigrateOptions): Promise<string[]> {
       'select filename, sha256 from schema_migrations',
     )).rows.map((row) => [row.filename, row.sha256]))
 
-    const known = new Set(files.map((file) => file.name))
-    for (const name of applied.keys()) {
-      if (!known.has(name) && (until === undefined || name <= until)) {
-        throw new MigrationError(`applied migration ${name} is missing from ${migrationsDir}`)
-      }
-    }
-
-    // Forward-only: a new file must sort after every applied one, or two
-    // databases with the same records could have run them in different
-    // orders.
-    const newest = [...applied.keys()].sort(byName).at(-1)
-    const late = files.find((file) => !applied.has(file.name) && newest !== undefined && file.name < newest)
-    if (late) {
-      throw new MigrationError(`${late.name} sorts before the applied ${newest}; renumber it after the newest applied migration`)
-    }
-
-    const ran: string[] = []
-    for (const file of files) {
-      const recorded = applied.get(file.name)
-      if (recorded !== undefined) {
-        if (recorded !== file.sha256) {
-          throw new MigrationError(`applied migration ${file.name} was edited; write a new migration instead`)
-        }
-        continue
-      }
+    const pending = pendingMigrations(files, applied, migrationsDir, until)
+    for (const file of pending) {
       log(`applying ${file.name}`)
-      await client.query('begin')
-      try {
-        await client.query(file.sql)
-        await client.query('insert into schema_migrations (filename, sha256) values ($1, $2)', [file.name, file.sha256])
-        await client.query('commit')
-      } catch (err) {
-        await client.query('rollback').catch(() => {})
-        // The code and the file, not the database's message: messages can
-        // quote values from the rows a migration touches.
-        throw new MigrationError(`${file.name} failed with SQLSTATE ${sqlState(err) ?? 'unknown'}; nothing of it was applied`, { cause: err })
-      }
-      ran.push(file.name)
+      await applyMigration(client, file) // NOSONAR: migrations run one after another, each in its own transaction
     }
-    log(ran.length === 0 ? 'nothing to apply' : `applied ${ran.length} migration(s)`)
-    return ran
+    log(pending.length === 0 ? 'nothing to apply' : `applied ${pending.length} migration(s)`)
+    return pending.map((file) => file.name)
   } finally {
     await client.end()
   }
 }
 
-async function migrationFiles(dir: string, until: string | undefined) {
+interface MigrationFile {
+  name: string
+  sql: string
+  sha256: string
+}
+
+async function assertMigrationRole(client: pg.Client): Promise<void> {
+  const { rows } = await client.query<{ current_user: string, superuser: boolean }>(
+    'select current_user, (select rolsuper from pg_roles where rolname = current_user) as superuser',
+  )
+  if (rows[0]?.current_user === RUNTIME_ROLE) {
+    throw new MigrationError(`migrations must not run as the runtime role ${RUNTIME_ROLE}`)
+  }
+  // Checked up front rather than failing halfway at CREATE ROLE: owning the
+  // database is not enough to create and adjust the runtime role.
+  if (rows[0]?.superuser !== true) {
+    throw new MigrationError('migrations must run as a PostgreSQL superuser: they create and adjust the runtime role')
+  }
+}
+
+/**
+ * The files still to apply, after checking that the history is intact: no
+ * applied file edited or missing, and no new file that sorts before the
+ * newest applied one, or two databases with the same records could have run
+ * the same files in different orders.
+ */
+export function pendingMigrations(
+  files: readonly MigrationFile[],
+  applied: ReadonlyMap<string, string>,
+  migrationsDir: string,
+  until?: string,
+): MigrationFile[] {
+  const known = new Set(files.map((file) => file.name))
+  const missing = [...applied.keys()].find((name) => !known.has(name) && (until === undefined || name <= until))
+  if (missing) throw new MigrationError(`applied migration ${missing} is missing from ${migrationsDir}`)
+
+  const edited = files.find((file) => applied.has(file.name) && applied.get(file.name) !== file.sha256)
+  if (edited) throw new MigrationError(`applied migration ${edited.name} was edited; write a new migration instead`)
+
+  const pending = files.filter((file) => !applied.has(file.name))
+  const newest = [...applied.keys()].sort(byName).at(-1)
+  const late = newest === undefined ? undefined : pending.find((file) => file.name < newest)
+  if (late) {
+    throw new MigrationError(`${late.name} sorts before the applied ${newest}; renumber it after the newest applied migration`)
+  }
+  return pending
+}
+
+async function applyMigration(client: pg.Client, file: MigrationFile): Promise<void> {
+  await client.query('begin')
+  try {
+    await client.query(file.sql)
+    await client.query('insert into schema_migrations (filename, sha256) values ($1, $2)', [file.name, file.sha256])
+    await client.query('commit')
+  } catch (err) {
+    await client.query('rollback').catch(() => {})
+    // The code and the file, not the database's message: messages can quote
+    // values from the rows a migration touches.
+    throw new MigrationError(`${file.name} failed with SQLSTATE ${sqlState(err) ?? 'unknown'}; nothing of it was applied`, { cause: err })
+  }
+}
+
+async function migrationFiles(dir: string, until: string | undefined): Promise<MigrationFile[]> {
   const names = (await readdir(dir)).filter((name) => name.endsWith('.sql')).sort(byName)
   const bad = names.filter((name) => !FILE_NAME.test(name))
   if (bad.length > 0) throw new MigrationError(`migration files must be named NNNN_name.sql: ${bad.join(', ')}`)
@@ -164,7 +183,20 @@ async function ensureRuntimeRole(client: pg.Client, password: string): Promise<v
     const names = memberships.rows.map((row) => row.rolname).sort(byName).join(', ')
     throw new MigrationError(`${RUNTIME_ROLE} is a member of ${names}; revoke that first, the runtime role must hold nothing else`)
   }
-  for (const role of RUNTIME_MEMBERSHIPS) await client.query(`grant ${role} to ${RUNTIME_ROLE}`)
+  await client.query(`grant ${RUNTIME_MEMBERSHIPS.join(', ')} to ${RUNTIME_ROLE}`)
+}
+
+// Database and schema privileges are per database, so they are reset here on
+// every run: a reused runtime role may hold direct privileges granted by
+// hand, such as CREATE on the schema. CONNECT and USAGE are all it keeps;
+// table privileges come from the migrations themselves.
+async function resetRuntimePrivileges(client: pg.Client): Promise<void> {
+  await client.query(`do $$ begin
+    execute format('revoke all on database %I from ${RUNTIME_ROLE}', current_database());
+    execute format('grant connect on database %I to ${RUNTIME_ROLE}', current_database());
+  end $$`)
+  await client.query(`revoke all on schema public from ${RUNTIME_ROLE}`)
+  await client.query(`grant usage on schema public to ${RUNTIME_ROLE}`)
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

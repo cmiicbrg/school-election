@@ -2,9 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createDatabase, describeDatabase } from '../../lib/db.ts'
 import { buildTestApp } from '../helpers/app.ts'
-import { createTestDatabase, dbTest } from '../helpers/db.ts'
+import { createTestDatabase, DB } from '../helpers/db.ts'
 
-dbTest('tx commits on success, rolls back on throw and always releases the client', async (t) => {
+test('tx commits on success, rolls back on throw and always releases the client', DB, async (t) => {
   const testDb = await createTestDatabase(t)
   const db = createDatabase(testDb.ownerUrl, () => {})
   t.after(() => db.close())
@@ -35,7 +35,7 @@ test('health reports the database as down when it cannot connect', async (t) => 
   assert.deepEqual(res.json(), { status: 'degraded', db: 'down' })
 })
 
-dbTest('health reports the database as up', async (t) => {
+test('health reports the database as up', DB, async (t) => {
   const testDb = await createTestDatabase(t)
   const db = createDatabase(testDb.runtimeUrl, () => {})
   const { app } = await buildTestApp({}, db)

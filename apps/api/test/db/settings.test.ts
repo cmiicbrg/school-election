@@ -5,7 +5,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createDatabase } from '../../lib/db.ts'
 import { checkDatabaseSettings, REQUIRED_SETTINGS } from '../../lib/db-settings.ts'
-import { createTestDatabase, dbTest, withClient } from '../helpers/db.ts'
+import { migrate } from '../../scripts/migrate.ts'
+import { createTestDatabase, DB, TEST_RUNTIME_PASSWORD, withClient } from '../helpers/db.ts'
 
 const safe: Record<string, string> = {
   ...Object.fromEntries(REQUIRED_SETTINGS.map((s) => [s.name, s.expected])),
@@ -14,14 +15,14 @@ const safe: Record<string, string> = {
   local_preload_libraries: '',
 }
 
-const runtimeRole = { name: 'school_election_app', attributes: [] as string[], owner: false, memberships: [] as string[] }
+const runtimeRole = { name: 'school_election_app', attributes: [] as string[], owner: false, memberships: [] as string[], creates: [] as string[] }
 
 function serverWith(overrides: Record<string, string>, role: Partial<typeof runtimeRole> = {}) {
   const values = { ...safe, ...overrides }
   return {
-    query: async (text: string, params?: unknown[]) => text.includes('from pg_roles r where r.rolname = current_user')
+    query: (text: string, params?: unknown[]) => Promise.resolve(text.includes('from pg_roles r where r.rolname = current_user')
       ? { rows: [{ ...runtimeRole, ...role }] }
-      : { rows: [{ value: values[String(params?.[0])] ?? '' }] },
+      : { rows: (params?.[0] as string[]).map((name) => ({ name, value: values[name] ?? '' })) }),
   } as never
 }
 
@@ -44,6 +45,9 @@ test('each unsafe setting is named, whatever NODE_ENV says', async () => {
       ['log_parameter_max_length', '-1'],
       ['log_min_duration_statement', '0'],
       ['log_lock_waits', 'on'],
+      ['log_duration', 'on'],
+      ['debug_print_parse', 'on'],
+      ['debug_print_plan', 'on'],
     ] as const) {
       const problems = await checkDatabaseSettings(serverWith({ [name]: value }))
       assert.equal(problems.length, 1, name)
@@ -79,6 +83,9 @@ test('a privileged connected role is refused', async () => {
   assert.deepEqual(await checkDatabaseSettings(serverWith({}, { memberships: ['pg_monitor'] })), [
     'the server connects as school_election_app, which is a member of pg_monitor; the runtime role must hold nothing else',
   ])
+  assert.deepEqual(await checkDatabaseSettings(serverWith({}, { creates: ['objects in schema public', 'temporary tables'] })), [
+    'the server connects as school_election_app, which can create objects in schema public, temporary tables; the runtime role may only use what migrations grant',
+  ])
 })
 
 test('the development and CI launcher sets every required setting', async () => {
@@ -88,7 +95,7 @@ test('the development and CI launcher sets every required setting', async () => 
   }
 })
 
-dbTest('a per-role override on the server is caught, because the check runs as the runtime role', async (t) => {
+test('a per-role override on the server is caught, because the check runs as the runtime role', DB, async (t) => {
   const testDb = await createTestDatabase(t)
   // Scoped to this test database, so no other test sees it.
   await withClient(testDb.ownerUrl, (client) => client.query(`alter role school_election_app in database ${testDb.name} set log_min_error_statement = 'error'`))
@@ -99,7 +106,7 @@ dbTest('a per-role override on the server is caught, because the check runs as t
   ])
 })
 
-dbTest('connecting as the owner superuser is refused', async (t) => {
+test('connecting as the owner superuser is refused', DB, async (t) => {
   const testDb = await createTestDatabase(t)
   const db = createDatabase(testDb.ownerUrl, () => {})
   t.after(() => db.close())
@@ -108,7 +115,20 @@ dbTest('connecting as the owner superuser is refused', async (t) => {
   assert.ok(problems.some((p) => /which owns the database/.test(p)), problems.join('\n'))
 })
 
-dbTest('the test server passes the check on the runtime connection', async (t) => {
+test('direct schema privileges on the runtime role are caught, and the next migration removes them', DB, async (t) => {
+  const testDb = await createTestDatabase(t)
+  // Schema and database privileges are per database, so no other test sees these.
+  await withClient(testDb.ownerUrl, (client) => client.query(`grant create on schema public to school_election_app; grant create, temporary on database ${testDb.name} to school_election_app`))
+  const db = createDatabase(testDb.runtimeUrl, () => {})
+  t.after(() => db.close())
+  assert.deepEqual(await checkDatabaseSettings(db), [
+    'the server connects as school_election_app, which can create objects in schema public, schemas, temporary tables; the runtime role may only use what migrations grant',
+  ])
+  await migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD })
+  assert.deepEqual(await checkDatabaseSettings(db), [])
+})
+
+test('the test server passes the check on the runtime connection', DB, async (t) => {
   const testDb = await createTestDatabase(t)
   const db = createDatabase(testDb.runtimeUrl, () => {})
   t.after(() => db.close())

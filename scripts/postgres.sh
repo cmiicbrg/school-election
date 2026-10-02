@@ -10,7 +10,7 @@
 # the owner is the postgres superuser.
 set -euo pipefail
 
-if [ "$#" -ne 3 ]; then
+if [[ "$#" -ne 3 ]]; then
   echo "usage: $0 <container-name> <host-port> <owner-password-file>" >&2
   exit 2
 fi
@@ -43,6 +43,10 @@ settings=(
   -c log_min_duration_sample=-1
   -c log_transaction_sample_rate=0
   -c log_lock_waits=off
+  -c log_duration=off
+  -c debug_print_parse=off
+  -c debug_print_rewritten=off
+  -c debug_print_plan=off
 )
 
 "$engine" run -d --name "$name" \

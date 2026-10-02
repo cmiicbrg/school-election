@@ -3,7 +3,7 @@
 // dropped afterwards. In CI the database tests must run: without
 // TEST_DATABASE_URL they fail instead of being skipped quietly.
 
-import { test, type TestContext } from 'node:test'
+import type { TestContext } from 'node:test'
 import pg from 'pg'
 import { migrate, RUNTIME_ROLE } from '../../scripts/migrate.ts'
 
@@ -17,16 +17,17 @@ export interface TestDatabase {
   drop: () => Promise<void>
 }
 
-/** A test that needs PostgreSQL. */
-export function dbTest(name: string, fn: (t: TestContext) => Promise<void>): void {
-  test(name, async (t) => {
-    if (!process.env.TEST_DATABASE_URL) {
-      if (process.env.CI === 'true') throw new Error('TEST_DATABASE_URL must be set in CI; database tests must not be skipped')
-      t.skip('TEST_DATABASE_URL is not set')
-      return
-    }
-    await fn(t)
-  })
+/**
+ * Options for a test that needs PostgreSQL: test(name, DB, fn). Without
+ * TEST_DATABASE_URL such tests are skipped locally; in CI loading the file
+ * throws, so the run fails instead of passing without them.
+ */
+export const DB = { skip: databaseSkipReason() }
+
+function databaseSkipReason(): string | false {
+  if (process.env.TEST_DATABASE_URL) return false
+  if (process.env.CI === 'true') throw new Error('TEST_DATABASE_URL must be set in CI; database tests must not be skipped')
+  return 'TEST_DATABASE_URL is not set'
 }
 
 let counter = 0

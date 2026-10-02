@@ -3,17 +3,18 @@
 // (test/fixtures/upgrade/NNNN.sql) the fixture is loaded, so every later
 // migration meets populated tables, as it would on a real server.
 
+import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { byName, migrate, MIGRATIONS_DIR } from '../../scripts/migrate.ts'
-import { createTestDatabase, dbTest, TEST_RUNTIME_PASSWORD, withClient } from '../helpers/db.ts'
+import { createTestDatabase, DB, TEST_RUNTIME_PASSWORD, withClient } from '../helpers/db.ts'
 
 const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../fixtures/upgrade')
 
-dbTest('every migration applies on top of its predecessors and their fixtures', async (t) => {
+test('every migration applies on top of its predecessors and their fixtures', DB, async (t) => {
   const db = await createTestDatabase(t, { migrated: false })
   const files = (await readdir(MIGRATIONS_DIR)).filter((f) => f.endsWith('.sql')).sort(byName)
   for (const file of files) {

@@ -17,7 +17,7 @@ export interface TestApp {
 }
 
 /** A database that answers every query with one empty row; for tests that do not touch data. */
-export function stubDatabase(query: Database['query'] = async () => ({ rows: [{}] }) as never): Database {
+export function stubDatabase(query: Database['query'] = () => Promise.resolve({ rows: [{}] }) as never): Database {
   return { query, tx: async (fn) => fn({ query } as never), close: async () => {} }
 }
 

@@ -30,6 +30,10 @@ export const REQUIRED_SETTINGS: readonly Requirement[] = [
   { name: 'log_min_duration_sample', expected: '-1', why: NO_STATEMENT_LOGS },
   { name: 'log_transaction_sample_rate', expected: '0', why: NO_STATEMENT_LOGS },
   { name: 'log_lock_waits', expected: 'off', why: NO_STATEMENT_LOGS },
+  { name: 'log_duration', expected: 'off', why: 'would log every completed statement with its duration' },
+  { name: 'debug_print_parse', expected: 'off', why: 'would log the query tree of every statement' },
+  { name: 'debug_print_rewritten', expected: 'off', why: 'would log the query tree of every statement' },
+  { name: 'debug_print_plan', expected: 'off', why: 'would log the plan of every statement' },
 ]
 
 // auto_explain logs statements with their plans and parameters.
@@ -41,12 +45,13 @@ const PRELOAD_SETTINGS = ['shared_preload_libraries', 'session_preload_libraries
  */
 export async function checkDatabaseSettings(db: Pick<Database, 'query'>): Promise<string[]> {
   const problems: string[] = await checkConnectedRole(db)
+  const values = await currentSettings(db, [...REQUIRED_SETTINGS.map((s) => s.name), ...PRELOAD_SETTINGS])
   for (const { name, expected, why } of REQUIRED_SETTINGS) {
-    const actual = await show(db, name)
+    const actual = values.get(name) ?? ''
     if (actual !== expected) problems.push(`${name} is ${actual}, must be ${expected}: any other value ${why}`)
   }
   for (const name of PRELOAD_SETTINGS) {
-    const libraries = (await show(db, name)).split(',').map((s) => s.trim().replace(/^"|"$/g, ''))
+    const libraries = (values.get(name) ?? '').split(',').map((s) => s.trim().replace(/^"|"$/g, ''))
     if (libraries.some((library) => /(^|\/)auto_explain(\.so)?$/.test(library))) {
       problems.push(`${name} loads auto_explain, which logs statements with their parameters`)
     }
@@ -59,7 +64,7 @@ export async function checkDatabaseSettings(db: Pick<Database, 'query'>): Promis
 // or change everything, and some of them could switch the settings above
 // off for their own sessions.
 async function checkConnectedRole(db: Pick<Database, 'query'>): Promise<string[]> {
-  const { rows } = await db.query<{ name: string, attributes: string[], owner: boolean, memberships: string[] }>(
+  const { rows } = await db.query<{ name: string, attributes: string[], owner: boolean, memberships: string[], creates: string[] }>(
     `select r.rolname as name,
             array_remove(array[
               case when r.rolsuper then 'superuser' end,
@@ -71,7 +76,12 @@ async function checkConnectedRole(db: Pick<Database, 'query'>): Promise<string[]
             (select d.datdba = r.oid from pg_database d where d.datname = current_database()) as owner,
             -- text[], not name[]: the driver parses only the former into an array.
             coalesce((select array_agg(g.rolname::text order by g.rolname) from pg_auth_members m join pg_roles g on g.oid = m.roleid
-                       where m.member = r.oid and g.rolname <> 'pg_read_all_settings'), '{}'::text[]) as memberships
+                       where m.member = r.oid and g.rolname <> 'pg_read_all_settings'), '{}'::text[]) as memberships,
+            array_remove(array[
+              case when has_schema_privilege('public', 'CREATE') then 'objects in schema public' end,
+              case when has_database_privilege(current_database(), 'CREATE') then 'schemas' end,
+              case when has_database_privilege(current_database(), 'TEMPORARY') then 'temporary tables' end
+            ], null) as creates
        from pg_roles r where r.rolname = current_user`,
   )
   const role = rows[0]
@@ -83,12 +93,16 @@ async function checkConnectedRole(db: Pick<Database, 'query'>): Promise<string[]
   if (role.attributes.length > 0) problems.push(`${who}, which has ${role.attributes.join(', ')}; it must use the unprivileged runtime role`)
   if (role.owner) problems.push(`${who}, which owns the database; it must use the unprivileged runtime role`)
   if (role.memberships.length > 0) problems.push(`${who}, which is a member of ${role.memberships.join(', ')}; the runtime role must hold nothing else`)
+  if (role.creates.length > 0) problems.push(`${who}, which can create ${role.creates.join(', ')}; the runtime role may only use what migrations grant`)
   return problems
 }
 
-async function show(db: Pick<Database, 'query'>, name: string): Promise<string> {
-  // SHOW takes no bind parameters; current_setting does, so no name is ever
-  // spliced into SQL.
-  const { rows } = await db.query<{ value: string }>('select current_setting($1) as value', [name])
-  return rows[0]?.value ?? ''
+async function currentSettings(db: Pick<Database, 'query'>, names: string[]): Promise<Map<string, string>> {
+  // One round trip; current_setting takes the names as a bind parameter, so
+  // none is ever spliced into SQL.
+  const { rows } = await db.query<{ name: string, value: string }>(
+    'select name, current_setting(name) as value from unnest($1::text[]) as name',
+    [names],
+  )
+  return new Map(rows.map((row) => [row.name, row.value]))
 }
