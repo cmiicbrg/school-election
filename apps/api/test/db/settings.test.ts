@@ -68,14 +68,24 @@ test('debug message levels and csv or json logs are refused', async () => {
   }
 })
 
-test('auto_explain in any preload list is refused', async () => {
+test('only pg_stat_statements may be preloaded', async () => {
   for (const name of ['shared_preload_libraries', 'session_preload_libraries', 'local_preload_libraries']) {
-    for (const value of ['auto_explain', 'auto_explain.so', '$libdir/auto_explain.so', 'pg_stat_statements, auto_explain', '"$libdir/plugins/auto_explain"']) {
+    for (const [value, reported] of [
+      ['auto_explain', 'auto_explain'],
+      ['auto_explain.so', 'auto_explain'],
+      ['$libdir/auto_explain.so', 'auto_explain'],
+      ['pgaudit', 'pgaudit'],
+      ['pg_stat_statements, auto_explain', 'auto_explain'],
+      ['"$libdir/plugins/pgaudit"', 'pgaudit'],
+    ] as const) {
       const problems = await checkDatabaseSettings(serverWith({ [name]: value }))
-      assert.deepEqual(problems, [`${name} loads auto_explain, which logs statements with their parameters`], value)
+      assert.equal(problems.length, 1, value)
+      assert.match(problems[0] ?? '', new RegExp(`^${name} loads ${reported}; only pg_stat_statements may be preloaded`), value)
     }
   }
-  assert.deepEqual(await checkDatabaseSettings(serverWith({ shared_preload_libraries: 'pg_stat_statements' })), [])
+  for (const value of ['', 'pg_stat_statements', '$libdir/pg_stat_statements.so']) {
+    assert.deepEqual(await checkDatabaseSettings(serverWith({ shared_preload_libraries: value })), [], value)
+  }
 })
 
 test('a privileged connected role is refused', async () => {

@@ -55,8 +55,11 @@ export const ALLOWED_SETTINGS: readonly { name: string, allowed: readonly string
   },
 ]
 
-// auto_explain logs statements with their plans and parameters.
+// Deny by default: modules such as auto_explain and pgaudit log statements
+// with their parameters, and any other module could. pg_stat_statements keeps
+// aggregated query texts with constants replaced, never parameters.
 const PRELOAD_SETTINGS = ['shared_preload_libraries', 'session_preload_libraries', 'local_preload_libraries']
+const ALLOWED_PRELOAD = new Set(['pg_stat_statements'])
 
 /**
  * Every setting that differs from what the privacy model needs, and every
@@ -81,11 +84,16 @@ export async function checkDatabaseSettings(db: Pick<Database, 'query'>): Promis
     }
   }
   for (const name of PRELOAD_SETTINGS) {
-    const libraries = (values.get(name) ?? '').split(',').map((s) => s.trim().replace(/^"|"$/g, ''))
-    if (libraries.some((library) => /(^|\/)auto_explain(\.so)?$/.test(library))) {
-      problems.push(`${name} loads auto_explain, which logs statements with their parameters`)
+    const unexpected = (values.get(name) ?? '').split(',')
+      .map((entry) => entry.trim().replace(/^"|"$/g, ''))
+      .filter((entry) => entry !== '')
+      .map((entry) => entry.replace(/^.*\//, '').replace(/\.so$/, ''))
+      .filter((library) => !ALLOWED_PRELOAD.has(library))
+    if (unexpected.length > 0) {
+      problems.push(`${name} loads ${unexpected.join(', ')}; only ${[...ALLOWED_PRELOAD].join(', ')} may be preloaded, since other modules such as auto_explain or pgaudit can log statements with their parameters`)
     }
   }
+
   return problems
 }
 
