@@ -17,6 +17,14 @@ You need Node 26 (`nvm use` reads `.nvmrc`).
 ```bash
 npm ci --ignore-scripts
 cp apps/api/.env.example apps/api/.env
+
+# PostgreSQL with the settings the API requires (CONTAINER_ENGINE=podman for Podman)
+mkdir -p apps/api/.secrets
+openssl rand -hex 24 > apps/api/.secrets/db-owner-password
+openssl rand -hex 24 > apps/api/.secrets/db-runtime-password
+scripts/postgres.sh school-election-db 5432 apps/api/.secrets/db-owner-password
+npm run migrate
+
 npm run dev:api     # API on http://127.0.0.1:3000
 npm run dev:web     # Vite dev server on http://localhost:5173, /api proxied to the API
 ```
@@ -25,7 +33,11 @@ The API refuses to start with a missing or unsafe setting and names it. `apps/ap
 
 ## Checks
 
-Run these before pushing. CI runs the same ones on every pull request.
+Run these before pushing. CI runs the same ones on every pull request. The database tests need `TEST_DATABASE_URL`, a superuser connection to a server started with `scripts/postgres.sh`; each test file creates and drops its own database there. Without it they are skipped locally, and in CI they fail.
+
+```bash
+export TEST_DATABASE_URL="postgres://postgres:$(cat apps/api/.secrets/db-owner-password)@127.0.0.1:5432/postgres"
+```
 
 ```bash
 npm run lint        # ESLint, markdownlint, exact dependency pins, typecheck

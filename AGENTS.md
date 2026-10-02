@@ -8,7 +8,9 @@ Self-hosted system for anonymous, in-person school elections. Read the invariant
 packages/election-core/   pure domain: rulesets, ballot validation, counting (no I/O, no clock, no randomness)
 apps/api/                 Fastify on Node 26, raw TypeScript; serves apps/web/dist
 apps/web/                 Vue 3 + Vite SPA
+apps/api/migrations/      forward-only SQL migrations, applied by apps/api/scripts/migrate.ts
 scripts/lint-deps.mjs     exact-pin check across all workspaces
+scripts/postgres.sh       PostgreSQL with the settings the API requires (CI and development)
 docs/design.md            design decisions; update it with the behaviour it describes
 ```
 
@@ -19,7 +21,8 @@ npm workspaces share one root `package-lock.json`. Shared tooling (ESLint, TypeS
 ```bash
 npm ci --ignore-scripts
 npm run lint        # ESLint + markdownlint + lint:deps + typecheck
-npm test            # node:test in every workspace that has tests
+npm test            # node:test in every workspace; database tests need TEST_DATABASE_URL
+npm run migrate     # apply pending migrations as the database owner
 npm run build       # web app → apps/web/dist
 npm run dev:api     # API on :3000
 npm run dev:web     # Vite dev server, proxies /api to :3000
@@ -40,3 +43,5 @@ These take precedence over convenience:
 - Dependencies are pinned exactly; Dependabot lands bumps, and the automerge workflow holds them for a one-day quarantine.
 - GitHub Actions are pinned by commit SHA with the version in a comment. The base image is pinned by tag and digest.
 - CI runs on pull requests to `main`. Images are published to GHCR only on `v*` tags.
+- Applied migrations are never edited; write a new one. A migration that creates tables adds an upgrade fixture in `apps/api/test/fixtures/upgrade/`.
+- The PostgreSQL settings the API checks at startup (`apps/api/lib/db-settings.ts`) and the ones `scripts/postgres.sh` sets change together; a test enforces it.
