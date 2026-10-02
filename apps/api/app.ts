@@ -14,6 +14,9 @@ export interface AppOptions {
 }
 
 export async function buildApp(config: Config, options: AppOptions = {}): Promise<FastifyInstance> {
+  // debug and trace are possible only with a loopback origin (config.ts),
+  // i.e. on a developer's machine.
+  const verbose = config.logLevel === 'debug' || config.logLevel === 'trace'
   const app = Fastify({
     logger: {
       level: config.logLevel,
@@ -24,14 +27,16 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         // address plus timestamp would let a log reconstruct who voted when.
         req: (req: FastifyRequest) => ({ method: req.method, path: pathOf(req.url) }),
         res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
-        // Only these fields of an error. Database errors carry `detail`,
-        // `where` and parameter values, which can include the very values the
-        // data model keeps apart.
+        // An error is logged by type, code (e.g. a database SQLSTATE) and
+        // stack frames. Its message is not: exception text can quote a key, a
+        // ballot or a database value, and database errors also carry
+        // `detail` and parameters, which are dropped as well. Only a local
+        // debug log shows the message.
         err: (err: FastifyError) => ({
           type: err.name,
-          message: err.message,
+          message: verbose ? err.message : '[not logged]',
           code: typeof err.code === 'string' ? err.code : undefined,
-          stack: err.stack ?? '',
+          stack: verbose ? (err.stack ?? '') : stackFrames(err.stack),
         }),
       },
       ...(options.logStream ? { stream: options.logStream } : {}),
@@ -95,4 +100,9 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   }
 
   return app
+}
+
+/** The `at …` lines of a stack trace, without the message line(s) above them. */
+function stackFrames(stack: string | undefined): string {
+  return (stack ?? '').split('\n').filter((line) => /^\s+at /.test(line)).join('\n')
 }

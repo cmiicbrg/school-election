@@ -11,7 +11,7 @@ async function appWithTestRoutes(env: Record<string, string> = {}) {
   built.app.get('/api/test/client', (request) => ({ ip: request.ip, protocol: request.protocol }))
   built.app.post('/api/test/echo', { schema: { body: StrictObject({ n: Type.Number() }) } }, (request) => request.body)
   built.app.post('/api/test/throw', () => {
-    throw new Error('duplicate key value: Key (credential_hash)=(abc) already exists')
+    throw Object.assign(new Error('Key (credential_hash)=(MESSAGESECRET) already exists'), { code: '23505', detail: 'DETAILSECRET' })
   })
   return built
 }
@@ -101,9 +101,21 @@ test('a failing request logs no query, address or body and answers without a sta
   const output = logs()
   assert.match(output, /request failed/)
   assert.match(output, /"path":"\/api\/test\/throw"/)
-  for (const secret of ['QUERYSECRET', '198.51.100.23', 'BODYSECRET', 'AGENTSECRET', 'COOKIESECRET', 'remoteAddress', 'remotePort']) {
+  // The error is identifiable by type, code and where it was thrown.
+  assert.match(output, /"type":"Error"/)
+  assert.match(output, /"code":"23505"/)
+  assert.match(output, /hardening\.test\.ts/)
+  for (const secret of ['QUERYSECRET', '198.51.100.23', 'BODYSECRET', 'AGENTSECRET', 'COOKIESECRET', 'MESSAGESECRET', 'DETAILSECRET', 'remoteAddress', 'remotePort']) {
     assert.ok(!output.includes(secret), `log contains ${secret}`)
   }
+})
+
+test('only a local debug log shows the error message', async (t) => {
+  const { app, logs } = await appWithTestRoutes({ PUBLIC_ORIGIN: 'http://localhost:5173', LOG_LEVEL: 'debug' })
+  t.after(() => app.close())
+  await app.inject({ method: 'POST', url: '/api/test/throw', headers: sameOrigin, payload: {} })
+  assert.match(logs(), /MESSAGESECRET/)
+  assert.ok(!logs().includes('DETAILSECRET'))
 })
 
 test('an unparsable body is refused without echoing it', async (t) => {
