@@ -48,6 +48,10 @@ test('each unsafe setting is named, whatever NODE_ENV says', async () => {
       ['log_duration', 'on'],
       ['debug_print_parse', 'on'],
       ['debug_print_plan', 'on'],
+      ['log_statement_stats', 'on'],
+      ['log_parser_stats', 'on'],
+      ['log_planner_stats', 'on'],
+      ['log_executor_stats', 'on'],
     ] as const) {
       const problems = await checkDatabaseSettings(serverWith({ [name]: value }))
       assert.equal(problems.length, 1, name)
@@ -126,6 +130,39 @@ test('direct schema privileges on the runtime role are caught, and the next migr
   ])
   await migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD })
   assert.deepEqual(await checkDatabaseSettings(db), [])
+})
+
+test('a role inherited through pg_read_all_settings is refused by the migrator and the startup check', DB, async (t) => {
+  const testDb = await createTestDatabase(t)
+  const admin = process.env.TEST_DATABASE_URL ?? ''
+  // Cluster-wide: make pg_read_all_settings a member of another role, which
+  // the runtime role then inherits. Undone on the server connection.
+  await withClient(admin, async (c) => {
+    await c.query('create role se_inherited nologin')
+    await c.query('grant se_inherited to pg_read_all_settings')
+  })
+  t.after(() => withClient(admin, async (c) => {
+    await c.query('revoke se_inherited from pg_read_all_settings')
+    await c.query('drop role se_inherited')
+  }))
+  const db = createDatabase(testDb.runtimeUrl, () => {})
+  t.after(() => db.close())
+  assert.deepEqual(await checkDatabaseSettings(db), [
+    'the server connects as school_election_app, which is a member of se_inherited; the runtime role must hold nothing else',
+  ])
+  await assert.rejects(
+    migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD }),
+    /school_election_app is a member of se_inherited; revoke that first/,
+  )
+})
+
+test('the server pins search_path to public, whatever the role or database sets', DB, async (t) => {
+  const testDb = await createTestDatabase(t)
+  await withClient(testDb.ownerUrl, (c) => c.query(`alter role school_election_app in database ${testDb.name} set search_path = elsewhere`))
+  const db = createDatabase(testDb.runtimeUrl, () => {})
+  t.after(() => db.close())
+  const { rows } = await db.query<{ search_path: string }>('show search_path')
+  assert.equal(rows[0]?.search_path, 'public')
 })
 
 test('the test server passes the check on the runtime connection', DB, async (t) => {

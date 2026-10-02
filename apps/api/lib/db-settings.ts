@@ -34,6 +34,10 @@ export const REQUIRED_SETTINGS: readonly Requirement[] = [
   { name: 'debug_print_parse', expected: 'off', why: 'would log the query tree of every statement' },
   { name: 'debug_print_rewritten', expected: 'off', why: 'would log the query tree of every statement' },
   { name: 'debug_print_plan', expected: 'off', why: 'would log the plan of every statement' },
+  { name: 'log_statement_stats', expected: 'off', why: 'would log timing statistics for every statement' },
+  { name: 'log_parser_stats', expected: 'off', why: 'would log timing statistics for every statement' },
+  { name: 'log_planner_stats', expected: 'off', why: 'would log timing statistics for every statement' },
+  { name: 'log_executor_stats', expected: 'off', why: 'would log timing statistics for every statement' },
 ]
 
 // auto_explain logs statements with their plans and parameters.
@@ -74,9 +78,13 @@ async function checkConnectedRole(db: Pick<Database, 'query'>): Promise<string[]
               case when r.rolbypassrls then 'bypassrls' end
             ], null) as attributes,
             (select d.datdba = r.oid from pg_database d where d.datname = current_database()) as owner,
-            -- text[], not name[]: the driver parses only the former into an array.
-            coalesce((select array_agg(g.rolname::text order by g.rolname) from pg_auth_members m join pg_roles g on g.oid = m.roleid
-                       where m.member = r.oid and g.rolname <> 'pg_read_all_settings'), '{}'::text[]) as memberships,
+            -- Effective membership, including roles granted to an allowed
+            -- role; a superuser is reported as such instead. text[], not
+            -- name[]: the driver parses only the former into an array.
+            case when r.rolsuper then '{}'::text[] else coalesce((
+              select array_agg(g.rolname::text order by g.rolname) from pg_roles g
+               where g.oid <> r.oid and pg_has_role(r.oid, g.oid, 'MEMBER') and g.rolname <> 'pg_read_all_settings'
+            ), '{}'::text[]) end as memberships,
             array_remove(array[
               case when has_schema_privilege('public', 'CREATE') then 'objects in schema public' end,
               case when has_database_privilege(current_database(), 'CREATE') then 'schemas' end,

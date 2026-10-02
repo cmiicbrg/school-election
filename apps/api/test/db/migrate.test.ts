@@ -83,6 +83,38 @@ test('a database owner that is not a superuser is refused before anything runs',
   await assert.rejects(run(url.toString()), /must run as a PostgreSQL superuser/)
 })
 
+test('the migrator works in public, whatever search_path the superuser has', DB, async (t) => {
+  const db = await createTestDatabase(t, { migrated: false })
+  // With the default "$user", public, a schema named after the superuser
+  // would otherwise capture schema_migrations and every unqualified table.
+  await withClient(db.ownerUrl, (c) => c.query('create schema postgres'))
+  await run(db.ownerUrl)
+  const { rows } = await withClient(db.ownerUrl, (c) => c.query<{ in_public: string | null, captured: string | null }>(
+    'select to_regclass(\'public.schema_migrations\')::text as in_public, to_regclass(\'postgres.schema_migrations\')::text as captured',
+  ))
+  assert.deepEqual(rows[0], { in_public: 'schema_migrations', captured: null })
+})
+
+test('a failed run keeps the old runtime password; a successful one rotates it', DB, async (t) => {
+  const db = await createTestDatabase(t)
+  const dir = await migrationsWith({ '0002_broken.sql': 'select 1/0;' })
+  const runtimeWith = (password: string) => {
+    const url = new URL(db.runtimeUrl)
+    url.password = encodeURIComponent(password)
+    return withClient(url.toString(), (c) => c.query('select 1'))
+  }
+  // The role is cluster-wide: whatever happens, leave the test password set.
+  t.after(() => migrate({ databaseUrl: db.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD }).then(() => {}, () => {}))
+
+  await assert.rejects(migrate({ databaseUrl: db.ownerUrl, runtimePassword: 'rotated', migrationsDir: dir }), /0002_broken.sql failed/)
+  await runtimeWith(TEST_RUNTIME_PASSWORD)
+  await assert.rejects(runtimeWith('rotated'))
+
+  await migrate({ databaseUrl: db.ownerUrl, runtimePassword: 'rotated' })
+  await runtimeWith('rotated')
+  await assert.rejects(runtimeWith(TEST_RUNTIME_PASSWORD))
+})
+
 test('concurrent runs are serialised', DB, async (t) => {
   const db = await createTestDatabase(t, { migrated: false })
   const dir = await migrationsWith({ '0002_slow.sql': 'select pg_sleep(0.5); create table slow (id int);' })
@@ -100,13 +132,13 @@ test('a runtime role given more rights by hand is brought back down', DB, async 
   assert.deepEqual(rows[0], { rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false, rolbypassrls: false, rolcanlogin: true })
 })
 
-test('a runtime role with an extra membership is refused, not silently changed', DB, async (t) => {
+test('a runtime role with an extra membership is refused, not silently changed, with everything it inherits', DB, async (t) => {
   const db = await createTestDatabase(t)
   await withClient(db.ownerUrl, (c) => c.query('grant pg_monitor to school_election_app'))
   // Roles are cluster-wide: undo it on the server connection, which outlives
   // this test's database, so the other tests find the role as they expect.
   t.after(() => withClient(process.env.TEST_DATABASE_URL ?? '', (c) => c.query('revoke pg_monitor from school_election_app')))
-  await assert.rejects(run(db.ownerUrl), /school_election_app is a member of pg_monitor; revoke that first/)
+  await assert.rejects(run(db.ownerUrl), /school_election_app is a member of pg_monitor, pg_read_all_stats, pg_stat_scan_tables; revoke that first/)
 })
 
 test('the runtime role can connect but cannot create objects or read the migration records', DB, async (t) => {

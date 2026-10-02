@@ -47,6 +47,10 @@ settings=(
   -c debug_print_parse=off
   -c debug_print_rewritten=off
   -c debug_print_plan=off
+  -c log_statement_stats=off
+  -c log_parser_stats=off
+  -c log_planner_stats=off
+  -c log_executor_stats=off
 )
 
 "$engine" run -d --name "$name" \

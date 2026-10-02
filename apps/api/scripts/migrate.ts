@@ -55,9 +55,10 @@ export async function migrate(options: MigrateOptions): Promise<string[]> {
   await client.connect()
   try {
     await client.query('select pg_advisory_lock($1)', [LOCK_KEY])
+    // Unqualified names, in the bookkeeping and in the migrations, resolve in
+    // public only, whatever search_path the superuser would otherwise have.
+    await client.query('select set_config(\'search_path\', \'public\', false)')
     await assertMigrationRole(client)
-    await ensureRuntimeRole(client, runtimePassword)
-    await resetRuntimePrivileges(client)
     await client.query(`create table if not exists schema_migrations (
       filename text primary key,
       sha256 text not null,
@@ -67,11 +68,17 @@ export async function migrate(options: MigrateOptions): Promise<string[]> {
       'select filename, sha256 from schema_migrations',
     )).rows.map((row) => [row.filename, row.sha256]))
 
+    // The history is validated before the runtime role is touched.
     const pending = pendingMigrations(files, applied, migrationsDir, until)
+    const existed = await ensureRuntimeRole(client, runtimePassword)
+    await resetRuntimePrivileges(client)
     for (const file of pending) {
       log(`applying ${file.name}`)
       await applyMigration(client, file) // NOSONAR: migrations run one after another, each in its own transaction
     }
+    // The password of an existing role changes only now: a run that fails
+    // above leaves the old password, and with it the running server, working.
+    if (existed) await setRuntimePassword(client, runtimePassword)
     log(pending.length === 0 ? 'nothing to apply' : `applied ${pending.length} migration(s)`)
     return pending.map((file) => file.name)
   } finally {
@@ -161,29 +168,44 @@ async function migrationFiles(dir: string, until: string | undefined): Promise<M
 export const RUNTIME_MEMBERSHIPS = ['pg_read_all_settings']
 const UNPRIVILEGED = 'login nosuperuser nocreatedb nocreaterole noreplication nobypassrls inherit'
 
-async function ensureRuntimeRole(client: pg.Client, password: string): Promise<void> {
-  const exists = (await client.query('select 1 from pg_roles where rolname = $1', [RUNTIME_ROLE])).rowCount === 1
-  // Utility statements take no bind parameters; format() quotes server-side.
-  const statement = `${exists ? 'alter' : 'create'} role %I with ${UNPRIVILEGED} password %L`
-  const { rows } = await client.query<{ sql: string }>(`select format('${statement}', $1::text, $2::text) as sql`, [RUNTIME_ROLE, password])
-  try {
-    await client.query(rows[0]?.sql ?? '')
-  } catch (err) {
-    if (sqlState(err) !== SQLSTATE.duplicateObject) throw err
+/** Creates the runtime role, or resets the attributes of the existing one; true if it existed. */
+async function ensureRuntimeRole(client: pg.Client, password: string): Promise<boolean> {
+  let existed = (await client.query('select 1 from pg_roles where rolname = $1', [RUNTIME_ROLE])).rowCount === 1
+  if (!existed) {
+    try {
+      await client.query(await formatted(client, `create role %I with ${UNPRIVILEGED} password %L`, password))
+    } catch (err) {
+      if (sqlState(err) !== SQLSTATE.duplicateObject) throw err
+      existed = true
+    }
   }
+  if (existed) await client.query(await formatted(client, `alter role %I with ${UNPRIVILEGED}`))
+  await client.query(`grant ${RUNTIME_MEMBERSHIPS.join(', ')} to ${RUNTIME_ROLE}`)
 
+  // Effective membership, not only direct grants: a role granted to an
+  // allowed role is inherited just the same.
   const memberships = await client.query<{ rolname: string }>(
-    `select granted.rolname from pg_auth_members m
-       join pg_roles granted on granted.oid = m.roleid
-       join pg_roles member on member.oid = m.member
-      where member.rolname = $1 and not (granted.rolname = any($2::text[]))`,
+    `select granted.rolname::text as rolname from pg_roles granted, pg_roles runtime
+      where runtime.rolname = $1 and granted.oid <> runtime.oid
+        and pg_has_role(runtime.oid, granted.oid, 'MEMBER')
+        and not (granted.rolname = any($2::text[]))`,
     [RUNTIME_ROLE, RUNTIME_MEMBERSHIPS],
   )
   if (memberships.rows.length > 0) {
     const names = memberships.rows.map((row) => row.rolname).sort(byName).join(', ')
     throw new MigrationError(`${RUNTIME_ROLE} is a member of ${names}; revoke that first, the runtime role must hold nothing else`)
   }
-  await client.query(`grant ${RUNTIME_MEMBERSHIPS.join(', ')} to ${RUNTIME_ROLE}`)
+  return existed
+}
+
+async function setRuntimePassword(client: pg.Client, password: string): Promise<void> {
+  await client.query(await formatted(client, 'alter role %I with password %L', password))
+}
+
+// Utility statements take no bind parameters; format() quotes server-side.
+async function formatted(client: pg.Client, template: string, password?: string): Promise<string> {
+  const { rows } = await client.query<{ sql: string }>('select format($1, $2::text, $3::text) as sql', [template, RUNTIME_ROLE, password ?? null])
+  return rows[0]?.sql ?? ''
 }
 
 // Database and schema privileges are per database, so they are reset here on

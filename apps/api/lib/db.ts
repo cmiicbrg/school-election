@@ -20,6 +20,9 @@ export function createDatabase(connectionString: string, onIdleError: (err: Erro
     idleTimeoutMillis: 30_000,
     statement_timeout: 15_000,
     application_name: 'school-election',
+    // Unqualified table names resolve in public only, whatever search_path
+    // a per-role or per-database setting would give the session.
+    options: '-c search_path=public',
   })
   // Without a listener, an idle client that loses its connection would
   // crash the process with an unhandled 'error' event.
