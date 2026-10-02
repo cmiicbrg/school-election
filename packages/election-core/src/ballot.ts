@@ -19,15 +19,17 @@ export interface Contest {
   readonly candidateIds: readonly CandidateId[]
 }
 
-declare const validBallot: unique symbol
+// Binds a ValidBallot to the contest it was validated for. The binding covers
+// everything that decides how a ballot counts, the ruleset and the set of
+// candidates, so a ballot validated for another contest is refused even when
+// its ids and length happen to fit. The symbol is private to this module:
+// nothing else can create a ValidBallot, and JSON.stringify drops the key.
+const boundContest = Symbol('boundContest')
 
-/**
- * A ballot that passed validateBallot for its contest. The brand keeps
- * unvalidated arrays out of the tally at compile time.
- */
+/** A ballot that passed validateBallot, bound to that contest. */
 export interface ValidBallot {
   readonly ranking: readonly CandidateId[]
-  readonly [validBallot]: true
+  readonly [boundContest]: string
 }
 
 // Errors carry positions and counts, never candidate ids: a rejected ballot
@@ -84,7 +86,26 @@ export function validateBallot(contest: Contest, input: unknown): BallotResult {
     seen.add(id)
   }
 
-  return { ok: true, ballot: { ranking: Object.freeze([...ranking]) } as unknown as ValidBallot }
+  const ballot: ValidBallot = { ranking: Object.freeze([...ranking]), [boundContest]: contestKey(contest) }
+  return { ok: true, ballot: Object.freeze(ballot) }
+}
+
+/**
+ * Identifies a contest by what decides counting: ruleset and candidate set.
+ * Display order is left out, since it does not change any score.
+ */
+export function contestKey(contest: Contest): string {
+  return JSON.stringify([contest.rulesetId, [...contest.candidateIds].sort(compareCodeUnits)])
+}
+
+// Locale-independent, so the key is identical in Node and every browser.
+function compareCodeUnits(a: string, b: string): number {
+  if (a < b) return -1
+  return a > b ? 1 : 0
+}
+
+export function isBallotFor(ballot: ValidBallot, key: string): boolean {
+  return ballot[boundContest] === key
 }
 
 function fail(error: BallotError): BallotResult {

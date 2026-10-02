@@ -6,7 +6,7 @@
 // output depends on the configuration and the multiset of ballots, never on
 // the order the ballots arrive in.
 
-import { contestSlots, type CandidateId, type Contest, type ValidBallot } from './ballot.ts'
+import { contestKey, contestSlots, isBallotFor, type CandidateId, type Contest, type ValidBallot } from './ballot.ts'
 
 export interface CandidateStatistics {
   readonly candidateId: CandidateId
@@ -26,18 +26,21 @@ export interface ContestStatistics {
 
 export function computeStatistics(contest: Contest, ballots: readonly ValidBallot[]): ContestStatistics {
   const slots = contestSlots(contest)
+  const key = contestKey(contest)
   const counts = new Map<CandidateId, number[]>(
     contest.candidateIds.map((id) => [id, Array.from({ length: slots.length }, () => 0)]),
   )
 
   for (const ballot of ballots) {
-    // A ValidBallot of another contest would still type-check; refuse it
-    // rather than count it into the wrong slots.
-    if (ballot.ranking.length !== slots.length) {
-      throw new TypeError('ballot does not match the contest\'s active slots')
+    // A ValidBallot of another contest would still type-check, and with
+    // overlapping ids it could even fit; refuse it rather than count it
+    // under the wrong ruleset or into the wrong contest.
+    if (!isBallotFor(ballot, key)) {
+      throw new TypeError('ballot was validated for a different contest')
     }
     ballot.ranking.forEach((id, slot) => {
       const row = counts.get(id)
+      // Unreachable for a bound ballot; keeps the lookup total.
       if (row === undefined) throw new TypeError('ballot names a candidate outside the contest')
       row[slot] = (row[slot] ?? 0) + 1
     })

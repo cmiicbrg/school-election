@@ -88,6 +88,34 @@ test('a ballot validated for another contest is refused', () => {
   assert.throws(() => computeStatistics(three, [ballot(other, ['x', 'y', 'z'])]), TypeError)
 })
 
+test('a ballot from another ruleset is refused even when ids and length fit', () => {
+  // Counted under the school speaker ruleset this representative ballot
+  // would score 6/5 instead of 2/1.
+  const representative = { rulesetId: 'at-representative-v1', candidateIds: ['a', 'b'] } as const
+  const speaker = { rulesetId: 'at-school-speaker-v1', candidateIds: ['a', 'b'] } as const
+  assert.throws(() => computeStatistics(speaker, [ballot(representative, ['a', 'b'])]), TypeError)
+})
+
+test('a ballot from a contest with a different candidate set is refused even when it fits', () => {
+  const twoOfThree = { rulesetId: 'at-representative-v1', candidateIds: ['a', 'b', 'c'] } as const
+  const two = { rulesetId: 'at-representative-v1', candidateIds: ['a', 'b'] } as const
+  assert.throws(() => computeStatistics(two, [ballot(twoOfThree, ['a', 'b'])]), TypeError)
+})
+
+test('the binding ignores display order: reordering candidates keeps ballots countable', () => {
+  const c = { rulesetId: 'at-school-speaker-v1', candidateIds: ['a', 'b', 'c'] } as const
+  const reordered = { rulesetId: 'at-school-speaker-v1', candidateIds: ['c', 'a', 'b'] } as const
+  const stats = computeStatistics(reordered, [ballot(c, ['b', 'a', 'c'])])
+  assert.deepEqual(stats.candidates.map((s) => [s.candidateId, s.points]), [['c', 4], ['a', 5], ['b', 6]])
+})
+
+test('a ballot cannot be forged from a plain object, and serialises to its ranking only', () => {
+  const c = contest(2)
+  const forged = { ranking: ['c1', 'c2'] } as unknown as ValidBallot
+  assert.throws(() => computeStatistics(c, [forged]), TypeError)
+  assert.equal(JSON.stringify(ballot(c, ['c2', 'c1'])), '{"ranking":["c2","c1"]}')
+})
+
 // Fixed versus rescaled points. With n ≤ 6 candidates every valid ballot ranks
 // every candidate once, so the statutory scale 6, 5, … (7−n) is the rescaled
 // scale n, n−1, … 1 plus the constant 6−n on every ballot. Over V ballots
