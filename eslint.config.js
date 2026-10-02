@@ -147,4 +147,27 @@ export default [
       ],
     },
   },
+
+  // Canonical JSON and the audit hash chain are what the offline verifier
+  // recomputes from an export, so they stay pure: node:crypto and each
+  // other, no database, no network, no file system, no environment.
+  {
+    files: ['apps/api/lib/canonical-json.ts', 'apps/api/lib/audit-chain.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          {
+            regex: String.raw`^(?!node:crypto$|\./canonical-json\.ts$)`,
+            message: 'The audit chain is verified offline: import only node:crypto and ./canonical-json.ts.',
+          },
+        ],
+      }],
+      'no-restricted-globals': ['error',
+        ...['process', 'fetch', 'globalThis', 'global'].map((name) => ({
+          name,
+          message: 'The audit chain is verified offline: no access to the runtime environment.',
+        })),
+      ],
+    },
+  },
 ]
