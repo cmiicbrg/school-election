@@ -113,8 +113,10 @@ export default [
 
   // The tally and ballot-validation code is a pure domain module: it must not
   // depend on HTTP, PostgreSQL, sessions, Vue or Node APIs, so the same code
-  // runs in the API, the browser and an offline verifier. Enforced here rather
-  // than left to review. Tests may use node:test.
+  // runs in the API, the browser and an offline verifier. It must also be
+  // deterministic: the same configuration and ballots always give the same
+  // result, so nothing in it may read randomness or the clock. Enforced here
+  // rather than left to review. Tests may use node:test.
   {
     files: ['packages/election-core/src/**/*.ts'],
     rules: {
@@ -126,6 +128,16 @@ export default [
           },
         ],
       }],
+      'no-restricted-globals': ['error',
+        { name: 'Date', message: 'election-core must not depend on the clock.' },
+        { name: 'crypto', message: 'election-core must not depend on randomness.' },
+        { name: 'performance', message: 'election-core must not depend on the clock.' },
+      ],
+      'no-restricted-properties': ['error',
+        { object: 'Math', property: 'random', message: 'election-core must not depend on randomness.' },
+        { object: 'globalThis', property: 'crypto', message: 'election-core must not depend on randomness.' },
+        { object: 'globalThis', property: 'Date', message: 'election-core must not depend on the clock.' },
+      ],
     },
   },
 ]

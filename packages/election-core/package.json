@@ -3,12 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Pure election domain: presets, ballot validation and tallying. No I/O, no framework dependencies.",
+  "description": "Pure election domain: rulesets, ballot validation and counting. No I/O, no framework dependencies.",
   "license": "MIT",
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
+    "test": "node --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   }
 }
