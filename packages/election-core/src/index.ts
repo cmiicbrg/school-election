@@ -19,11 +19,12 @@ export {
 
 export {
   contestSlots,
+  isBlank,
   validateBallot,
   type BallotError,
   type BallotResult,
   type Contest,
-  type ValidBallot,
+  type CastBallot,
 } from './ballot.ts'
 
 export {

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { validateBallot, type BallotError, type Contest, type RulesetId } from '../src/index.ts'
+import { isBlank, validateBallot, type BallotError, type Contest, type RulesetId } from '../src/index.ts'
 import { permutations } from './helpers/prng.ts'
 
 function contest(candidates: number, rulesetId: RulesetId = 'at-school-speaker-v1'): Contest {
@@ -75,8 +75,16 @@ test('more than six candidates: exactly six distinct rankings, the rest stay unr
   assert.deepEqual(rejection(c, ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7']), { kind: 'inactive-slot', activeSlots: 6, entries: 7 })
 })
 
-test('an empty ballot is incomplete; v1 has no blank ballot', () => {
-  assert.deepEqual(rejection(contest(1), []), { kind: 'incomplete', activeSlots: 1, entries: 0 })
+test('an empty ballot is a blank ballot in every contest, whatever the candidate count', () => {
+  for (const rulesetId of ['at-school-speaker-v1', 'at-representative-v1', 'single-choice-v1'] as const) {
+    for (const n of [1, 2, 4, 6, 10]) {
+      const result = validateBallot(contest(n, rulesetId), [])
+      assert.ok(result.ok, `${rulesetId} with ${n} candidates`)
+      assert.ok(isBlank(result.ballot))
+    }
+  }
+  const complete = validateBallot(contest(2), ['c1', 'c2'])
+  assert.ok(complete.ok && !isBlank(complete.ballot))
 })
 
 test('representative contests require one ranking per active slot', () => {
@@ -93,14 +101,15 @@ test('single-choice contests take exactly one candidate', () => {
 })
 
 // Exhaustive completeness for every candidate count up to six: each
-// permutation of all candidates is valid, and each of its proper prefixes is
-// rejected as incomplete.
+// permutation of all candidates is valid, and each of its non-empty proper
+// prefixes is rejected as incomplete. A partly filled ballot never becomes a
+// blank one; only the empty ballot is blank.
 for (let n = 1; n <= 6; n++) {
-  test(`${n} candidates: all ${permutations(contest(n).candidateIds).length} complete orderings pass, every proper prefix fails`, () => {
+  test(`${n} candidates: all ${permutations(contest(n).candidateIds).length} complete orderings pass, every partial one fails`, () => {
     const c = contest(n)
     for (const ordering of permutations(c.candidateIds)) {
       assert.ok(validateBallot(c, ordering).ok)
-      for (let length = 0; length < n; length++) {
+      for (let length = 1; length < n; length++) {
         assert.deepEqual(rejection(c, ordering.slice(0, length)), { kind: 'incomplete', activeSlots: n, entries: length })
       }
     }

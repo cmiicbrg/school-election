@@ -1,12 +1,14 @@
-// Per-candidate counts over the valid ballots of one contest: the raw figures
+// Per-candidate counts over the cast ballots of one contest: the raw figures
 // every later result step (majority, runoff selection, derived positions) is
 // computed from, and the figures witnesses see in the result derivation.
+// Blank ballots are counted on their own; they are invalid votes and give
+// nobody points or a first place.
 //
 // Integer arithmetic only, and candidates come back in contest order, so the
 // output depends on the configuration and the multiset of ballots, never on
 // the order the ballots arrive in.
 
-import { contestKey, contestSlots, isBallotFor, type Contest, type ValidBallot } from './ballot.ts'
+import { contestKey, contestSlots, isBallotFor, isBlank, type CastBallot, type Contest } from './ballot.ts'
 
 export interface CandidateStatistics {
   readonly candidateId: string
@@ -19,24 +21,32 @@ export interface CandidateStatistics {
 }
 
 export interface ContestStatistics {
+  /** Ballots with a complete ranking. */
   readonly validBallots: number
+  /** Deliberately empty ballots: cast, but invalid votes. */
+  readonly blankBallots: number
   /** One entry per candidate, in the contest's candidate order. */
   readonly candidates: readonly CandidateStatistics[]
 }
 
-export function computeStatistics(contest: Contest, ballots: readonly ValidBallot[]): ContestStatistics {
+export function computeStatistics(contest: Contest, ballots: readonly CastBallot[]): ContestStatistics {
   const slots = contestSlots(contest)
   const key = contestKey(contest)
   const counts = new Map<string, number[]>(
     contest.candidateIds.map((id) => [id, Array.from({ length: slots.length }, () => 0)]),
   )
 
+  let blankBallots = 0
   for (const ballot of ballots) {
-    // A ValidBallot of another contest would still type-check, and with
+    // A CastBallot of another contest would still type-check, and with
     // overlapping ids it could even fit; refuse it rather than count it
     // under the wrong ruleset or into the wrong contest.
     if (!isBallotFor(ballot, key)) {
       throw new TypeError('ballot was validated for a different contest')
+    }
+    if (isBlank(ballot)) {
+      blankBallots++
+      continue
     }
     ballot.ranking.forEach((id, slot) => {
       const row = counts.get(id)
@@ -47,7 +57,8 @@ export function computeStatistics(contest: Contest, ballots: readonly ValidBallo
   }
 
   return {
-    validBallots: ballots.length,
+    validBallots: ballots.length - blankBallots,
+    blankBallots,
     candidates: contest.candidateIds.map((candidateId) => {
       const rankCounts = counts.get(candidateId) ?? []
       return {

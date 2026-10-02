@@ -1,13 +1,18 @@
-// Ballot validation: the single authority on what a valid ballot is.
+// Ballot validation: the single authority on what may be cast.
 //
 // A ballot is an ordered array of candidate ids. Index 0 fills the highest
 // slot, index 1 the next, and so on; the slot, and with it the points, follows
 // from the position alone. That form cannot express a duplicate slot or a
 // skipped one, so the only ways to be wrong are the ones checked below.
 //
-// Completeness is part of validity: every active slot must be filled with a
-// distinct candidate. A voter cannot award the top points and withhold the
-// rest, because the lower positions decide deputies and runoff tiebreaks.
+// A ballot fills every active slot with a distinct candidate, or none at all.
+// A voter cannot award the top points and withhold the rest, because the
+// lower positions decide deputies and runoff tiebreaks. An empty array is a
+// deliberate blank ballot: it is cast and counted, but it is an invalid vote
+// and gives nobody points or a first place. Whether it counts toward the base
+// of the majority rule is decided by the result rules (docs/design.md). A
+// partly filled ballot is rejected rather than turned into an invalid vote,
+// so a slip on the phone cannot silently void a vote.
 
 import { activeSlots, isRulesetId, RULESETS, type RulesetId, type Slot } from './rulesets.ts'
 
@@ -19,20 +24,23 @@ export interface Contest {
 
 declare const validBallot: unique symbol
 
-/** A ballot that passed validateBallot, bound to that contest. */
-export interface ValidBallot {
+/**
+ * A ballot accepted by validateBallot and bound to that contest: a complete
+ * ranking, or an empty ranking for a blank (invalid) ballot.
+ */
+export interface CastBallot {
   readonly ranking: readonly string[]
   readonly [validBallot]: true
 }
 
-// Which contest each ValidBallot was validated for, keyed by the exact frozen
+// Which contest each CastBallot was validated for, keyed by the exact frozen
 // object validateBallot returned. The binding covers everything that decides
 // how a ballot counts, the ruleset and the set of candidates, so a ballot
 // validated for another contest is refused even when its ids and length fit.
 // A WeakMap rather than a property on the ballot: a copy such as
 // { ...ballot, ranking: [...] } or a hand-built object has no entry, so only
 // the unmodified original is ever accepted for counting.
-const boundContest = new WeakMap<ValidBallot, string>()
+const boundContest = new WeakMap<CastBallot, string>()
 
 // Errors carry positions and counts, never candidate ids: a rejected ballot
 // may end up in a log line or an HTTP response, and its content must not.
@@ -44,7 +52,7 @@ export type BallotError
     | { readonly kind: 'duplicate-candidate', readonly position: number }
 
 export type BallotResult
-  = | { readonly ok: true, readonly ballot: ValidBallot }
+  = | { readonly ok: true, readonly ballot: CastBallot }
     | { readonly ok: false, readonly error: BallotError }
 
 /** The ballot slots of a contest. Throws if the contest itself is invalid. */
@@ -81,7 +89,7 @@ export function validateBallot(contest: Contest, input: unknown): BallotResult {
   }
   const ranking = entries as string[]
 
-  if (ranking.length < slotCount) {
+  if (ranking.length > 0 && ranking.length < slotCount) {
     return fail({ kind: 'incomplete', activeSlots: slotCount, entries: ranking.length })
   }
 
@@ -93,7 +101,7 @@ export function validateBallot(contest: Contest, input: unknown): BallotResult {
     seen.add(id)
   }
 
-  const ballot = Object.freeze({ ranking: Object.freeze([...ranking]) }) as unknown as ValidBallot
+  const ballot = Object.freeze({ ranking: Object.freeze([...ranking]) }) as unknown as CastBallot
   boundContest.set(ballot, contestKey(contest))
   return { ok: true, ballot }
 }
@@ -112,7 +120,12 @@ function compareCodeUnits(a: string, b: string): number {
   return a > b ? 1 : 0
 }
 
-export function isBallotFor(ballot: ValidBallot, key: string): boolean {
+/** A blank ballot: cast, but an invalid vote. */
+export function isBlank(ballot: CastBallot): boolean {
+  return ballot.ranking.length === 0
+}
+
+export function isBallotFor(ballot: CastBallot, key: string): boolean {
   return boundContest.get(ballot) === key
 }
 

@@ -6,7 +6,7 @@ import {
   type Contest,
   type ContestStatistics,
   type RulesetId,
-  type ValidBallot,
+  type CastBallot,
 } from '../src/index.ts'
 import { permutations, prng, randomInt, shuffle } from './helpers/prng.ts'
 
@@ -14,13 +14,13 @@ function contest(candidates: number, rulesetId: RulesetId = 'at-school-speaker-v
   return { rulesetId, candidateIds: Array.from({ length: candidates }, (_, i) => `c${i + 1}`) }
 }
 
-function ballot(c: Contest, ranking: readonly string[]): ValidBallot {
+function ballot(c: Contest, ranking: readonly string[]): CastBallot {
   const result = validateBallot(c, ranking)
   if (!result.ok) throw new Error(`test ballot invalid: ${result.error.kind}`)
   return result.ballot
 }
 
-function randomBallots(random: () => number, c: Contest, count: number): ValidBallot[] {
+function randomBallots(random: () => number, c: Contest, count: number): CastBallot[] {
   const slots = Math.min(c.candidateIds.length, 6)
   return Array.from({ length: count }, () => ballot(c, shuffle(random, c.candidateIds).slice(0, slots)))
 }
@@ -36,6 +36,7 @@ test('first places, rank counts and statutory points for a worked example', () =
   ])
   assert.deepEqual(stats, {
     validBallots: 3,
+    blankBallots: 0,
     candidates: [
       { candidateId: 'alice', firstPlaces: 2, rankCounts: [2, 1, 0], points: 2 * 6 + 1 * 5 },
       { candidateId: 'bob', firstPlaces: 1, rankCounts: [1, 1, 1], points: 6 + 5 + 4 },
@@ -64,14 +65,41 @@ test('representative contests count 2 and 1 points', () => {
 test('no ballots: every count is zero', () => {
   const stats = computeStatistics(contest(4), [])
   assert.equal(stats.validBallots, 0)
+  assert.equal(stats.blankBallots, 0)
   assert.ok(stats.candidates.every((s) => s.points === 0 && s.firstPlaces === 0 && s.rankCounts.length === 4))
+})
+
+test('blank ballots are counted on their own and change neither points nor the valid-ballot base', () => {
+  const random = prng(0xb1a4c)
+  for (const n of [1, 3, 6, 9]) {
+    const c = contest(n)
+    const ranked = randomBallots(random, c, 50)
+    const blanks = Array.from({ length: 7 }, () => ballot(c, []))
+    const withBlanks = computeStatistics(c, shuffle(random, [...ranked, ...blanks]))
+    const withoutBlanks = computeStatistics(c, ranked)
+    assert.equal(withBlanks.validBallots, 50)
+    assert.equal(withBlanks.blankBallots, 7)
+    assert.deepEqual(withBlanks.candidates, withoutBlanks.candidates)
+  }
+})
+
+test('only blank ballots: no valid ballots and nobody has points', () => {
+  const c = contest(3)
+  const stats = computeStatistics(c, [ballot(c, []), ballot(c, [])])
+  assert.equal(stats.validBallots, 0)
+  assert.equal(stats.blankBallots, 2)
+  assert.ok(stats.candidates.every((s) => s.points === 0 && s.firstPlaces === 0))
+})
+
+test('a blank ballot from another contest is refused like any other', () => {
+  assert.throws(() => computeStatistics(contest(3), [ballot(contest(4), [])]), TypeError)
 })
 
 test('statistics do not depend on the order of the ballots', () => {
   const random = prng(0x5eed)
   for (const n of [2, 4, 6, 9]) {
     const c = contest(n)
-    const ballots = randomBallots(random, c, 200)
+    const ballots = [...randomBallots(random, c, 200), ballot(c, []), ballot(c, [])]
     const expected = computeStatistics(c, ballots)
     for (let round = 0; round < 10; round++) {
       assert.deepEqual(computeStatistics(c, shuffle(random, ballots)), expected)
@@ -110,7 +138,7 @@ test('the binding ignores display order: reordering candidates keeps ballots cou
 
 test('a ballot cannot be forged from a plain object, and serialises to its ranking only', () => {
   const c = contest(2)
-  const forged = { ranking: ['c1', 'c2'] } as unknown as ValidBallot
+  const forged = { ranking: ['c1', 'c2'] } as unknown as CastBallot
   assert.throws(() => computeStatistics(c, [forged]), TypeError)
   assert.equal(JSON.stringify(ballot(c, ['c2', 'c1'])), '{"ranking":["c2","c1"]}')
 })
@@ -118,8 +146,8 @@ test('a ballot cannot be forged from a plain object, and serialises to its ranki
 test('a copy of a valid ballot with a different ranking is refused', () => {
   const c = contest(3)
   const valid = ballot(c, ['c1', 'c2', 'c3'])
-  const duplicate = { ...valid, ranking: ['c1', 'c1', 'c1'] } as ValidBallot
-  const sameRanking = { ...valid } as ValidBallot
+  const duplicate = { ...valid, ranking: ['c1', 'c1', 'c1'] } as CastBallot
+  const sameRanking = { ...valid } as CastBallot
   assert.throws(() => computeStatistics(c, [duplicate]), TypeError)
   assert.throws(() => computeStatistics(c, [sameRanking]), TypeError)
   assert.deepEqual(Object.getOwnPropertySymbols(valid), [])
@@ -133,14 +161,14 @@ test('a copy of a valid ballot with a different ranking is refused', () => {
 // same ordering and the same ties. The rescaled scale exists only in this
 // test; production code uses the statutory points alone.
 
-function rescaledTotals(c: Contest, ballots: readonly ValidBallot[]): Map<string, number> {
+function rescaledTotals(c: Contest, ballots: readonly CastBallot[]): Map<string, number> {
   const n = c.candidateIds.length
   const totals = new Map(c.candidateIds.map((id) => [id, 0]))
   for (const b of ballots) b.ranking.forEach((id, slot) => totals.set(id, (totals.get(id) ?? 0) + (n - slot)))
   return totals
 }
 
-function assertFixedMatchesRescaled(c: Contest, ballots: readonly ValidBallot[]): void {
+function assertFixedMatchesRescaled(c: Contest, ballots: readonly CastBallot[]): void {
   const n = c.candidateIds.length
   const statutory = byId(computeStatistics(c, ballots))
   const rescaled = rescaledTotals(c, ballots)
