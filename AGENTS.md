@@ -1,14 +1,15 @@
 # Agent instructions
 
-Self-hosted system for anonymous, in-person school elections. Read the invariants below before changing election behaviour.
+Self-hosted system for anonymous, in-person school elections. Read the invariants below before changing election behaviour, and [`docs/design.md`](docs/design.md) for the reasoning behind the election model.
 
 ## Layout
 
 ```text
-packages/election-core/   pure domain: presets, ballot validation, tally (no I/O)
+packages/election-core/   pure domain: rulesets, ballot validation, counting (no I/O, no clock, no randomness)
 apps/api/                 Fastify on Node 26, raw TypeScript; serves apps/web/dist
 apps/web/                 Vue 3 + Vite SPA
 scripts/lint-deps.mjs     exact-pin check across all workspaces
+docs/design.md            design decisions; update it with the behaviour it describes
 ```
 
 npm workspaces share one root `package-lock.json`. Shared tooling (ESLint, TypeScript, markdownlint) lives in the root `package.json`; runtime dependencies live in the workspace that uses them.
@@ -30,7 +31,7 @@ These take precedence over convenience:
 
 - Ballots are never persistently linked to a credential, entitlement, session, user or each other (no timestamps or request metadata on ballots).
 - Raw credentials never reach the database, logs or a server-visible URL. QR codes carry them in the URL fragment.
-- Statutory points are fixed (`6..1`, `2, 1`). Smaller candidate counts use a prefix and are never rescaled. Every active slot must be filled.
+- Statutory points are fixed (`6..1`, `2, 1`). Smaller candidate counts use a prefix and are never rescaled. A ranking with every active slot filled is a valid vote; one with empty slots is an invalid vote, cast only with the voter's explicit confirmation, and gives nobody points. "Nein" exists only in single-candidate contests. The majority base is the valid ballots.
 - No hidden tiebreaks: a statutory lot is an explicit, audited human action.
 - Authorization and security headers live in the application, never in nginx.
 

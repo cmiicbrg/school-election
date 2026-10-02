@@ -4,6 +4,10 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "rewriteRelativeImportExtensions": true,
+    // ES2024, not the base's ES2025: this code also runs in the voter's
+    // browser, and Vite does not polyfill newer library APIs for old phones.
+    "target": "ES2024",
+    "lib": ["ES2024"],
     // Node types are here for the tests (node:test, node:assert) only; the
     // ESLint config forbids src/ from importing anything outside the package.
     "types": ["node"]

@@ -113,19 +113,38 @@ export default [
 
   // The tally and ballot-validation code is a pure domain module: it must not
   // depend on HTTP, PostgreSQL, sessions, Vue or Node APIs, so the same code
-  // runs in the API, the browser and an offline verifier. Enforced here rather
-  // than left to review. Tests may use node:test.
+  // runs in the API, the browser and an offline verifier. It must also be
+  // deterministic: the same configuration and ballots always give the same
+  // result, so nothing in it may read randomness or the clock. Enforced here
+  // rather than left to review. Tests may use node:test.
   {
     files: ['packages/election-core/src/**/*.ts'],
     rules: {
       'no-restricted-imports': ['error', {
         patterns: [
           {
-            regex: String.raw`^(?!\.{1,2}/)`,
-            message: 'election-core is a pure domain module: only relative imports inside the package are allowed.',
+            // Only same-directory imports: src is flat, so any ../ would
+            // leave it. Widen this deliberately if src ever gets folders.
+            regex: String.raw`^(?!\./)`,
+            message: 'election-core is a pure domain module: only ./ imports inside src are allowed.',
           },
         ],
       }],
+      // The global-object aliases are banned outright, because through them
+      // every other restriction could be sidestepped (globalThis.Math.random),
+      // and process because Node's types are in scope for the tests.
+      'no-restricted-globals': ['error',
+        { name: 'Date', message: 'election-core must not depend on the clock.' },
+        { name: 'crypto', message: 'election-core must not depend on randomness.' },
+        { name: 'performance', message: 'election-core must not depend on the clock.' },
+        ...['globalThis', 'global', 'window', 'self', 'process'].map((name) => ({
+          name,
+          message: 'election-core must not reach the runtime environment.',
+        })),
+      ],
+      'no-restricted-properties': ['error',
+        { object: 'Math', property: 'random', message: 'election-core must not depend on randomness.' },
+      ],
     },
   },
 ]
