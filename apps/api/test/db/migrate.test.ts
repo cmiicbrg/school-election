@@ -44,6 +44,12 @@ test('a new migration that sorts before an applied one is refused', DB, async (t
   await assert.rejects(run(db.ownerUrl, dir), /0002_second.sql sorts before the applied 0003_third.sql/)
 })
 
+test('two files with the same number are refused', DB, async (t) => {
+  const db = await createTestDatabase(t, { migrated: false })
+  const dir = await migrationsWith({ '0002_a.sql': 'select 1;', '0002_b.sql': 'select 2;' })
+  await assert.rejects(run(db.ownerUrl, dir), /migration number 0002 is used more than once/)
+})
+
 test('a misnamed file is refused before anything runs', DB, async (t) => {
   const db = await createTestDatabase(t, { migrated: false })
   const dir = await migrationsWith({ '2_oops.sql': 'select 1;' })

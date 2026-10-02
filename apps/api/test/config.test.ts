@@ -118,6 +118,9 @@ test('the runtime database password comes from a file, never from the URL', () =
     assert.match(problem({ ...valid, DATABASE_URL: `${DB_ENV.DATABASE_URL}?${query}` }), /may carry no query parameters except sslmode/, query)
   }
   assert.match(problem({ ...valid, DATABASE_URL: `${DB_ENV.DATABASE_URL}#x` }), /no query parameters except sslmode, got a fragment/)
+  for (const url of ['postgres://bad%zz@127.0.0.1/school_election', 'postgres://app@127.0.0.1/db%e0']) {
+    assert.match(problem({ ...valid, DATABASE_URL: url }), /malformed percent escape/, url)
+  }
   assert.match(loadConfig({ ...valid, DATABASE_URL: `${DB_ENV.DATABASE_URL}?sslmode=require` }).databaseUrl, /\?sslmode=require$/)
 })
 

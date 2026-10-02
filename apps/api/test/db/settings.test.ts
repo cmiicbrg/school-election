@@ -32,28 +32,17 @@ test('safe settings pass', async () => {
   assert.deepEqual(await checkDatabaseSettings(serverWith({})), [])
 })
 
-test('each unsafe setting is named, whatever NODE_ENV says', async () => {
+// An unsafe value for every required setting, derived from the list itself,
+// so a setting added to the check is tested without anyone remembering to.
+const UNSAFE: Record<string, string> = { 'off': 'on', 'none': 'all', 'terse': 'default', 'panic': 'error', '0': '1', '-1': '0' }
+
+test('every required setting is checked: a single unsafe value is named, whatever NODE_ENV says', async () => {
   for (const NODE_ENV of ['production', 'development']) {
     process.env.NODE_ENV = NODE_ENV
     for (const [name, value] of [
-      ['track_commit_timestamp', 'on'],
-      ['wal_recycle', 'on'],
-      ['summarize_wal', 'on'],
+      ...REQUIRED_SETTINGS.map((s) => [s.name, UNSAFE[s.expected] ?? `not-${s.expected}`] as const),
       ['wal_keep_size', '1GB'],
-      ['archive_mode', 'on'],
-      ['log_statement', 'all'],
-      ['log_error_verbosity', 'default'],
-      ['log_min_error_statement', 'error'],
-      ['log_parameter_max_length', '-1'],
-      ['log_min_duration_statement', '0'],
-      ['log_lock_waits', 'on'],
-      ['log_duration', 'on'],
-      ['debug_print_parse', 'on'],
-      ['debug_print_plan', 'on'],
-      ['log_statement_stats', 'on'],
-      ['log_parser_stats', 'on'],
-      ['log_planner_stats', 'on'],
-      ['log_executor_stats', 'on'],
+      ['archive_mode', 'always'],
     ] as const) {
       const problems = await checkDatabaseSettings(serverWith({ [name]: value }))
       assert.equal(problems.length, 1, name)

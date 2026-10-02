@@ -20,7 +20,8 @@ engine="${CONTAINER_ENGINE:-docker}"
 
 # The image reads the password file again after dropping to its own user,
 # which cannot read a 0600 file owned by the caller. Mount a 0644 copy kept
-# in a directory only the caller can enter.
+# in a directory only the caller can enter, relabelled for the container (Z)
+# so SELinux-enforcing Podman hosts let PostgreSQL read it.
 secret_dir="${TMPDIR:-/tmp}/school-election-postgres-${name}"
 mkdir -p "$secret_dir"
 chmod 700 "$secret_dir"
@@ -59,7 +60,7 @@ settings=(
   -p "127.0.0.1:${port}:5432" \
   -e POSTGRES_DB=school_election \
   -e POSTGRES_PASSWORD_FILE=/run/secrets/owner-password \
-  -v "${password_file}:/run/secrets/owner-password:ro" \
+  -v "${password_file}:/run/secrets/owner-password:ro,Z" \
   "$image" "${settings[@]}" >/dev/null
 
 # Probe TCP, not the socket: on first start the image runs a temporary,

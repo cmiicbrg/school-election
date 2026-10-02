@@ -64,5 +64,11 @@ export function createDatabase(connectionString: string, onClientError: (err: Er
 /** user@host:port/database, for log lines: never the password. */
 export function describeDatabase(connectionString: string): string {
   const url = new URL(connectionString)
-  return `${decodeURIComponent(url.username)}@${url.host}${url.pathname}`
+  let user = url.username
+  try {
+    user = decodeURIComponent(user)
+  } catch {
+    // Keep the encoded form; this only describes the database in a message.
+  }
+  return `${user}@${url.host}${url.pathname}`
 }

@@ -63,4 +63,6 @@ test('health reports the database as up', DB, async (t) => {
 
 test('log lines name the database without its password', () => {
   assert.equal(describeDatabase('postgres://app:s3cret@db.internal:5432/school_election'), 'app@db.internal:5432/school_election')
+  // Never throws on a malformed escape: it only builds a message.
+  assert.equal(describeDatabase('postgres://bad%zz@db.internal/school_election'), 'bad%zz@db.internal/school_election')
 })

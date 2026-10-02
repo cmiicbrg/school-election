@@ -152,6 +152,9 @@ async function migrationFiles(dir: string, until: string | undefined): Promise<M
   const names = (await readdir(dir)).filter((name) => name.endsWith('.sql')).sort(byName)
   const bad = names.filter((name) => !FILE_NAME.test(name))
   if (bad.length > 0) throw new MigrationError(`migration files must be named NNNN_name.sql: ${bad.join(', ')}`)
+  // One file per number: fixtures and reviews refer to migrations by it.
+  const duplicate = names.find((name, i) => i > 0 && name.slice(0, 4) === names[i - 1]?.slice(0, 4))
+  if (duplicate) throw new MigrationError(`migration number ${duplicate.slice(0, 4)} is used more than once`)
   const selected = until === undefined ? names : names.filter((name) => name <= until)
   return Promise.all(selected.map(async (name) => {
     const sql = await readFile(path.join(dir, name), 'utf8')

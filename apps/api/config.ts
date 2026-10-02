@@ -134,6 +134,12 @@ function databaseUrl(env: Env, urlName: string, secretName: string): string {
   if (url.username === '' || url.pathname.length <= 1) {
     throw new ConfigError(`${urlName} must name a user and a database`)
   }
+  try {
+    decodeURIComponent(url.username)
+    decodeURIComponent(url.pathname)
+  } catch {
+    throw new ConfigError(`${urlName} contains a malformed percent escape in the user or database name`)
+  }
   // Encoded explicitly: the URL setter leaves '%' as it is, so a password
   // containing one would be decoded into something else on connect.
   url.password = encodeURIComponent(readSecret(env, secretName))
