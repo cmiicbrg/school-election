@@ -2,8 +2,9 @@
 // every later result step (majority, runoff selection, derived positions) is
 // computed from, and the figures witnesses see in the result derivation.
 // The majority base is the number of valid ballots: complete rankings plus
-// "Nein" votes in a single-candidate contest. Blank ballots are invalid
-// votes, counted on their own, and give nobody points or a first place.
+// "Nein" votes in a single-candidate contest. Invalid votes (ballots with
+// empty slots, confirmed by the voter) are counted on their own and give
+// nobody points or a first place.
 //
 // Integer arithmetic only, and candidates come back in contest order, so the
 // output depends on the configuration and the multiset of ballots, never on
@@ -26,8 +27,8 @@ export interface ContestStatistics {
   readonly validBallots: number
   /** "Nein" votes; only a single-candidate contest offers them. */
   readonly noBallots: number
-  /** Deliberate blank ballots: invalid votes, not part of the majority base. */
-  readonly blankBallots: number
+  /** Confirmed invalid votes: not part of the majority base. */
+  readonly invalidBallots: number
   /** One entry per candidate, in the contest's candidate order. */
   readonly candidates: readonly CandidateStatistics[]
 }
@@ -40,7 +41,7 @@ export function computeStatistics(contest: Contest, ballots: readonly CastBallot
   )
 
   let noBallots = 0
-  let blankBallots = 0
+  let invalidBallots = 0
   for (const ballot of ballots) {
     // A CastBallot of another contest would still type-check, and with
     // overlapping ids it could even fit; refuse it rather than count it
@@ -48,8 +49,8 @@ export function computeStatistics(contest: Contest, ballots: readonly CastBallot
     if (!isBallotFor(ballot, key)) {
       throw new TypeError('ballot was validated for a different contest')
     }
-    if (ballot.kind === 'blank') {
-      blankBallots++
+    if (ballot.kind === 'invalid') {
+      invalidBallots++
       continue
     }
     if (ballot.kind === 'no') {
@@ -65,9 +66,9 @@ export function computeStatistics(contest: Contest, ballots: readonly CastBallot
   }
 
   return {
-    validBallots: ballots.length - blankBallots,
+    validBallots: ballots.length - invalidBallots,
     noBallots,
-    blankBallots,
+    invalidBallots,
     candidates: contest.candidateIds.map((candidateId) => {
       const rankCounts = counts.get(candidateId) ?? []
       return {

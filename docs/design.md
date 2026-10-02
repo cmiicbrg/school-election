@@ -22,20 +22,20 @@ A contest with `n` candidates uses the first `min(n, slots)` slots of its rulese
 
 ## Ballot representation
 
-A ballot takes one of three explicit forms:
+A ballot takes one of two forms:
 
-- **Ranking** (`{ kind: 'ranking', ranking }`): an ordered list of candidate ids. Position 0 fills the highest slot, position 1 the next, and so on. The slot, and with it the points, follows from the position alone; points are never submitted and never stored.
+- **Ranking** (`{ kind: 'ranking', ranking, confirmInvalid? }`): the slots as the voter left them. Position 0 is the highest slot, position 1 the next, and so on; each entry is a candidate id, or `null` for a slot left empty. The slot, and with it the points, follows from the position alone; points are never submitted and never stored.
 - **Nein** (`{ kind: 'no' }`): only in a contest with a single candidate, so that voters can vote against them. A valid ballot that ranks nobody.
-- **Blank** (`{ kind: 'blank' }`): a deliberate blank ballot, possible in every contest. An invalid vote.
 
-The ranking form cannot express two candidates in one slot, one candidate in two slots without repeating the id, or a skipped slot. Map- or object-shaped rankings are rejected rather than interpreted.
+The ranking form cannot express two candidates in one slot. Map- or object-shaped rankings are rejected rather than interpreted.
 
-A ranking can be cast when all of the following hold:
+A ranking is refused outright when it cannot come from a correct client:
 
-- it is an array of strings without holes;
-- its length equals the number of active slots: a shorter one, the empty one included, is `incomplete`, a longer one is `inactive-slot`;
-- every id names a candidate of the contest (`unknown-candidate` otherwise);
-- no id appears twice (`duplicate-candidate` otherwise).
+- it is not an array, has holes, or holds an entry that is neither a candidate id nor `null` (`malformed`);
+- it is longer than the number of active slots (`inactive-slot`);
+- it names a candidate who is not in the contest (`unknown-candidate`), or the same candidate twice (`duplicate-candidate`).
+
+Otherwise it is a **valid vote** when every active slot holds a candidate, and an **invalid vote** when one or more slots are empty. An invalid vote is cast only with `confirmInvalid: true`; without it the ballot is refused as `incomplete` with the number of filled slots, so the client has to show the voter what would be submitted and ask first.
 
 "Nein" in a contest with more than one candidate is `no-not-offered`; any other shape is `malformed`.
 
@@ -43,9 +43,9 @@ Validation errors carry positions and counts only, never candidate ids, so a rej
 
 ### Completeness
 
-A ranking must fill every active slot. With `n` ≤ 6 candidates on a Schulsprecher ballot every candidate appears exactly once; with more, exactly six distinct candidates are ranked and the rest receive zero points from that ballot.
+A valid ranking fills every active slot. With `n` ≤ 6 candidates on a Schulsprecher ballot every candidate appears exactly once; with more, exactly six distinct candidates are ranked and the rest receive zero points from that ballot.
 
-Completeness is a validity rule, not a convenience. The lower slots decide the deputies, the SGA substitutes and point-based runoff tiebreaks. A voter who could award the top points and withhold the rest could steer those positions strategically.
+Completeness is a validity rule, not a convenience. The lower slots decide the deputies, the SGA substitutes and point-based runoff tiebreaks. A voter who could award the top points and withhold the rest could steer those positions strategically. A ballot with empty slots is therefore invalid as a whole: it gives no candidate any points, so withholding the lower slots cannot shift anything.
 
 ## Why points are never rescaled
 
@@ -59,11 +59,11 @@ The constant is the same for every candidate, so ordering, ties, deputy order an
 
 The equivalence depends on complete ballots; with optional rankings the offset would differ between candidates. The code still uses the statutory points everywhere, because they match the regulation and the audit output one to one, keep a single counting algorithm without special cases, and preserve the link between points and function.
 
-## Blank ballots and "Nein"
+## Invalid votes and "Nein"
 
-A voter can cast a blank ballot in any contest, whatever the number of candidates. It uses up the voter's entitlement for that contest and is counted and reported on its own. It is an invalid vote, since the count distinguishes valid from invalid votes (§ 12 Abs. 1 of the regulation): it gives nobody points or a first place and is not part of the majority base, which is the number of valid ballots.
+Leaving one or all slots empty is the voter's choice, as on paper; an all-empty ballot is "weiß wählen". Such a ballot is an invalid vote, possible in every contest, whatever the number of candidates. It uses up the voter's entitlement for that contest and is counted and reported on its own, since the count distinguishes valid from invalid votes (§ 12 Abs. 1 of the regulation). It gives nobody points or a first place and is not part of the majority base, which is the number of valid ballots. Only its kind is stored, not which slots were filled: it counts only as invalid.
 
-Blank is its own form, separate from the ranking. An untouched or partly filled ranking is rejected, never turned into a blank ballot, so a slip on a phone cannot void a vote unnoticed; the voter interface offers blank as a separate, deliberate action.
+An invalid vote is never cast by accident. Before submitting, the voter sees for each contest what would be submitted and whether it is valid, and can still correct it; an invalid vote needs an explicit confirmation, and the API refuses an incomplete ballot that does not carry it.
 
 "Nein" exists only in a contest with a single candidate. There every ranking places the candidate first, so without "Nein" nobody could vote against them. "Ja" is the ranking with that one candidate; "Ja" and "Nein" are both valid ballots. No other contest has a "Nein" option.
 
@@ -82,14 +82,14 @@ Alphabetical order is only the order in which candidates are listed on a ballot,
 | Case | Ruling | Status |
 | --- | --- | --- |
 | Who is elected in round 1, for every representative (Klassen- or Jahrgangssprecher, Vertreter der Klassensprecher, Abteilungs-, Tages- and Schulsprecher) | Whoever is ranked first, with the ballot's top points (2 or 6), on more than half of the valid ballots (§ 12 Abs. 3). Counted from first places, never inferred from point totals. 100 valid ballots with 50 first places is no majority; 51 of 100 and 50 of 99 are | Confirmed |
-| Base of "more than half" | The valid ballots: complete rankings plus "Nein" votes. Blank ballots are invalid votes and do not count | Confirmed |
+| Base of "more than half" | The valid ballots: complete rankings plus "Nein" votes. Invalid votes (ballots with empty slots) do not count | Confirmed |
 | Two candidates with exactly 50 % of first places each | Nobody has more than half of the first places, so nobody is elected in round 1 and the two go to the runoff (§ 12 Abs. 3). First-round points play no part in this; the runoff ballot lists the two alphabetically | Confirmed |
 | More than two candidates would enter the runoff on first places | Only the candidates tied on first places are compared: their first-round points decide which of them enter, and if their points are equal as well, the lot decides (§ 12 Abs. 3). A candidate with strictly more first places is never displaced on points. Example: A has 41 first places, B and C 32 each; B and C are compared on points and the one with more points joins A in the runoff. A lot is lot-required: officials draw it and an authorised user records the outcome, which is audited | Confirmed |
-| Who wins the runoff, and a tie in the runoff | Neither the regulation nor § 59a SchUG says how the runoff is decided or what a tie in it means | Pending |
+| Who wins the runoff, and a tie in the runoff | The candidate with more valid votes wins; with two candidates that is more than half of the valid ballots. The regulation has no rule for a tie, so the software does not decide one either: the result shows the tie as a case to be settled manually, with no winner and no lot | Confirmed |
 | Deputies and SGA substitutes | Decided by first-round point totals, with the elected representative's own points left out; runoff votes never change those totals, the runoff only decides who the elected representative is and so whose points are left out. The deputy of a class, department or day representative has the highest total (§ 12 Abs. 4); the Schulsprecher's deputies have the highest and second-highest (§ 12 Abs. 5); at schools with a Schulgemeinschaftsausschuss the three SGA substitutes have the third- to fifth-highest (§ 12 Abs. 6) | Confirmed |
 | Ties at the deputy or SGA substitute boundaries | The lot decides directly: "Bei gleicher Punktezahl entscheidet das Los" (§ 12 Abs. 4, 5 and 6). First places are not a secondary discriminator | Confirmed |
 | Class and department representatives use the same rule as the Schulsprecher | Yes: § 12 Abs. 3 covers every representative, and § 12 Abs. 4 gives each of them one deputy by first-round points | Confirmed |
 | Zero valid ballots in a contest | The regulation has no rule for it. Not decided by the software: the result is an explicit "decision by the school committee required" state with no winner, no lot and no derived positions | Confirmed |
-| A contest with a single candidate | A vote takes place with "Ja", "Nein" and blank as the choices. The candidate is elected with "Ja" on more than half of the valid ballots ("Ja" plus "Nein"). If not, a runoff is impossible and the regulation is silent, so the school committee decides | Confirmed |
+| A contest with a single candidate | A vote takes place with "Ja" and "Nein" as the choices, and an invalid vote remains possible. The candidate is elected with "Ja" on more than half of the valid ballots ("Ja" plus "Nein"). If not, a runoff is impossible and the regulation is silent, so the school committee decides | Confirmed |
 | Fewer candidates than positions | Slots beyond the number of candidates do not exist on the ballot, and positions nobody can fill stay vacant; the result lists them as vacant. With three Schulsprecher candidates, one becomes Schulsprecher and two become deputies, and the three SGA substitute positions stay vacant (§ 12 Abs. 6 starts at the third-highest remaining total). Filling them later is outside the software | Confirmed |
 | By-elections (Neuwahl, § 19) | Different rules apply: the lot decides runoff entry directly, and deputies are elected by most votes (§ 19 Abs. 2) | Out of scope for v1 |

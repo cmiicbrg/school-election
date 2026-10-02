@@ -21,7 +21,7 @@ function cast(c: Contest, input: unknown): CastBallot {
 }
 
 const ballot = (c: Contest, ranking: readonly string[]) => cast(c, { kind: 'ranking', ranking })
-const blank = (c: Contest) => cast(c, { kind: 'blank' })
+const invalid = (c: Contest, ranking: readonly (string | null)[] = []) => cast(c, { kind: 'ranking', ranking, confirmInvalid: true })
 const no = (c: Contest) => cast(c, { kind: 'no' })
 
 function randomBallots(random: () => number, c: Contest, count: number): CastBallot[] {
@@ -41,7 +41,7 @@ test('first places, rank counts and statutory points for a worked example', () =
   assert.deepEqual(stats, {
     validBallots: 3,
     noBallots: 0,
-    blankBallots: 0,
+    invalidBallots: 0,
     candidates: [
       { candidateId: 'alice', firstPlaces: 2, rankCounts: [2, 1, 0], points: 2 * 6 + 1 * 5 },
       { candidateId: 'bob', firstPlaces: 1, rankCounts: [1, 1, 1], points: 6 + 5 + 4 },
@@ -71,44 +71,46 @@ test('no ballots: every count is zero', () => {
   const stats = computeStatistics(contest(4), [])
   assert.equal(stats.validBallots, 0)
   assert.equal(stats.noBallots, 0)
-  assert.equal(stats.blankBallots, 0)
+  assert.equal(stats.invalidBallots, 0)
   assert.ok(stats.candidates.every((s) => s.points === 0 && s.firstPlaces === 0 && s.rankCounts.length === 4))
 })
 
-test('blank ballots are counted on their own and change neither points nor the valid-ballot count', () => {
+test('invalid votes are counted on their own and change neither points nor the valid-ballot count', () => {
   const random = prng(0xb1a4c)
   for (const n of [1, 3, 6, 9]) {
     const c = contest(n)
     const ranked = randomBallots(random, c, 50)
-    const blanks = Array.from({ length: 7 }, () => blank(c))
-    const withBlanks = computeStatistics(c, shuffle(random, [...ranked, ...blanks]))
-    const withoutBlanks = computeStatistics(c, ranked)
-    assert.equal(withBlanks.validBallots, 50)
-    assert.equal(withBlanks.blankBallots, 7)
-    assert.deepEqual(withBlanks.candidates, withoutBlanks.candidates)
+    // Half all-empty, half partly filled; with one candidate any filled slot
+    // completes the ballot, so there only all-empty ones are invalid.
+    const invalids = Array.from({ length: 7 }, (_, i) => invalid(c, i % 2 === 0 || n === 1 ? [] : [c.candidateIds[0] ?? null]))
+    const withInvalid = computeStatistics(c, shuffle(random, [...ranked, ...invalids]))
+    const withoutInvalid = computeStatistics(c, ranked)
+    assert.equal(withInvalid.validBallots, 50)
+    assert.equal(withInvalid.invalidBallots, 7)
+    assert.deepEqual(withInvalid.candidates, withoutInvalid.candidates)
   }
 })
 
-test('only blank ballots: no valid ballots and nobody has points', () => {
+test('only invalid votes: no valid ballots and nobody has points', () => {
   const c = contest(3)
-  const stats = computeStatistics(c, [blank(c), blank(c)])
+  const stats = computeStatistics(c, [invalid(c), invalid(c)])
   assert.equal(stats.validBallots, 0)
-  assert.equal(stats.blankBallots, 2)
+  assert.equal(stats.invalidBallots, 2)
   assert.ok(stats.candidates.every((s) => s.points === 0 && s.firstPlaces === 0))
 })
 
-test('a blank ballot from another contest is refused like any other', () => {
-  assert.throws(() => computeStatistics(contest(3), [blank(contest(4))]), TypeError)
+test('an invalid vote from another contest is refused like any other', () => {
+  assert.throws(() => computeStatistics(contest(3), [invalid(contest(4))]), TypeError)
 })
 
-test('single candidate: "Ja" is a first place, "Nein" is a valid ballot without one, blank is neither', () => {
+test('single candidate: "Ja" is a first place, "Nein" is a valid ballot without one, an invalid vote is neither', () => {
   const c = contest(1)
   const yes = () => ballot(c, ['c1'])
-  const stats = computeStatistics(c, [yes(), yes(), yes(), no(c), no(c), blank(c), blank(c), blank(c), blank(c)])
+  const stats = computeStatistics(c, [yes(), yes(), yes(), no(c), no(c), invalid(c), invalid(c), invalid(c), invalid(c)])
   assert.deepEqual(stats, {
     validBallots: 5,
     noBallots: 2,
-    blankBallots: 4,
+    invalidBallots: 4,
     candidates: [{ candidateId: 'c1', firstPlaces: 3, rankCounts: [3], points: 3 * 6 }],
   })
 })
@@ -121,7 +123,7 @@ test('statistics do not depend on the order of the ballots', () => {
   const random = prng(0x5eed)
   for (const n of [2, 4, 6, 9]) {
     const c = contest(n)
-    const ballots = [...randomBallots(random, c, 200), blank(c), blank(c)]
+    const ballots = [...randomBallots(random, c, 200), invalid(c), invalid(c)]
     const expected = computeStatistics(c, ballots)
     for (let round = 0; round < 10; round++) {
       assert.deepEqual(computeStatistics(c, shuffle(random, ballots)), expected)
@@ -155,7 +157,7 @@ test('a ballot from another contest with the same configuration is refused', () 
   const classA = contest(3, 'at-representative-v1', 'class-1a')
   const classB = contest(3, 'at-representative-v1', 'class-1b')
   assert.throws(() => computeStatistics(classB, [ballot(classA, ['c1', 'c2'])]), TypeError)
-  assert.throws(() => computeStatistics(classB, [blank(classA)]), TypeError)
+  assert.throws(() => computeStatistics(classB, [invalid(classA)]), TypeError)
 })
 
 test('the binding ignores display order: reordering candidates keeps ballots countable', () => {
@@ -170,7 +172,7 @@ test('a ballot cannot be forged from a plain object, and serialises to its form 
   const forged = { kind: 'ranking', ranking: ['c1', 'c2'] } as unknown as CastBallot
   assert.throws(() => computeStatistics(c, [forged]), TypeError)
   assert.equal(JSON.stringify(ballot(c, ['c2', 'c1'])), '{"kind":"ranking","ranking":["c2","c1"]}')
-  assert.equal(JSON.stringify(blank(c)), '{"kind":"blank","ranking":[]}')
+  assert.equal(JSON.stringify(invalid(c, ['c1', null])), '{"kind":"invalid","ranking":[]}')
 })
 
 test('a copy of a valid ballot with a different ranking is refused', () => {
