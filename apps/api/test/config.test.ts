@@ -139,5 +139,12 @@ test('the migrator reads its owner URL and both passwords from their own variabl
     runtimePassword: 'runtime-pw',
   })
   assert.throws(() => loadMigrationConfig({ ...env, DB_RUNTIME_PASSWORD: 'inline' }), /DB_RUNTIME_PASSWORD must not be set/)
+  for (const password of ['pässwort', 'tab\there', 'emoji🙂']) {
+    assert.throws(
+      () => loadMigrationConfig({ ...env, DB_RUNTIME_PASSWORD_FILE: secretFile('non-ascii', password) }),
+      /DB_RUNTIME_PASSWORD_FILE must contain printable ASCII characters only/,
+      password,
+    )
+  }
   assert.throws(() => loadMigrationConfig({}), /MIGRATION_DATABASE_URL must be set[\s\S]*DB_RUNTIME_PASSWORD_FILE must be set/)
 })

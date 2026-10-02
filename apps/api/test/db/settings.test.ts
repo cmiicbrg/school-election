@@ -4,12 +4,14 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createDatabase } from '../../lib/db.ts'
-import { checkDatabaseSettings, REQUIRED_SETTINGS } from '../../lib/db-settings.ts'
+import { ALLOWED_SETTINGS, checkDatabaseSettings, REQUIRED_SETTINGS } from '../../lib/db-settings.ts'
 import { migrate } from '../../scripts/migrate.ts'
 import { createTestDatabase, DB, TEST_RUNTIME_PASSWORD, withClient } from '../helpers/db.ts'
 
 const safe: Record<string, string> = {
   ...Object.fromEntries(REQUIRED_SETTINGS.map((s) => [s.name, s.expected])),
+  log_min_messages: 'warning',
+  log_destination: 'stderr',
   shared_preload_libraries: '',
   session_preload_libraries: '',
   local_preload_libraries: '',
@@ -61,6 +63,22 @@ test('each unsafe setting is named, whatever NODE_ENV says', async () => {
   delete process.env.NODE_ENV
 })
 
+test('debug message levels and csv or json logs are refused', async () => {
+  for (const [name, value] of [
+    ['log_min_messages', 'debug2'],
+    ['log_min_messages', 'debug5'],
+    ['log_destination', 'jsonlog'],
+    ['log_destination', 'stderr,csvlog'],
+  ] as const) {
+    const problems = await checkDatabaseSettings(serverWith({ [name]: value }))
+    assert.equal(problems.length, 1, value)
+    assert.match(problems[0] ?? '', new RegExp(`^${name} is ${value}, must be one of`))
+  }
+  for (const [name, value] of [['log_min_messages', 'error'], ['log_min_messages', 'PANIC'], ['log_destination', 'syslog'], ['log_destination', 'stderr, syslog']] as const) {
+    assert.deepEqual(await checkDatabaseSettings(serverWith({ [name]: value })), [], value)
+  }
+})
+
 test('auto_explain in any preload list is refused', async () => {
   for (const name of ['shared_preload_libraries', 'session_preload_libraries', 'local_preload_libraries']) {
     for (const value of ['auto_explain', 'auto_explain.so', '$libdir/auto_explain.so', 'pg_stat_statements, auto_explain', '"$libdir/plugins/auto_explain"']) {
@@ -96,6 +114,10 @@ test('the development and CI launcher sets every required setting', async () => 
   const script = await readFile(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../scripts/postgres.sh'), 'utf8')
   for (const { name, expected } of REQUIRED_SETTINGS) {
     assert.match(script, new RegExp(`-c ${name}=${expected.replace('-', '\\-')}\\n`), name)
+  }
+  for (const { name, allowed } of ALLOWED_SETTINGS) {
+    const value = new RegExp(`-c ${name}=([a-z,]+)\\n`).exec(script)?.[1]
+    assert.ok(value?.split(',').every((entry) => allowed.includes(entry)), name)
   }
 })
 

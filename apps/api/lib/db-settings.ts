@@ -22,6 +22,7 @@ export const REQUIRED_SETTINGS: readonly Requirement[] = [
   { name: 'wal_keep_size', expected: '0', why: NO_WAL_RESIDUE },
   { name: 'summarize_wal', expected: 'off', why: NO_WAL_RESIDUE },
   { name: 'log_statement', expected: 'none', why: NO_STATEMENT_LOGS },
+  // terse applies to the text formats only; log_destination is checked below.
   { name: 'log_error_verbosity', expected: 'terse', why: 'would log error detail, which can quote values' },
   { name: 'log_min_error_statement', expected: 'panic', why: NO_STATEMENT_LOGS },
   { name: 'log_parameter_max_length', expected: '0', why: NO_STATEMENT_LOGS },
@@ -40,6 +41,20 @@ export const REQUIRED_SETTINGS: readonly Requirement[] = [
   { name: 'log_executor_stats', expected: 'off', why: 'would log timing statistics for every statement' },
 ]
 
+/** Settings where several values are safe; for a list, every entry must be. */
+export const ALLOWED_SETTINGS: readonly { name: string, allowed: readonly string[], why: string }[] = [
+  {
+    name: 'log_min_messages',
+    allowed: ['warning', 'error', 'log', 'fatal', 'panic'],
+    why: 'debug levels log every statement with a timestamp',
+  },
+  {
+    name: 'log_destination',
+    allowed: ['stderr', 'syslog', 'eventlog'],
+    why: 'csvlog and jsonlog write error detail, which quotes row values, whatever log_error_verbosity says',
+  },
+]
+
 // auto_explain logs statements with their plans and parameters.
 const PRELOAD_SETTINGS = ['shared_preload_libraries', 'session_preload_libraries', 'local_preload_libraries']
 
@@ -49,10 +64,21 @@ const PRELOAD_SETTINGS = ['shared_preload_libraries', 'session_preload_libraries
  */
 export async function checkDatabaseSettings(db: Pick<Database, 'query'>): Promise<string[]> {
   const problems: string[] = await checkConnectedRole(db)
-  const values = await currentSettings(db, [...REQUIRED_SETTINGS.map((s) => s.name), ...PRELOAD_SETTINGS])
+  const values = await currentSettings(db, [
+    ...REQUIRED_SETTINGS.map((s) => s.name),
+    ...ALLOWED_SETTINGS.map((s) => s.name),
+    ...PRELOAD_SETTINGS,
+  ])
   for (const { name, expected, why } of REQUIRED_SETTINGS) {
     const actual = values.get(name) ?? ''
     if (actual !== expected) problems.push(`${name} is ${actual}, must be ${expected}: any other value ${why}`)
+  }
+  for (const { name, allowed, why } of ALLOWED_SETTINGS) {
+    const actual = values.get(name) ?? ''
+    const entries = actual.split(',').map((entry) => entry.trim().toLowerCase())
+    if (entries.some((entry) => !allowed.includes(entry))) {
+      problems.push(`${name} is ${actual}, must be one of ${allowed.join(', ')}: ${why}`)
+    }
   }
   for (const name of PRELOAD_SETTINGS) {
     const libraries = (values.get(name) ?? '').split(',').map((s) => s.trim().replace(/^"|"$/g, ''))

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { cp, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { migrate, MigrationError, MIGRATIONS_DIR } from '../../scripts/migrate.ts'
+import { migrate, MigrationError, MIGRATIONS_DIR, scramVerifier } from '../../scripts/migrate.ts'
 import { sqlState } from '../../lib/pg-errors.ts'
 import { createTestDatabase, DB, TEST_RUNTIME_PASSWORD, withClient } from '../helpers/db.ts'
 
@@ -113,6 +113,41 @@ test('a failed run keeps the old runtime password; a successful one rotates it',
   await migrate({ databaseUrl: db.ownerUrl, runtimePassword: 'rotated' })
   await runtimeWith('rotated')
   await assert.rejects(runtimeWith(TEST_RUNTIME_PASSWORD))
+})
+
+test('the stored runtime password is a SCRAM verifier computed exactly as PostgreSQL does', DB, async (t) => {
+  const db = await createTestDatabase(t)
+  const admin = process.env.TEST_DATABASE_URL ?? ''
+  const stored = await withClient(admin, (c) => c.query<{ rolpassword: string }>('select rolpassword from pg_authid where rolname = $1', ['school_election_app']))
+  assert.match(stored.rows[0]?.rolpassword ?? '', /^SCRAM-SHA-256\$4096:/)
+
+  // PostgreSQL hashes a plaintext password itself; recomputing with its salt
+  // must give the same verifier.
+  const password = TEST_RUNTIME_PASSWORD
+  await withClient(admin, async (c) => {
+    const { rows } = await c.query<{ sql: string }>('select format(\'create role se_scram_probe password %L\', $1::text) as sql', [password])
+    await c.query(rows[0]?.sql ?? '')
+  })
+  t.after(() => withClient(admin, (c) => c.query('drop role if exists se_scram_probe')))
+  const probe = await withClient(admin, (c) => c.query<{ rolpassword: string }>('select rolpassword from pg_authid where rolname = \'se_scram_probe\''))
+  const verifier = probe.rows[0]?.rolpassword ?? ''
+  const [, iterations = '', salt = ''] = /^SCRAM-SHA-256\$(\d+):([^$]+)\$/.exec(verifier) ?? []
+  assert.equal(scramVerifier(password, Buffer.from(salt, 'base64'), Number(iterations)), verifier)
+
+  // And the runtime role, given only a verifier, still logs in with the password.
+  await withClient(db.runtimeUrl, (c) => c.query('select 1'))
+})
+
+test('a database restored with default privileges is repaired by the next run', DB, async (t) => {
+  const db = await createTestDatabase(t)
+  await withClient(db.ownerUrl, (c) => c.query(`grant temporary, connect on database ${db.name} to public; grant create on schema public to public`))
+  await run(db.ownerUrl)
+  const { rows } = await withClient(db.ownerUrl, (c) => c.query<Record<string, boolean>>(
+    `select has_database_privilege('public', current_database(), 'TEMPORARY') as temp,
+            has_database_privilege('public', current_database(), 'CONNECT') as connect,
+            has_schema_privilege('public', 'public', 'CREATE') as create_in_schema`,
+  ))
+  assert.deepEqual(rows[0], { temp: false, connect: false, create_in_schema: false })
 })
 
 test('concurrent runs are serialised', DB, async (t) => {

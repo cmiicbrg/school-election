@@ -84,10 +84,20 @@ export function loadMigrationConfig(env: Env): MigrationConfig {
   }
   const config = {
     databaseUrl: check(() => databaseUrl(env, 'MIGRATION_DATABASE_URL', 'MIGRATION_DATABASE_PASSWORD')),
-    runtimePassword: check(() => readSecret(env, 'DB_RUNTIME_PASSWORD')),
+    runtimePassword: check(() => printableAscii(readSecret(env, 'DB_RUNTIME_PASSWORD'), 'DB_RUNTIME_PASSWORD_FILE')),
   }
   throwIfAny(problems)
   return config
+}
+
+// The migrator hashes this password itself (SCRAM-SHA-256); for printable
+// ASCII the normalisation PostgreSQL applies first changes nothing, so the
+// stored verifier is exactly the one PostgreSQL would compute.
+function printableAscii(value: string, name: string): string {
+  if (!/^[\x20-\x7e]+$/.test(value)) {
+    throw new ConfigError(`${name} must contain printable ASCII characters only, e.g. the output of openssl rand -hex 24`)
+  }
+  return value
 }
 
 function throwIfAny(problems: string[]): void {

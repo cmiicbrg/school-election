@@ -9,7 +9,7 @@
 // applied file that was edited or removed stops the run, so two databases
 // with the same records have the same schema.
 
-import { createHash } from 'node:crypto'
+import { createHash, createHmac, pbkdf2Sync, randomBytes } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -173,7 +173,7 @@ async function ensureRuntimeRole(client: pg.Client, password: string): Promise<b
   let existed = (await client.query('select 1 from pg_roles where rolname = $1', [RUNTIME_ROLE])).rowCount === 1
   if (!existed) {
     try {
-      await client.query(await formatted(client, `create role %I with ${UNPRIVILEGED} password %L`, password))
+      await client.query(await formatted(client, `create role %I with ${UNPRIVILEGED} password %L`, scramVerifier(password)))
     } catch (err) {
       if (sqlState(err) !== SQLSTATE.duplicateObject) throw err
       existed = true
@@ -199,7 +199,22 @@ async function ensureRuntimeRole(client: pg.Client, password: string): Promise<b
 }
 
 async function setRuntimePassword(client: pg.Client, password: string): Promise<void> {
-  await client.query(await formatted(client, 'alter role %I with password %L', password))
+  await client.query(await formatted(client, 'alter role %I with password %L', scramVerifier(password)))
+}
+
+/**
+ * The SCRAM-SHA-256 verifier PostgreSQL stores for a password, computed
+ * here so the password itself never travels as SQL text: statement logs and
+ * pg_stat_statements would otherwise keep it in plaintext. A verifier
+ * cannot be used to log in. The password is printable ASCII (checked in
+ * config.ts), for which SASLprep changes nothing.
+ */
+export function scramVerifier(password: string, salt: Buffer = randomBytes(16), iterations = 4096): string {
+  const salted = pbkdf2Sync(password, salt, iterations, 32, 'sha256')
+  const clientKey = createHmac('sha256', salted).update('Client Key').digest()
+  const storedKey = createHash('sha256').update(clientKey).digest()
+  const serverKey = createHmac('sha256', salted).update('Server Key').digest()
+  return `SCRAM-SHA-256$${iterations}:${salt.toString('base64')}$${storedKey.toString('base64')}:${serverKey.toString('base64')}`
 }
 
 // Utility statements take no bind parameters; format() quotes server-side.
@@ -213,12 +228,22 @@ async function formatted(client: pg.Client, template: string, password?: string)
 // hand, such as CREATE on the schema. CONNECT and USAGE are all it keeps;
 // table privileges come from the migrations themselves.
 async function resetRuntimePrivileges(client: pg.Client): Promise<void> {
-  await client.query(`do $$ begin
-    execute format('revoke all on database %I from ${RUNTIME_ROLE}', current_database());
-    execute format('grant connect on database %I to ${RUNTIME_ROLE}', current_database());
-  end $$`)
-  await client.query(`revoke all on schema public from ${RUNTIME_ROLE}`)
-  await client.query(`grant usage on schema public to ${RUNTIME_ROLE}`)
+  // One transaction: a running server never sees the moment between revoke
+  // and grant. PUBLIC is reset too, so a database restored from a dump (which
+  // starts with the default privileges) is repaired by the next run.
+  await client.query('begin')
+  try {
+    await client.query(`do $$ begin
+      execute format('revoke all on database %I from public, ${RUNTIME_ROLE}', current_database());
+      execute format('grant connect on database %I to ${RUNTIME_ROLE}', current_database());
+    end $$`)
+    await client.query(`revoke all on schema public from public, ${RUNTIME_ROLE}`)
+    await client.query(`grant usage on schema public to ${RUNTIME_ROLE}`)
+    await client.query('commit')
+  } catch (err) {
+    await client.query('rollback').catch(() => {})
+    throw err
+  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

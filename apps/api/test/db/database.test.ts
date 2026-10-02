@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createDatabase, describeDatabase } from '../../lib/db.ts'
 import { buildTestApp } from '../helpers/app.ts'
-import { createTestDatabase, DB } from '../helpers/db.ts'
+import { createTestDatabase, DB, withClient } from '../helpers/db.ts'
 
 test('tx commits on success, rolls back on throw and always releases the client', DB, async (t) => {
   const testDb = await createTestDatabase(t)
@@ -21,6 +21,21 @@ test('tx commits on success, rolls back on throw and always releases the client'
   }
   const { rows } = await db.query<{ n: number }>('select n from counter')
   assert.deepEqual(rows, [{ n: 1 }])
+})
+
+test('a connection lost inside tx() fails that transaction and does not crash the process', DB, async (t) => {
+  const testDb = await createTestDatabase(t)
+  const errors: Error[] = []
+  const db = createDatabase(testDb.ownerUrl, (err) => errors.push(err))
+  t.after(() => db.close())
+  await assert.rejects(db.tx(async (client) => {
+    const { rows } = await client.query<{ pid: number }>('select pg_backend_pid() as pid')
+    await withClient(testDb.ownerUrl, (admin) => admin.query('select pg_terminate_backend($1)', [rows[0]?.pid]))
+    await client.query('select 1')
+  }))
+  assert.ok(errors.length > 0, 'the client error reached the handler')
+  // The broken client was discarded; the pool still works.
+  assert.equal((await db.query<{ ok: number }>('select 1 as ok')).rows[0]?.ok, 1)
 })
 
 test('health reports the database as down when it cannot connect', async (t) => {

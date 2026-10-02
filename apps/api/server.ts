@@ -21,7 +21,7 @@ try {
 
 // The pool needs its error handler before the app (and its logger) exists.
 const started: { app?: FastifyInstance } = {}
-const db = createDatabase(config.databaseUrl, (err) => started.app?.log.error({ err }, 'idle database client failed'))
+const db = createDatabase(config.databaseUrl, (err) => started.app?.log.error({ err }, 'database client failed'))
 
 // Fail fast: an unreachable database or an unsafe server setting stops the
 // process, so a restart loop is visible instead of a server answering 503s

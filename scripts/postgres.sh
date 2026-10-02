@@ -51,6 +51,8 @@ settings=(
   -c log_parser_stats=off
   -c log_planner_stats=off
   -c log_executor_stats=off
+  -c log_min_messages=warning
+  -c log_destination=stderr
 )
 
 "$engine" run -d --name "$name" \

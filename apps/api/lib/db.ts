@@ -10,7 +10,7 @@ export interface Database {
   close: () => Promise<void>
 }
 
-export function createDatabase(connectionString: string, onIdleError: (err: Error) => void): Database {
+export function createDatabase(connectionString: string, onClientError: (err: Error) => void): Database {
   const pool = new pg.Pool({
     connectionString,
     max: 10,
@@ -24,15 +24,21 @@ export function createDatabase(connectionString: string, onIdleError: (err: Erro
     // a per-role or per-database setting would give the session.
     options: '-c search_path=public',
   })
-  // Without a listener, an idle client that loses its connection would
-  // crash the process with an unhandled 'error' event.
-  pool.on('error', onIdleError)
+  // Without a listener, a client that loses its connection crashes the
+  // process with an unhandled 'error' event. The pool listens for idle
+  // clients; tx() listens for the one it has checked out.
+  pool.on('error', onClientError)
 
   return {
     query: (text, values) => pool.query(text, values),
     async tx(fn) {
       const client = await pool.connect()
       let broken = false
+      const onError = (err: Error) => {
+        broken = true
+        onClientError(err)
+      }
+      client.on('error', onError)
       try {
         await client.query('begin')
         const result = await fn(client)
@@ -47,6 +53,7 @@ export function createDatabase(connectionString: string, onIdleError: (err: Erro
         }
         throw err
       } finally {
+        client.off('error', onError)
         client.release(broken)
       }
     },
