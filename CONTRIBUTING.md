@@ -1,0 +1,51 @@
+# Contributing
+
+Thank you for helping. This project runs anonymous school elections, so correctness and ballot secrecy come before features. Please read this page before opening a pull request.
+
+Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md). Security problems are reported privately, as described in [SECURITY.md](SECURITY.md), never in a public issue.
+
+## Before you start
+
+- For anything beyond a small fix, open an issue first and describe what you want to change. That avoids work on something that conflicts with the election model.
+- The invariants in [`AGENTS.md`](AGENTS.md) (ballot unlinkability, no raw credentials in the database, logs or URLs, fixed statutory points, no hidden tiebreaks) are not open to trade-offs for convenience.
+- Code, comments and documentation are in English. The user interface is in German.
+
+## Setup
+
+You need Node 26 (`nvm use` reads `.nvmrc`).
+
+```bash
+npm ci --ignore-scripts
+npm run dev:api     # API on http://127.0.0.1:3000
+npm run dev:web     # Vite dev server, /api proxied to the API
+```
+
+## Checks
+
+Run these before pushing. CI runs the same ones on every pull request.
+
+```bash
+npm run lint        # ESLint, markdownlint, exact dependency pins, typecheck
+npm test
+npm run build
+```
+
+Formatting is enforced by ESLint; there is no separate formatter. `npx eslint . --fix` fixes most style findings.
+
+## Pull requests
+
+- Target `main` and keep each pull request to one concern. Small pull requests get reviewed faster.
+- Write commit messages and pull request titles in the [Conventional Commits](https://www.conventionalcommits.org/) style, for example `feat(tally): runoff selection by first-round points` or `fix(api): reject ballots for closed rounds`.
+- Add or update tests for behaviour changes. Changes to ballot validation or tallying need tests that cover the boundary cases.
+- Explain in the description why the change is needed, not only what it does.
+
+## Dependencies
+
+- Add a dependency only when it clearly earns its place; every package is code that runs during an election.
+- Pin exact versions (`npm install --save-exact`, which `.npmrc` already sets). `npm run lint:deps` rejects ranges.
+- Dependencies must use a license compatible with MIT.
+- Dependabot proposes updates; do not bump versions in unrelated pull requests.
+
+## License
+
+By contributing, you agree that your contributions are licensed under the [MIT License](LICENSE) of this project.

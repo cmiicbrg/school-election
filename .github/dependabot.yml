@@ -1,0 +1,65 @@
+version: 2
+
+updates:
+  # One entry covers every workspace: npm workspaces share the root lockfile.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: daily
+      time: "21:49"
+      timezone: UTC
+    # The npm-dev and npm-prod groups below occupy two slots on their own, and
+    # major updates are ungrouped (the groups cover minor/patch only). A limit
+    # of 3 would leave a single slot for every major bump and silently drop
+    # the rest.
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - npm
+    groups:
+      npm-dev:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "*"
+      npm-prod:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "*"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+      time: "21:49"
+      timezone: UTC
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+      - github-actions
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: daily
+      time: "21:49"
+      timezone: UTC
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+      - docker
+    ignore:
+      # Base-image major bumps (e.g. node 26 → 27) are handled by hand; digest
+      # refreshes and in-track tag changes still come through.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

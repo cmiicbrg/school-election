@@ -1,0 +1,14 @@
+{
+  "name": "@school-election/election-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pure election domain: presets, ballot validation and tallying. No I/O, no framework dependencies.",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

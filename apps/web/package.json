@@ -1,0 +1,20 @@
+{
+  "name": "@school-election/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Voter, administrator and witness UI. Built to static files that the API serves.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.9",
+    "vite": "8.3.2",
+    "vue": "3.5.43",
+    "vue-tsc": "3.3.12"
+  }
+}

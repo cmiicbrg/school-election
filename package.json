@@ -1,0 +1,41 @@
+{
+  "name": "school-election",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-hosted system for anonymous, in-person school elections with Austrian Schülervertretung presets.",
+  "license": "MIT",
+  "author": "Christoph Stadlbauer <christoph.stadlbauer@brgenns.ac.at>",
+  "workspaces": [
+    "packages/election-core",
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace apps/api",
+    "dev:web": "npm run dev --workspace apps/web",
+    "build": "npm run build --workspace apps/web",
+    "migrate": "npm run migrate --workspace apps/api",
+    "test": "node --test \"scripts/**/*.test.mjs\" && npm test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint:js && npm run lint:md && npm run lint:deps && npm run typecheck",
+    "lint:js": "eslint . --max-warnings 0",
+    "lint:md": "markdownlint-cli2",
+    "lint:deps": "node scripts/lint-deps.mjs"
+  },
+  "engines": {
+    "node": ">=26"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@stylistic/eslint-plugin": "5.10.0",
+    "@types/node": "26.6.4",
+    "eslint": "10.11.0",
+    "eslint-plugin-vue": "10.11.1",
+    "globals": "17.13.0",
+    "markdownlint-cli2": "0.23.3",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.0",
+    "vue-eslint-parser": "10.4.1"
+  }
+}

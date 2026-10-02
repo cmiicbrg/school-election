@@ -1,0 +1,28 @@
+{
+  // Shared compiler options. Every workspace extends this; none of them emit —
+  // Node 26 runs the API's .ts files directly (type stripping) and Vite
+  // bundles the web app, so `tsc` is a type checker only.
+  "compilerOptions": {
+    "target": "ES2025",
+    "lib": ["ES2025"],
+
+    "strict": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    // Node's type stripping only removes annotations; it cannot transform
+    // enums, namespaces or parameter properties. Make tsc reject them so the
+    // failure shows up in lint rather than at process start.
+    "erasableSyntaxOnly": true,
+
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  }
+}

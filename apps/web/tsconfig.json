@@ -1,0 +1,16 @@
+{
+  // Browser code. vite.config.ts runs in Node and has tsconfig.node.json.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // ES2024, not the base's ES2025: the browser on a student's phone sets the
+    // API floor here, not Node. Vite lowers syntax but does not polyfill
+    // library APIs such as iterator helpers or the new Set methods.
+    "target": "ES2024",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "preserve",
+    "types": ["vite/client"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.vue"]
+}

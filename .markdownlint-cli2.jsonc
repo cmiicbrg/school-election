@@ -1,0 +1,15 @@
+{
+  // markdownlint-cli2 config (used by the VS Code markdownlint extension).
+  "config": {
+    // Keep rule configuration in .markdownlint.json for portability.
+    "extends": ".markdownlint.json"
+  },
+  "globs": ["**/*.md"],
+  // Skip whatever git ignores, such as local notes that never get committed.
+  "gitignore": true,
+  "ignores": [
+    "**/node_modules",
+    "**/dist",
+    "tmp"
+  ]
+}

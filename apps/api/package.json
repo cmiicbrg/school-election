@@ -1,0 +1,19 @@
+{
+  "name": "@school-election/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "HTTP API for school-election; also serves the built web app.",
+  "license": "MIT",
+  "main": "server.ts",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.ts",
+    "dev": "node --watch --env-file-if-exists=.env server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/helmet": "13.1.1",
+    "@fastify/static": "10.1.5",
+    "fastify": "5.12.5"
+  }
+}

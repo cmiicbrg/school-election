@@ -1,0 +1,28 @@
+# Keep the build context small and free of local state. The image installs its
+# own dependency tree from package-lock.json, and builds apps/web itself.
+**/node_modules
+**/dist
+.git
+.github
+
+# Test + tooling material that never runs in the image.
+**/test
+coverage
+*.tsbuildinfo
+eslint.config.js
+.markdownlint-cli2.jsonc
+.markdownlint.json
+.hadolint.yaml
+scripts
+
+# Deployment state (and its secrets) is not part of the image.
+deploy
+
+# Local env + editor state.
+.env
+.env.*
+.vscode
+.idea
+.DS_Store
+*.log
+tmp

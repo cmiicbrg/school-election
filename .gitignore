@@ -1,0 +1,20 @@
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Local env + editor state
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+.DS_Store
+*.log
+tmp/
+
+# Deployment state that never belongs in git: the operator's .env and
+# secret files.
+/deploy/.env
+/deploy/secrets/

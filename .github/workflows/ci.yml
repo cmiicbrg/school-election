@@ -1,0 +1,172 @@
+name: CI
+
+# Two triggers, deliberately asymmetric:
+#
+#   pull_request — the full merge gate: lint, infra lint, tests, build, image.
+#   push to main — the `image` job alone, to populate the Docker layer cache
+#                  on the default branch's scope. GitHub scopes Actions caches
+#                  per ref, and a PR can only restore from its own ref or the
+#                  default branch, so without this every PR builds cold.
+'on':
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # A superseded PR run is worth cancelling; a main run is not — cancelling it
+  # discards the cache export that is the only reason it exists.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: Lint
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      # The aggregate script: ESLint, markdownlint, lint:deps (exact pins in
+      # every workspace) and typecheck.
+      - run: npm run lint
+
+  # Everything the Node pipeline cannot see: the Dockerfile and the workflows
+  # themselves. Needs no toolchain, so it runs alongside the rest.
+  lint-infra:
+    name: Lint infra
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Hadolint
+        uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
+        with:
+          dockerfile: Dockerfile
+          config: .hadolint.yaml
+
+      # online-audits must stay off. With a token present zizmor resolves action
+      # tags over the network, and GITHUB_TOKEN is scoped to this repository, so
+      # authenticating against actions/checkout returns 401 and the whole audit
+      # aborts with "no audit was performed" instead of reporting anything.
+      # Every static audit still runs offline.
+      - name: Zizmor
+        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+        with:
+          online-audits: false
+          advanced-security: false
+          version: 1.29.0
+
+  test:
+    name: Test
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      - run: npm test
+
+  # Build the deployment image on every PR. Publishing only happens on v*
+  # tags, so without this a broken Dockerfile or a moved base image would not
+  # surface until release time. Also runs on push to main, where it is the
+  # only job, to write the layer cache every PR restores from.
+  image:
+    name: Image
+    needs: [lint, test]
+    # On push to main the gate jobs are skipped, and a job whose `needs` were
+    # skipped does not run by default. Checking the results explicitly keeps
+    # the PR behaviour (no build after a failed lint or test) while letting
+    # the cache-warming run proceed on main.
+    if: ${{ !cancelled() && needs.lint.result != 'failure' && needs.test.result != 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: false
+          load: true
+          tags: school-election:ci
+          cache-from: type=gha,scope=school-election
+          # Only main exports. A pull request writing its own mode=max layers
+          # fills the shared 10 GB budget with blobs no other ref can restore.
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=school-election' || '' }}
+
+      # What only the container can prove: it runs unprivileged, Node 26's
+      # type stripping executes the raw TypeScript entrypoint, the built web
+      # app is in the image, and the security headers come from the
+      # application rather than from a proxy.
+      - name: Smoke-test the image
+        run: |
+          set -euo pipefail
+
+          user="$(docker image inspect -f '{{.Config.User}}' school-election:ci)"
+          if [ "$user" != "10001:10001" ]; then
+            echo "Expected the image to run as '10001:10001', got '$user'" >&2
+            exit 1
+          fi
+
+          # Keeps the container name free if the step is retried in place, and
+          # stops a failed assertion from leaving a container running.
+          cleanup() { docker rm -f school-election-ci >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          cleanup
+
+          docker run -d --name school-election-ci --network host school-election:ci
+
+          ok=0
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1; then ok=1; break; fi
+            sleep 1
+          done
+
+          docker logs school-election-ci
+          if [ "$ok" -ne 1 ]; then
+            echo "image did not become healthy within 30s" >&2
+            exit 1
+          fi
+
+          headers="$(curl -fsS -D - -o /dev/null http://127.0.0.1:3000/)"
+          echo "$headers"
+          if ! printf '%s' "$headers" | grep -qi "^content-security-policy:.*frame-ancestors 'none'"; then
+            echo "Expected a CSP with frame-ancestors 'none' on /" >&2
+            exit 1
+          fi
+          if ! printf '%s' "$headers" | grep -qi '^x-content-type-options: nosniff'; then
+            echo "Expected X-Content-Type-Options: nosniff on /" >&2
+            exit 1
+          fi
