@@ -67,11 +67,13 @@ Counting arithmetic is integer-only, and per-candidate output follows the contes
 
 Cases the regulation leaves open, or where the reading must be confirmed with the school community committee before result computation is implemented. Each confirmed row becomes a test fixture. Result computation is not implemented yet; when it is, any case whose row is not confirmed must produce an explicit unresolved or lot-required result and must never fall back to an alphabetical, id-based or random order.
 
+Alphabetical order is only the order in which candidates are listed on a ballot, the runoff ballot included. It never decides a place.
+
 | Case | Ruling | Status |
 | --- | --- | --- |
 | Principal position: elected in round 1 only with more than half of the valid ballots as first places | Strictly greater than 50 % of first places, counted directly, never inferred from points | To implement |
-| Two candidates with exactly 50 % of first places each | | Pending |
-| Tie for the second runoff place on first places that first-round points cannot break | | Pending |
+| Two candidates with exactly 50 % of first places each | Nobody has more than half of the first places, so nobody is elected in round 1 and both candidates go to the runoff. First-round points play no part in this; the runoff ballot lists the two alphabetically | Confirmed |
+| Tie for the second runoff place on first places | First-round points decide among the tied candidates. If their points are equal as well, the result is lot-required: officials draw the lot and an authorised user records the outcome, which is audited | Confirmed |
 | Ties at the deputy or SGA substitute boundaries: lot directly, or first places as a secondary discriminator | | Pending |
 | Zero valid ballots in a contest | | Pending |
 | A contest with a single candidate | | Pending |
