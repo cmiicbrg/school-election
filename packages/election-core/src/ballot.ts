@@ -19,18 +19,22 @@ export interface Contest {
   readonly candidateIds: readonly CandidateId[]
 }
 
-// Binds a ValidBallot to the contest it was validated for. The binding covers
-// everything that decides how a ballot counts, the ruleset and the set of
-// candidates, so a ballot validated for another contest is refused even when
-// its ids and length happen to fit. The symbol is private to this module:
-// nothing else can create a ValidBallot, and JSON.stringify drops the key.
-const boundContest = Symbol('boundContest')
+declare const validBallot: unique symbol
 
 /** A ballot that passed validateBallot, bound to that contest. */
 export interface ValidBallot {
   readonly ranking: readonly CandidateId[]
-  readonly [boundContest]: string
+  readonly [validBallot]: true
 }
+
+// Which contest each ValidBallot was validated for, keyed by the exact frozen
+// object validateBallot returned. The binding covers everything that decides
+// how a ballot counts, the ruleset and the set of candidates, so a ballot
+// validated for another contest is refused even when its ids and length fit.
+// A WeakMap rather than a property on the ballot: a copy such as
+// { ...ballot, ranking: [...] } or a hand-built object has no entry, so only
+// the unmodified original is ever accepted for counting.
+const boundContest = new WeakMap<ValidBallot, string>()
 
 // Errors carry positions and counts, never candidate ids: a rejected ballot
 // may end up in a log line or an HTTP response, and its content must not.
@@ -49,6 +53,11 @@ export type BallotResult
 export function contestSlots(contest: Contest): readonly Slot[] {
   if (!isRulesetId(contest.rulesetId)) {
     throw new TypeError('contest has an unknown ruleset id')
+  }
+  // Configuration comes from storage, not from the type checker; a contest
+  // whose ids no ballot could ever name is a programming error.
+  if (!isDenseNonEmptyStrings(contest.candidateIds)) {
+    throw new TypeError('contest candidate ids must be a dense array of non-empty strings')
   }
   if (new Set(contest.candidateIds).size !== contest.candidateIds.length) {
     throw new TypeError('contest lists a candidate more than once')
@@ -86,8 +95,9 @@ export function validateBallot(contest: Contest, input: unknown): BallotResult {
     seen.add(id)
   }
 
-  const ballot: ValidBallot = { ranking: Object.freeze([...ranking]), [boundContest]: contestKey(contest) }
-  return { ok: true, ballot: Object.freeze(ballot) }
+  const ballot = Object.freeze({ ranking: Object.freeze([...ranking]) }) as unknown as ValidBallot
+  boundContest.set(ballot, contestKey(contest))
+  return { ok: true, ballot }
 }
 
 /**
@@ -105,7 +115,17 @@ function compareCodeUnits(a: string, b: string): number {
 }
 
 export function isBallotFor(ballot: ValidBallot, key: string): boolean {
-  return ballot[boundContest] === key
+  return boundContest.get(ballot) === key
+}
+
+function isDenseNonEmptyStrings(values: unknown): boolean {
+  if (!Array.isArray(values)) return false
+  for (let i = 0; i < values.length; i++) {
+    if (!Object.hasOwn(values, i)) return false
+    const value: unknown = values[i]
+    if (typeof value !== 'string' || value === '') return false
+  }
+  return true
 }
 
 function fail(error: BallotError): BallotResult {

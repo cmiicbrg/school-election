@@ -116,6 +116,17 @@ test('a ballot cannot be forged from a plain object, and serialises to its ranki
   assert.equal(JSON.stringify(ballot(c, ['c2', 'c1'])), '{"ranking":["c2","c1"]}')
 })
 
+test('a copy of a valid ballot with a different ranking is refused', () => {
+  const c = contest(3)
+  const valid = ballot(c, ['c1', 'c2', 'c3'])
+  const duplicate = { ...valid, ranking: ['c1', 'c1', 'c1'] } as ValidBallot
+  const sameRanking = { ...valid } as ValidBallot
+  assert.throws(() => computeStatistics(c, [duplicate]), TypeError)
+  assert.throws(() => computeStatistics(c, [sameRanking]), TypeError)
+  assert.deepEqual(Object.getOwnPropertySymbols(valid), [])
+  assert.ok(Object.isFrozen(valid))
+})
+
 // Fixed versus rescaled points. With n ≤ 6 candidates every valid ballot ranks
 // every candidate once, so the statutory scale 6, 5, … (7−n) is the rescaled
 // scale n, n−1, … 1 plus the constant 6−n on every ballot. Over V ballots

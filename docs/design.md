@@ -9,7 +9,7 @@ A ruleset is a fixed, ordered list of slots. Each slot is one function a voter a
 | Ruleset | Slots (points, function) | Used for |
 | --- | --- | --- |
 | `at-school-speaker-v1` | 6 Schulsprecher/in, 5 1. Stellvertretung, 4 2. Stellvertretung, 3 1. SGA-Stellvertretung, 2 2. SGA-Stellvertretung, 1 3. SGA-Stellvertretung | Schulsprecherwahl |
-| `at-representative-v1` | 2 Vertreter/in, 1 Stellvertreter/in | Klassen- and Abteilungssprecherwahl |
+| `at-representative-v1` | 2 Vertreter/in, 1 Stellvertreter/in | Klassen- und Abteilungssprecherwahl |
 | `single-choice-v1` | 1 Stimme | Runoff rounds, anonymous single-choice polls |
 
 The Austrian tables follow the regulation on the election of school representatives (RIS Gesetzesnummer 10009897). Rulesets are constant data in `packages/election-core/src/rulesets.ts`. No configuration, request or import can supply or change points.
@@ -59,13 +59,13 @@ Version 1 has no blank ballot. A voter who does not want to vote in a contest le
 
 ## Determinism
 
-`election-core` is pure: no I/O, no imports from outside the package, and no clock or randomness (ESLint enforces all three). The same configuration and the same ballots always produce the same figures, in the API, in the browser and in an offline verifier. `TALLY_VERSION` changes with any change to counting semantics and is stored with every result.
+`election-core` is pure: no I/O, no imports from outside its `src` directory, and no access to the clock, randomness or the runtime environment (ESLint enforces all of them). The same configuration and the same ballots always produce the same figures, in the API, in the browser and in an offline verifier. `TALLY_VERSION` changes with any change to counting semantics and is stored with every result.
 
 Counting arithmetic is integer-only, and per-candidate output follows the contest's candidate order, so it never depends on the order in which ballots arrive.
 
 ## Statutory rulings
 
-Cases the regulation leaves open, or where the reading must be confirmed with the school community committee before result computation is implemented. Each confirmed row becomes a test fixture. Until a row is confirmed, the code returns an explicit unresolved or lot-required result for that case and never falls back to an alphabetical, id-based or random order.
+Cases the regulation leaves open, or where the reading must be confirmed with the school community committee before result computation is implemented. Each confirmed row becomes a test fixture. Result computation is not implemented yet; when it is, any case whose row is not confirmed must produce an explicit unresolved or lot-required result and must never fall back to an alphabetical, id-based or random order.
 
 | Case | Ruling | Status |
 | --- | --- | --- |

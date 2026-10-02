@@ -119,4 +119,16 @@ test('an invalid contest is a programming error, not a ballot error', () => {
   assert.throws(() => validateBallot({ rulesetId: 'nope' as RulesetId, candidateIds: ['c1'] }, ['c1']), TypeError)
   assert.throws(() => validateBallot({ rulesetId: 'at-school-speaker-v1', candidateIds: ['c1', 'c1'] }, ['c1']), TypeError)
   assert.throws(() => validateBallot({ rulesetId: 'at-school-speaker-v1', candidateIds: [] }, []), RangeError)
+  // A hole, a non-string, an empty id, and no array at all.
+  for (const candidateIds of [
+    ['c1', , 'c3'],
+    ['c1', 2, 'c3'],
+    ['c1', ''],
+    'c1',
+  ]) {
+    assert.throws(
+      () => validateBallot({ rulesetId: 'at-school-speaker-v1', candidateIds } as unknown as Contest, ['c1']),
+      TypeError,
+    )
+  }
 })

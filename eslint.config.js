@@ -123,20 +123,27 @@ export default [
       'no-restricted-imports': ['error', {
         patterns: [
           {
-            regex: String.raw`^(?!\.{1,2}/)`,
-            message: 'election-core is a pure domain module: only relative imports inside the package are allowed.',
+            // Only same-directory imports: src is flat, so any ../ would
+            // leave it. Widen this deliberately if src ever gets folders.
+            regex: String.raw`^(?!\./)`,
+            message: 'election-core is a pure domain module: only ./ imports inside src are allowed.',
           },
         ],
       }],
+      // The global-object aliases are banned outright, because through them
+      // every other restriction could be sidestepped (globalThis.Math.random),
+      // and process because Node's types are in scope for the tests.
       'no-restricted-globals': ['error',
         { name: 'Date', message: 'election-core must not depend on the clock.' },
         { name: 'crypto', message: 'election-core must not depend on randomness.' },
         { name: 'performance', message: 'election-core must not depend on the clock.' },
+        ...['globalThis', 'global', 'window', 'self', 'process'].map((name) => ({
+          name,
+          message: 'election-core must not reach the runtime environment.',
+        })),
       ],
       'no-restricted-properties': ['error',
         { object: 'Math', property: 'random', message: 'election-core must not depend on randomness.' },
-        { object: 'globalThis', property: 'crypto', message: 'election-core must not depend on randomness.' },
-        { object: 'globalThis', property: 'Date', message: 'election-core must not depend on the clock.' },
       ],
     },
   },
