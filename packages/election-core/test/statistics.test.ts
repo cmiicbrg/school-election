@@ -10,8 +10,8 @@ import {
 } from '../src/index.ts'
 import { permutations, prng, randomInt, shuffle } from './helpers/prng.ts'
 
-function contest(candidates: number, rulesetId: RulesetId = 'at-school-speaker-v1'): Contest {
-  return { rulesetId, candidateIds: Array.from({ length: candidates }, (_, i) => `c${i + 1}`) }
+function contest(candidates: number, rulesetId: RulesetId = 'at-school-speaker-v1', id = 'contest'): Contest {
+  return { id, rulesetId, candidateIds: Array.from({ length: candidates }, (_, i) => `c${i + 1}`) }
 }
 
 function ballot(c: Contest, ranking: readonly string[]): CastBallot {
@@ -28,7 +28,7 @@ function randomBallots(random: () => number, c: Contest, count: number): CastBal
 const byId = (stats: ContestStatistics) => new Map(stats.candidates.map((s) => [s.candidateId, s]))
 
 test('first places, rank counts and statutory points for a worked example', () => {
-  const c = { rulesetId: 'at-school-speaker-v1', candidateIds: ['alice', 'bob', 'carol'] } as const
+  const c = { id: 'contest', rulesetId: 'at-school-speaker-v1', candidateIds: ['alice', 'bob', 'carol'] } as const
   const stats = computeStatistics(c, [
     ballot(c, ['alice', 'bob', 'carol']),
     ballot(c, ['alice', 'carol', 'bob']),
@@ -111,27 +111,34 @@ test('a ballot validated for another contest is refused', () => {
   const four = contest(4)
   const three = contest(3)
   assert.throws(() => computeStatistics(three, [ballot(four, ['c1', 'c2', 'c3', 'c4'])]), TypeError)
-  const other = { rulesetId: 'at-school-speaker-v1', candidateIds: ['x', 'y', 'z'] } as const
+  const other = { id: 'contest', rulesetId: 'at-school-speaker-v1', candidateIds: ['x', 'y', 'z'] } as const
   assert.throws(() => computeStatistics(three, [ballot(other, ['x', 'y', 'z'])]), TypeError)
 })
 
 test('a ballot from another ruleset is refused even when ids and length fit', () => {
   // Counted under the school speaker ruleset this representative ballot
   // would score 6/5 instead of 2/1.
-  const representative = { rulesetId: 'at-representative-v1', candidateIds: ['a', 'b'] } as const
-  const speaker = { rulesetId: 'at-school-speaker-v1', candidateIds: ['a', 'b'] } as const
+  const representative = { id: 'contest', rulesetId: 'at-representative-v1', candidateIds: ['a', 'b'] } as const
+  const speaker = { id: 'contest', rulesetId: 'at-school-speaker-v1', candidateIds: ['a', 'b'] } as const
   assert.throws(() => computeStatistics(speaker, [ballot(representative, ['a', 'b'])]), TypeError)
 })
 
 test('a ballot from a contest with a different candidate set is refused even when it fits', () => {
-  const twoOfThree = { rulesetId: 'at-representative-v1', candidateIds: ['a', 'b', 'c'] } as const
-  const two = { rulesetId: 'at-representative-v1', candidateIds: ['a', 'b'] } as const
+  const twoOfThree = { id: 'contest', rulesetId: 'at-representative-v1', candidateIds: ['a', 'b', 'c'] } as const
+  const two = { id: 'contest', rulesetId: 'at-representative-v1', candidateIds: ['a', 'b'] } as const
   assert.throws(() => computeStatistics(two, [ballot(twoOfThree, ['a', 'b'])]), TypeError)
 })
 
+test('a ballot from another contest with the same configuration is refused', () => {
+  const classA = contest(3, 'at-representative-v1', 'class-1a')
+  const classB = contest(3, 'at-representative-v1', 'class-1b')
+  assert.throws(() => computeStatistics(classB, [ballot(classA, ['c1', 'c2'])]), TypeError)
+  assert.throws(() => computeStatistics(classB, [ballot(classA, [])]), TypeError)
+})
+
 test('the binding ignores display order: reordering candidates keeps ballots countable', () => {
-  const c = { rulesetId: 'at-school-speaker-v1', candidateIds: ['a', 'b', 'c'] } as const
-  const reordered = { rulesetId: 'at-school-speaker-v1', candidateIds: ['c', 'a', 'b'] } as const
+  const c = { id: 'contest', rulesetId: 'at-school-speaker-v1', candidateIds: ['a', 'b', 'c'] } as const
+  const reordered = { id: 'contest', rulesetId: 'at-school-speaker-v1', candidateIds: ['c', 'a', 'b'] } as const
   const stats = computeStatistics(reordered, [ballot(c, ['b', 'a', 'c'])])
   assert.deepEqual(stats.candidates.map((s) => [s.candidateId, s.points]), [['c', 4], ['a', 5], ['b', 6]])
 })

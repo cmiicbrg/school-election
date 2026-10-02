@@ -17,6 +17,8 @@
 import { activeSlots, isRulesetId, RULESETS, type RulesetId, type Slot } from './rulesets.ts'
 
 export interface Contest {
+  /** Stable identity of this contest in its round, e.g. its database id. */
+  readonly id: string
   readonly rulesetId: RulesetId
   /** Every candidate standing in this contest, in display order. */
   readonly candidateIds: readonly string[]
@@ -34,12 +36,12 @@ export interface CastBallot {
 }
 
 // Which contest each CastBallot was validated for, keyed by the exact frozen
-// object validateBallot returned. The binding covers everything that decides
-// how a ballot counts, the ruleset and the set of candidates, so a ballot
-// validated for another contest is refused even when its ids and length fit.
-// A WeakMap rather than a property on the ballot: a copy such as
-// { ...ballot, ranking: [...] } or a hand-built object has no entry, so only
-// the unmodified original is ever accepted for counting.
+// object validateBallot returned. The binding covers the contest's identity
+// and everything that decides how a ballot counts, the ruleset and the set
+// of candidates, so a ballot is refused by any other contest, even one with
+// the same configuration. A WeakMap rather than a property on the ballot: a
+// copy such as { ...ballot, ranking: [...] } or a hand-built object has no
+// entry, so only the unmodified original is ever accepted for counting.
 const boundContest = new WeakMap<CastBallot, string>()
 
 // Errors carry positions and counts, never candidate ids: a rejected ballot
@@ -57,6 +59,10 @@ export type BallotResult
 
 /** The ballot slots of a contest. Throws if the contest itself is invalid. */
 export function contestSlots(contest: Contest): readonly Slot[] {
+  const id: unknown = contest.id
+  if (typeof id !== 'string' || id === '') {
+    throw new TypeError('contest id must be a non-empty string')
+  }
   if (!isRulesetId(contest.rulesetId)) {
     throw new TypeError('contest has an unknown ruleset id')
   }
@@ -107,11 +113,12 @@ export function validateBallot(contest: Contest, input: unknown): BallotResult {
 }
 
 /**
- * Identifies a contest by what decides counting: ruleset and candidate set.
- * Display order is left out, since it does not change any score.
+ * Identifies a contest by its id and by what decides counting: ruleset and
+ * candidate set. Display order is left out, since it does not change any
+ * score.
  */
 export function contestKey(contest: Contest): string {
-  return JSON.stringify([contest.rulesetId, [...contest.candidateIds].sort(compareCodeUnits)])
+  return JSON.stringify([contest.id, contest.rulesetId, [...contest.candidateIds].sort(compareCodeUnits)])
 }
 
 // Locale-independent, so the key is identical in Node and every browser.

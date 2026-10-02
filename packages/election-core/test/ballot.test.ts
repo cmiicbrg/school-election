@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { isBlank, validateBallot, type BallotError, type Contest, type RulesetId } from '../src/index.ts'
 import { permutations } from './helpers/prng.ts'
 
-function contest(candidates: number, rulesetId: RulesetId = 'at-school-speaker-v1'): Contest {
-  return { rulesetId, candidateIds: Array.from({ length: candidates }, (_, i) => `c${i + 1}`) }
+function contest(candidates: number, rulesetId: RulesetId = 'at-school-speaker-v1', id = 'contest'): Contest {
+  return { id, rulesetId, candidateIds: Array.from({ length: candidates }, (_, i) => `c${i + 1}`) }
 }
 
 function rejection(c: Contest, input: unknown): BallotError {
@@ -125,9 +125,15 @@ test('errors never contain candidate ids', () => {
 })
 
 test('an invalid contest is a programming error, not a ballot error', () => {
-  assert.throws(() => validateBallot({ rulesetId: 'nope' as RulesetId, candidateIds: ['c1'] }, ['c1']), TypeError)
-  assert.throws(() => validateBallot({ rulesetId: 'at-school-speaker-v1', candidateIds: ['c1', 'c1'] }, ['c1']), TypeError)
-  assert.throws(() => validateBallot({ rulesetId: 'at-school-speaker-v1', candidateIds: [] }, []), RangeError)
+  assert.throws(() => validateBallot({ id: 'contest', rulesetId: 'nope' as RulesetId, candidateIds: ['c1'] }, ['c1']), TypeError)
+  assert.throws(() => validateBallot({ id: 'contest', rulesetId: 'at-school-speaker-v1', candidateIds: ['c1', 'c1'] }, ['c1']), TypeError)
+  assert.throws(() => validateBallot({ id: 'contest', rulesetId: 'at-school-speaker-v1', candidateIds: [] }, []), RangeError)
+  for (const id of ['', undefined, 7]) {
+    assert.throws(
+      () => validateBallot({ id, rulesetId: 'at-school-speaker-v1', candidateIds: ['c1'] } as unknown as Contest, ['c1']),
+      TypeError,
+    )
+  }
   // A hole, a non-string, an empty id, and no array at all.
   for (const candidateIds of [
     ['c1', , 'c3'],
@@ -136,7 +142,7 @@ test('an invalid contest is a programming error, not a ballot error', () => {
     'c1',
   ]) {
     assert.throws(
-      () => validateBallot({ rulesetId: 'at-school-speaker-v1', candidateIds } as unknown as Contest, ['c1']),
+      () => validateBallot({ id: 'contest', rulesetId: 'at-school-speaker-v1', candidateIds } as unknown as Contest, ['c1']),
       TypeError,
     )
   }
