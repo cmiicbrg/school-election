@@ -16,9 +16,12 @@ You need Node 26 (`nvm use` reads `.nvmrc`).
 
 ```bash
 npm ci --ignore-scripts
+cp apps/api/.env.example apps/api/.env
 npm run dev:api     # API on http://127.0.0.1:3000
-npm run dev:web     # Vite dev server, /api proxied to the API
+npm run dev:web     # Vite dev server on http://localhost:5173, /api proxied to the API
 ```
+
+The API refuses to start with a missing or unsafe setting and names it. `apps/api/.env.example` lists every setting; secrets are never set inline but read from files named by `*_FILE` variables, kept in the git-ignored `apps/api/.secrets/`. Open the app through the Vite dev server: the API accepts state-changing requests only from `PUBLIC_ORIGIN`.
 
 ## Checks
 

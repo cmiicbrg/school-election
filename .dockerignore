@@ -18,9 +18,10 @@ scripts
 # Deployment state (and its secrets) is not part of the image.
 deploy
 
-# Local env + editor state.
-.env
-.env.*
+# Local env, secrets + editor state.
+**/.env
+**/.env.*
+**/.secrets
 .vscode
 .idea
 .DS_Store

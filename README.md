@@ -10,6 +10,7 @@ Requires Node 26.
 
 ```bash
 npm ci --ignore-scripts
+cp apps/api/.env.example apps/api/.env
 npm run dev:api     # http://127.0.0.1:3000
 npm run dev:web     # Vite dev server, /api proxied to the API
 npm run lint
