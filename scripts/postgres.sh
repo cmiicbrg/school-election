@@ -16,8 +16,16 @@ if [ "$#" -ne 3 ]; then
 fi
 name="$1"
 port="$2"
-password_file="$(realpath "$3")"
 engine="${CONTAINER_ENGINE:-docker}"
+
+# The image reads the password file again after dropping to its own user,
+# which cannot read a 0600 file owned by the caller. Mount a 0644 copy kept
+# in a directory only the caller can enter.
+secret_dir="${TMPDIR:-/tmp}/school-election-postgres-${name}"
+mkdir -p "$secret_dir"
+chmod 700 "$secret_dir"
+password_file="$secret_dir/owner-password"
+install -m 0644 "$3" "$password_file"
 image='docker.io/library/postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873'
 
 settings=(

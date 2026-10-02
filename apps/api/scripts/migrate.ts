@@ -37,6 +37,15 @@ export class MigrationError extends Error {
   override name = 'MigrationError'
 }
 
+/**
+ * The one order migrations run in: by UTF-16 code unit, independent of
+ * locale. Sorting and the forward-only check must use the same order.
+ */
+export function byName(a: string, b: string): number {
+  if (a < b) return -1
+  return a > b ? 1 : 0
+}
+
 export async function migrate(options: MigrateOptions): Promise<string[]> {
   const { databaseUrl, runtimePassword, migrationsDir = MIGRATIONS_DIR, until, log = () => {} } = options
   const files = await migrationFiles(migrationsDir, until)
@@ -68,7 +77,7 @@ export async function migrate(options: MigrateOptions): Promise<string[]> {
     // Forward-only: a new file must sort after every applied one, or two
     // databases with the same records could have run them in different
     // orders.
-    const newest = [...applied.keys()].sort((a, b) => a.localeCompare(b)).at(-1)
+    const newest = [...applied.keys()].sort(byName).at(-1)
     const late = files.find((file) => !applied.has(file.name) && newest !== undefined && file.name < newest)
     if (late) {
       throw new MigrationError(`${late.name} sorts before the applied ${newest}; renumber it after the newest applied migration`)
@@ -105,7 +114,7 @@ export async function migrate(options: MigrateOptions): Promise<string[]> {
 }
 
 async function migrationFiles(dir: string, until: string | undefined) {
-  const names = (await readdir(dir)).filter((name) => name.endsWith('.sql')).sort((a, b) => a.localeCompare(b))
+  const names = (await readdir(dir)).filter((name) => name.endsWith('.sql')).sort(byName)
   const bad = names.filter((name) => !FILE_NAME.test(name))
   if (bad.length > 0) throw new MigrationError(`migration files must be named NNNN_name.sql: ${bad.join(', ')}`)
   const selected = until === undefined ? names : names.filter((name) => name <= until)
@@ -116,19 +125,37 @@ async function migrationFiles(dir: string, until: string | undefined) {
 }
 
 // The runtime role logs in with its own password and holds nothing but what
-// migrations grant it. pg_read_all_settings lets the server check its
-// privacy settings at startup; it gives no access to data.
+// migrations grant it. Its attributes are set on every run, so a role that
+// was created or changed by hand with more rights is brought back down; a
+// membership in any other role is refused rather than silently revoked.
+// pg_read_all_settings lets the server check its privacy settings at
+// startup; it gives no access to data.
+export const RUNTIME_MEMBERSHIPS = ['pg_read_all_settings']
+const UNPRIVILEGED = 'login nosuperuser nocreatedb nocreaterole noreplication nobypassrls inherit'
+
 async function ensureRuntimeRole(client: pg.Client, password: string): Promise<void> {
   const exists = (await client.query('select 1 from pg_roles where rolname = $1', [RUNTIME_ROLE])).rowCount === 1
   // Utility statements take no bind parameters; format() quotes server-side.
-  const statement = exists ? 'alter role %I with login password %L' : 'create role %I with login password %L'
+  const statement = `${exists ? 'alter' : 'create'} role %I with ${UNPRIVILEGED} password %L`
   const { rows } = await client.query<{ sql: string }>(`select format('${statement}', $1::text, $2::text) as sql`, [RUNTIME_ROLE, password])
   try {
     await client.query(rows[0]?.sql ?? '')
   } catch (err) {
     if (sqlState(err) !== SQLSTATE.duplicateObject) throw err
   }
-  await client.query(`grant pg_read_all_settings to ${RUNTIME_ROLE}`)
+
+  const memberships = await client.query<{ rolname: string }>(
+    `select granted.rolname from pg_auth_members m
+       join pg_roles granted on granted.oid = m.roleid
+       join pg_roles member on member.oid = m.member
+      where member.rolname = $1 and not (granted.rolname = any($2::text[]))`,
+    [RUNTIME_ROLE, RUNTIME_MEMBERSHIPS],
+  )
+  if (memberships.rows.length > 0) {
+    const names = memberships.rows.map((row) => row.rolname).sort(byName).join(', ')
+    throw new MigrationError(`${RUNTIME_ROLE} is a member of ${names}; revoke that first, the runtime role must hold nothing else`)
+  }
+  for (const role of RUNTIME_MEMBERSHIPS) await client.query(`grant ${role} to ${RUNTIME_ROLE}`)
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -35,9 +35,12 @@ export const REQUIRED_SETTINGS: readonly Requirement[] = [
 // auto_explain logs statements with their plans and parameters.
 const PRELOAD_SETTINGS = ['shared_preload_libraries', 'session_preload_libraries', 'local_preload_libraries']
 
-/** Every setting that differs from what the privacy model needs, as a message naming it. */
+/**
+ * Every setting that differs from what the privacy model needs, and every
+ * privilege the connected role should not have, as a message naming it.
+ */
 export async function checkDatabaseSettings(db: Pick<Database, 'query'>): Promise<string[]> {
-  const problems: string[] = []
+  const problems: string[] = await checkConnectedRole(db)
   for (const { name, expected, why } of REQUIRED_SETTINGS) {
     const actual = await show(db, name)
     if (actual !== expected) problems.push(`${name} is ${actual}, must be ${expected}: any other value ${why}`)
@@ -48,6 +51,36 @@ export async function checkDatabaseSettings(db: Pick<Database, 'query'>): Promis
       problems.push(`${name} loads auto_explain, which logs statements with their parameters`)
     }
   }
+  return problems
+}
+
+// The server must connect as the unprivileged runtime role. A superuser,
+// the database owner or a role with extra rights or memberships could read
+// or change everything, and some of them could switch the settings above
+// off for their own sessions.
+async function checkConnectedRole(db: Pick<Database, 'query'>): Promise<string[]> {
+  const { rows } = await db.query<{ name: string, attributes: string[], owner: boolean, memberships: string[] }>(
+    `select r.rolname as name,
+            array_remove(array[
+              case when r.rolsuper then 'superuser' end,
+              case when r.rolcreaterole then 'createrole' end,
+              case when r.rolcreatedb then 'createdb' end,
+              case when r.rolreplication then 'replication' end,
+              case when r.rolbypassrls then 'bypassrls' end
+            ], null) as attributes,
+            (select d.datdba = r.oid from pg_database d where d.datname = current_database()) as owner,
+            -- text[], not name[]: the driver parses only the former into an array.
+            coalesce((select array_agg(g.rolname::text order by g.rolname) from pg_auth_members m join pg_roles g on g.oid = m.roleid
+                       where m.member = r.oid and g.rolname <> 'pg_read_all_settings'), '{}'::text[]) as memberships
+       from pg_roles r where r.rolname = current_user`,
+  )
+  const role = rows[0]
+  if (!role) return ['cannot identify the connected role']
+  const problems: string[] = []
+  const who = `the server connects as ${role.name}`
+  if (role.attributes.length > 0) problems.push(`${who}, which has ${role.attributes.join(', ')}; it must use the unprivileged runtime role`)
+  if (role.owner) problems.push(`${who}, which owns the database; it must use the unprivileged runtime role`)
+  if (role.memberships.length > 0) problems.push(`${who}, which is a member of ${role.memberships.join(', ')}; the runtime role must hold nothing else`)
   return problems
 }
 

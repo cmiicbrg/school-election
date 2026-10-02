@@ -14,10 +14,14 @@ const safe: Record<string, string> = {
   local_preload_libraries: '',
 }
 
-function serverWith(overrides: Record<string, string>) {
+const runtimeRole = { name: 'school_election_app', attributes: [] as string[], owner: false, memberships: [] as string[] }
+
+function serverWith(overrides: Record<string, string>, role: Partial<typeof runtimeRole> = {}) {
   const values = { ...safe, ...overrides }
   return {
-    query: async (_text: string, params?: unknown[]) => ({ rows: [{ value: values[String(params?.[0])] ?? '' }] }),
+    query: async (text: string, params?: unknown[]) => text.includes('from pg_roles r where r.rolname = current_user')
+      ? { rows: [{ ...runtimeRole, ...role }] }
+      : { rows: [{ value: values[String(params?.[0])] ?? '' }] },
   } as never
 }
 
@@ -59,6 +63,18 @@ test('auto_explain in any preload list is refused', async () => {
   assert.deepEqual(await checkDatabaseSettings(serverWith({ shared_preload_libraries: 'pg_stat_statements' })), [])
 })
 
+test('a privileged connected role is refused', async () => {
+  assert.deepEqual(await checkDatabaseSettings(serverWith({}, { name: 'postgres', attributes: ['superuser', 'createrole'] })), [
+    'the server connects as postgres, which has superuser, createrole; it must use the unprivileged runtime role',
+  ])
+  assert.deepEqual(await checkDatabaseSettings(serverWith({}, { name: 'school_election', owner: true })), [
+    'the server connects as school_election, which owns the database; it must use the unprivileged runtime role',
+  ])
+  assert.deepEqual(await checkDatabaseSettings(serverWith({}, { memberships: ['pg_monitor'] })), [
+    'the server connects as school_election_app, which is a member of pg_monitor; the runtime role must hold nothing else',
+  ])
+})
+
 test('the development and CI launcher sets every required setting', async () => {
   const script = await readFile(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../scripts/postgres.sh'), 'utf8')
   for (const { name, expected } of REQUIRED_SETTINGS) {
@@ -75,6 +91,15 @@ dbTest('a per-role override on the server is caught, because the check runs as t
   assert.deepEqual(await checkDatabaseSettings(db), [
     'log_min_error_statement is error, must be panic: any other value would let the server log statements or their parameters',
   ])
+})
+
+dbTest('connecting as the owner superuser is refused', async (t) => {
+  const testDb = await createTestDatabase(t)
+  const db = createDatabase(testDb.ownerUrl, () => {})
+  t.after(() => db.close())
+  const problems = await checkDatabaseSettings(db)
+  assert.ok(problems.some((p) => /connects as postgres, which has superuser/.test(p)), problems.join('\n'))
+  assert.ok(problems.some((p) => /which owns the database/.test(p)), problems.join('\n'))
 })
 
 dbTest('the test server passes the check on the runtime connection', async (t) => {

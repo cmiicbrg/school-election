@@ -74,6 +74,25 @@ dbTest('concurrent runs are serialised', async (t) => {
   assert.deepEqual(results.map((r) => r.length).sort(), [0, 2])
 })
 
+dbTest('a runtime role given more rights by hand is brought back down', async (t) => {
+  const db = await createTestDatabase(t)
+  await withClient(db.ownerUrl, (c) => c.query('alter role school_election_app createdb createrole replication bypassrls'))
+  await run(db.ownerUrl)
+  const { rows } = await withClient(db.ownerUrl, (c) => c.query<Record<string, boolean>>(
+    'select rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolcanlogin from pg_roles where rolname = $1', ['school_election_app'],
+  ))
+  assert.deepEqual(rows[0], { rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false, rolbypassrls: false, rolcanlogin: true })
+})
+
+dbTest('a runtime role with an extra membership is refused, not silently changed', async (t) => {
+  const db = await createTestDatabase(t)
+  await withClient(db.ownerUrl, (c) => c.query('grant pg_monitor to school_election_app'))
+  // Roles are cluster-wide: undo it on the server connection, which outlives
+  // this test's database, so the other tests find the role as they expect.
+  t.after(() => withClient(process.env.TEST_DATABASE_URL ?? '', (c) => c.query('revoke pg_monitor from school_election_app')))
+  await assert.rejects(run(db.ownerUrl), /school_election_app is a member of pg_monitor; revoke that first/)
+})
+
 dbTest('the runtime role can connect but cannot create objects or read the migration records', async (t) => {
   const db = await createTestDatabase(t)
   await withClient(db.runtimeUrl, async (client) => {
