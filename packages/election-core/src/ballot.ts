@@ -11,19 +11,17 @@
 
 import { activeSlots, isRulesetId, RULESETS, type RulesetId, type Slot } from './rulesets.ts'
 
-export type CandidateId = string
-
 export interface Contest {
   readonly rulesetId: RulesetId
   /** Every candidate standing in this contest, in display order. */
-  readonly candidateIds: readonly CandidateId[]
+  readonly candidateIds: readonly string[]
 }
 
 declare const validBallot: unique symbol
 
 /** A ballot that passed validateBallot, bound to that contest. */
 export interface ValidBallot {
-  readonly ranking: readonly CandidateId[]
+  readonly ranking: readonly string[]
   readonly [validBallot]: true
 }
 

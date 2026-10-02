@@ -6,10 +6,10 @@
 // output depends on the configuration and the multiset of ballots, never on
 // the order the ballots arrive in.
 
-import { contestKey, contestSlots, isBallotFor, type CandidateId, type Contest, type ValidBallot } from './ballot.ts'
+import { contestKey, contestSlots, isBallotFor, type Contest, type ValidBallot } from './ballot.ts'
 
 export interface CandidateStatistics {
-  readonly candidateId: CandidateId
+  readonly candidateId: string
   /** Ballots ranking this candidate in the top slot. */
   readonly firstPlaces: number
   /** rankCounts[i] = ballots placing this candidate in slot i + 1, one entry per active slot. */
@@ -27,7 +27,7 @@ export interface ContestStatistics {
 export function computeStatistics(contest: Contest, ballots: readonly ValidBallot[]): ContestStatistics {
   const slots = contestSlots(contest)
   const key = contestKey(contest)
-  const counts = new Map<CandidateId, number[]>(
+  const counts = new Map<string, number[]>(
     contest.candidateIds.map((id) => [id, Array.from({ length: slots.length }, () => 0)]),
   )
 

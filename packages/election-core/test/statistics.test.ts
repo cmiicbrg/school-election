@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 import {
   computeStatistics,
   validateBallot,
-  type CandidateId,
   type Contest,
   type ContestStatistics,
   type RulesetId,
@@ -15,7 +14,7 @@ function contest(candidates: number, rulesetId: RulesetId = 'at-school-speaker-v
   return { rulesetId, candidateIds: Array.from({ length: candidates }, (_, i) => `c${i + 1}`) }
 }
 
-function ballot(c: Contest, ranking: readonly CandidateId[]): ValidBallot {
+function ballot(c: Contest, ranking: readonly string[]): ValidBallot {
   const result = validateBallot(c, ranking)
   if (!result.ok) throw new Error(`test ballot invalid: ${result.error.kind}`)
   return result.ballot
@@ -134,7 +133,7 @@ test('a copy of a valid ballot with a different ranking is refused', () => {
 // same ordering and the same ties. The rescaled scale exists only in this
 // test; production code uses the statutory points alone.
 
-function rescaledTotals(c: Contest, ballots: readonly ValidBallot[]): Map<CandidateId, number> {
+function rescaledTotals(c: Contest, ballots: readonly ValidBallot[]): Map<string, number> {
   const n = c.candidateIds.length
   const totals = new Map(c.candidateIds.map((id) => [id, 0]))
   for (const b of ballots) b.ranking.forEach((id, slot) => totals.set(id, (totals.get(id) ?? 0) + (n - slot)))

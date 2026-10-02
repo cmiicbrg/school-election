@@ -22,7 +22,6 @@ export {
   validateBallot,
   type BallotError,
   type BallotResult,
-  type CandidateId,
   type Contest,
   type ValidBallot,
 } from './ballot.ts'
