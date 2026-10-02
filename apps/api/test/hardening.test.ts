@@ -134,12 +134,12 @@ test('message lines are never logged as stack frames', async (t) => {
   assert.match(logs(), /hardening\.test\.ts/)
 })
 
-test('only a local debug log shows the error message', async (t) => {
+test('a local debug log leaves the error message out too', async (t) => {
   const { app, logs } = await appWithTestRoutes({ PUBLIC_ORIGIN: 'http://localhost:5173', LOG_LEVEL: 'debug' })
   t.after(() => app.close())
   await app.inject({ method: 'POST', url: '/api/test/throw', headers: sameOrigin, payload: {} })
-  assert.match(logs(), /MESSAGESECRET/)
-  assert.ok(!logs().includes('DETAILSECRET'))
+  assert.match(logs(), /request failed/)
+  for (const secret of ['MESSAGESECRET', 'DETAILSECRET']) assert.ok(!logs().includes(secret), `log contains ${secret}`)
 })
 
 test('an unparsable body is refused without echoing it', async (t) => {

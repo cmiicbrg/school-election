@@ -141,10 +141,11 @@ function isAddressOrCidr(entry: string): boolean {
   return /^\d+$/.test(prefix) && Number(prefix) <= (family === 4 ? 32 : 128)
 }
 
-// debug and trace exist for local development only. They log error
-// messages, so they need both a loopback origin and a loopback listening
-// address: a server anyone else can reach, such as a container listening on
-// 0.0.0.0, cannot switch them on, whatever its origin says.
+// debug and trace exist for local development only: libraries log more at
+// those levels than this application controls. They need both a loopback
+// origin and a loopback listening address, so a server anyone else can
+// reach, such as a container listening on 0.0.0.0, cannot switch them on,
+// whatever its origin says.
 function parseLogLevel(raw: string | undefined, local: boolean): LogLevel {
   const value = raw?.trim() || 'info'
   if (value === 'info' || value === 'warn' || value === 'error') return value

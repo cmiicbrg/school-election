@@ -14,9 +14,6 @@ export interface AppOptions {
 }
 
 export async function buildApp(config: Config, options: AppOptions = {}): Promise<FastifyInstance> {
-  // debug and trace are possible only with a loopback origin (config.ts),
-  // i.e. on a developer's machine.
-  const verbose = config.logLevel === 'debug' || config.logLevel === 'trace'
   const app = Fastify({
     logger: {
       level: config.logLevel,
@@ -28,15 +25,14 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         req: (req: FastifyRequest) => ({ method: req.method, path: pathOf(req.url) }),
         res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
         // An error is logged by type, code (e.g. a database SQLSTATE) and
-        // stack frames. Its message is not: exception text can quote a key, a
-        // ballot or a database value, and database errors also carry
-        // `detail` and parameters, which are dropped as well. Only a local
-        // debug log shows the message.
+        // stack frames, at every log level. Its message is not: exception
+        // text can quote a key, a ballot or a database value, and database
+        // errors also carry `detail` and parameters, which are dropped too.
         err: (err: FastifyError) => ({
           type: err.name,
-          message: verbose ? err.message : '[not logged]',
+          message: '[not logged]',
           code: typeof err.code === 'string' ? err.code : undefined,
-          stack: verbose ? (err.stack ?? '') : stackFrames(err),
+          stack: stackFrames(err),
         }),
       },
       ...(options.logStream ? { stream: options.logStream } : {}),
