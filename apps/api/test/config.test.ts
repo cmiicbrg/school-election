@@ -1,8 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ConfigError, loadConfig, readSecret } from '../config.ts'
+import { ConfigError, loadConfig, loadMigrationConfig, readSecret } from '../config.ts'
+import { DB_ENV, secretFile } from './helpers/env.ts'
 
-const valid = { PUBLIC_ORIGIN: 'https://wahl.example.org' }
+const base = DB_ENV
+const valid = { ...base, PUBLIC_ORIGIN: 'https://wahl.example.org' }
 
 function problem(env: Record<string, string>): string {
   try {
@@ -31,18 +33,18 @@ test('PUBLIC_ORIGIN is required, and every problem is named in one message', () 
 })
 
 test('PUBLIC_ORIGIN must be https, except on loopback', () => {
-  assert.match(problem({ PUBLIC_ORIGIN: 'http://wahl.example.org' }), /must use https/)
-  assert.match(problem({ PUBLIC_ORIGIN: 'http://10.0.0.5:3000' }), /must use https/)
+  assert.match(problem({ ...base, PUBLIC_ORIGIN: 'http://wahl.example.org' }), /must use https/)
+  assert.match(problem({ ...base, PUBLIC_ORIGIN: 'http://10.0.0.5:3000' }), /must use https/)
   for (const origin of ['http://localhost:5173', 'http://127.0.0.1:3000', 'http://[::1]:3000', 'https://wahl.example.org:8443']) {
-    assert.equal(loadConfig({ PUBLIC_ORIGIN: origin }).publicOrigin, new URL(origin).origin)
+    assert.equal(loadConfig({ ...base, PUBLIC_ORIGIN: origin }).publicOrigin, new URL(origin).origin)
   }
 })
 
 test('PUBLIC_ORIGIN must be a bare origin', () => {
   for (const origin of ['https://wahl.example.org/app', 'https://wahl.example.org/?a=1', 'https://user:pw@wahl.example.org', 'wahl.example.org', 'ftp://wahl.example.org']) {
-    assert.throws(() => loadConfig({ PUBLIC_ORIGIN: origin }), ConfigError, origin)
+    assert.throws(() => loadConfig({ ...base, PUBLIC_ORIGIN: origin }), ConfigError, origin)
   }
-  assert.equal(loadConfig({ PUBLIC_ORIGIN: 'https://wahl.example.org/' }).publicOrigin, 'https://wahl.example.org')
+  assert.equal(loadConfig({ ...base, PUBLIC_ORIGIN: 'https://wahl.example.org/' }).publicOrigin, 'https://wahl.example.org')
 })
 
 test('TRUST_PROXY takes addresses and CIDRs only', () => {
@@ -56,10 +58,10 @@ test('debug logging is refused unless both the origin and the listening address 
   assert.match(problem({ ...valid, LOG_LEVEL: 'debug' }), /LOG_LEVEL=debug is allowed only with a loopback PUBLIC_ORIGIN and HOST/)
   assert.match(problem({ ...valid, LOG_LEVEL: 'trace' }), /LOG_LEVEL=trace/)
   for (const HOST of ['0.0.0.0', '::', '192.168.1.10']) {
-    assert.match(problem({ PUBLIC_ORIGIN: 'http://localhost:5173', HOST, LOG_LEVEL: 'debug' }), /LOG_LEVEL=debug/, HOST)
+    assert.match(problem({ ...base, PUBLIC_ORIGIN: 'http://localhost:5173', HOST, LOG_LEVEL: 'debug' }), /LOG_LEVEL=debug/, HOST)
   }
-  assert.equal(loadConfig({ PUBLIC_ORIGIN: 'http://localhost:5173', LOG_LEVEL: 'debug' }).logLevel, 'debug')
-  assert.equal(loadConfig({ PUBLIC_ORIGIN: 'http://localhost:5173', HOST: '::1', LOG_LEVEL: 'trace' }).logLevel, 'trace')
+  assert.equal(loadConfig({ ...base, PUBLIC_ORIGIN: 'http://localhost:5173', LOG_LEVEL: 'debug' }).logLevel, 'debug')
+  assert.equal(loadConfig({ ...base, PUBLIC_ORIGIN: 'http://localhost:5173', HOST: '::1', LOG_LEVEL: 'trace' }).logLevel, 'trace')
   assert.equal(loadConfig({ ...valid, LOG_LEVEL: 'warn' }).logLevel, 'warn')
 })
 
@@ -71,7 +73,7 @@ test('PORT must be a valid port', () => {
 test('NODE_ENV changes none of these outcomes', () => {
   const cases: Record<string, string>[] = [
     valid,
-    { PUBLIC_ORIGIN: 'http://wahl.example.org' },
+    { ...base, PUBLIC_ORIGIN: 'http://wahl.example.org' },
     { ...valid, LOG_LEVEL: 'debug' },
     { ...valid, TRUST_PROXY: 'true' },
     {},
@@ -101,4 +103,35 @@ test('secrets come from *_FILE only, trimmed, never from an inline variable', ()
   assert.throws(() => readSecret({}, 'SESSION_KEY', readFile), /SESSION_KEY_FILE must be set/)
   assert.throws(() => readSecret({ SESSION_KEY_FILE: '/missing' }, 'SESSION_KEY', readFile), /cannot read \/missing/)
   assert.throws(() => readSecret({ SESSION_KEY_FILE: '/run/secrets/empty' }, 'SESSION_KEY', readFile), /is empty/)
+})
+
+test('the runtime database password comes from a file, never from the URL', () => {
+  assert.equal(loadConfig(valid).databaseUrl, 'postgres://school_election_app:test-password@127.0.0.1:5432/school_election')
+  assert.match(problem({ ...valid, DATABASE_URL: 'postgres://school_election_app:inline@127.0.0.1/school_election' }), /DATABASE_URL must not contain a password/)
+  assert.match(problem({ ...valid, DATABASE_PASSWORD: 'inline' }), /DATABASE_PASSWORD must not be set/)
+  assert.match(problem({ PUBLIC_ORIGIN: valid.PUBLIC_ORIGIN }), /DATABASE_URL must be set/)
+  for (const url of ['mysql://u@h/db', 'postgres://127.0.0.1/db', 'postgres://u@127.0.0.1/', 'not a url']) {
+    assert.match(problem({ ...valid, DATABASE_URL: url }), /DATABASE_URL/, url)
+  }
+})
+
+test('a password with special characters is encoded into the URL', () => {
+  for (const password of ['p@ss:w/rd%', '%25', 'a b#c?d', 'ü€']) {
+    const env = { ...valid, DATABASE_PASSWORD_FILE: secretFile('special', `${password}\n`) }
+    assert.equal(decodeURIComponent(new URL(loadConfig(env).databaseUrl).password), password)
+  }
+})
+
+test('the migrator reads its owner URL and both passwords from their own variables', () => {
+  const env = {
+    MIGRATION_DATABASE_URL: 'postgres://postgres@127.0.0.1:5432/school_election',
+    MIGRATION_DATABASE_PASSWORD_FILE: secretFile('owner', 'owner-pw'),
+    DB_RUNTIME_PASSWORD_FILE: secretFile('runtime', 'runtime-pw'),
+  }
+  assert.deepEqual(loadMigrationConfig(env), {
+    databaseUrl: 'postgres://postgres:owner-pw@127.0.0.1:5432/school_election',
+    runtimePassword: 'runtime-pw',
+  })
+  assert.throws(() => loadMigrationConfig({ ...env, DB_RUNTIME_PASSWORD: 'inline' }), /DB_RUNTIME_PASSWORD must not be set/)
+  assert.throws(() => loadMigrationConfig({}), /MIGRATION_DATABASE_URL must be set[\s\S]*DB_RUNTIME_PASSWORD_FILE must be set/)
 })

@@ -9,13 +9,18 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env server.ts",
     "dev": "node --watch --env-file-if-exists=.env server.ts",
-    "test": "node --test \"test/**/*.test.ts\"",
+    "migrate": "node --env-file-if-exists=.env scripts/migrate.ts",
+    "test": "node --test --test-concurrency=1 \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@fastify/helmet": "13.1.1",
     "@fastify/static": "10.1.5",
     "fastify": "5.12.5",
+    "pg": "8.23.1",
     "typebox": "1.3.34"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1"
   }
 }

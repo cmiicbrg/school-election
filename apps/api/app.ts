@@ -4,16 +4,19 @@ import Fastify, { LogController, type FastifyError, type FastifyInstance, type F
 import helmet from '@fastify/helmet'
 import fastifyStatic from '@fastify/static'
 import type { Config } from './config.ts'
+import type { Database } from './lib/db.ts'
 import { ErrorResponse, HealthResponse } from './lib/schemas/common.ts'
 import { pathOf } from './lib/url.ts'
 import { applyHardening } from './plugins/hardening.ts'
 
 export interface AppOptions {
+  db: Database
   /** Where log lines go; tests capture them. Defaults to stdout. */
   logStream?: Writable
 }
 
-export async function buildApp(config: Config, options: AppOptions = {}): Promise<FastifyInstance> {
+export async function buildApp(config: Config, options: AppOptions): Promise<FastifyInstance> {
+  const { db } = options
   const app = Fastify({
     logger: {
       level: config.logLevel,
@@ -82,7 +85,15 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   const webDist = existsSync(config.webDistDir) ? config.webDistDir : undefined
   applyHardening(app, config, { webDist })
 
-  app.get('/api/health', { schema: { response: { '200': HealthResponse, '4xx': ErrorResponse } } }, () => ({ status: 'ok' as const }))
+  app.get('/api/health', { schema: { response: { '200': HealthResponse, '503': HealthResponse, '4xx': ErrorResponse } } }, async (_request, reply) => {
+    try {
+      await db.query('select 1')
+      return { status: 'ok' as const, db: 'up' as const }
+    } catch (err) {
+      reply.log.warn({ err }, 'health: database unreachable')
+      return reply.code(503).send({ status: 'degraded', db: 'down' })
+    }
+  })
 
   if (webDist) {
     await app.register(fastifyStatic, {

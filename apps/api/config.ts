@@ -19,6 +19,15 @@ export interface Config {
   trustProxy: string[]
   logLevel: LogLevel
   webDistDir: string
+  /** Runtime connection, as the unprivileged role, password included. */
+  databaseUrl: string
+}
+
+export interface MigrationConfig {
+  /** Owner connection, password included. Never given to the server. */
+  databaseUrl: string
+  /** Password the migrator sets on the runtime role. */
+  runtimePassword: string
 }
 
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug' | 'trace'
@@ -54,13 +63,64 @@ export function loadConfig(env: Env): Config {
     trustProxy: check(() => parseTrustProxy(env.TRUST_PROXY), []),
     logLevel: check(() => parseLogLevel(env.LOG_LEVEL, local), 'info'),
     webDistDir: env.WEB_DIST_DIR?.trim() || path.resolve(here, '..', 'web', 'dist'),
+    databaseUrl: check(() => databaseUrl(env, 'DATABASE_URL', 'DATABASE_PASSWORD'), ''),
   }
 
-  if (problems.length > 0) {
-    const list = problems.map((problem) => '  - ' + problem).join('\n')
-    throw new ConfigError(`invalid configuration:\n${list}`)
-  }
+  throwIfAny(problems)
   return config
+}
+
+/** What the migrator needs; the server never reads these variables. */
+export function loadMigrationConfig(env: Env): MigrationConfig {
+  const problems: string[] = []
+  const check = (parse: () => string): string => {
+    try {
+      return parse()
+    } catch (err) {
+      if (!(err instanceof ConfigError)) throw err
+      problems.push(err.message)
+      return ''
+    }
+  }
+  const config = {
+    databaseUrl: check(() => databaseUrl(env, 'MIGRATION_DATABASE_URL', 'MIGRATION_DATABASE_PASSWORD')),
+    runtimePassword: check(() => readSecret(env, 'DB_RUNTIME_PASSWORD')),
+  }
+  throwIfAny(problems)
+  return config
+}
+
+function throwIfAny(problems: string[]): void {
+  if (problems.length === 0) return
+  const list = problems.map((problem) => '  - ' + problem).join('\n')
+  throw new ConfigError(`invalid configuration:\n${list}`)
+}
+
+// A postgres:// URL without a password, plus the password from its secret
+// file. A password written into the URL would end up wherever the variable
+// is visible, so it is refused.
+function databaseUrl(env: Env, urlName: string, secretName: string): string {
+  const raw = env[urlName]?.trim()
+  if (!raw) throw new ConfigError(`${urlName} must be set, e.g. postgres://user@host:5432/database`)
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    throw new ConfigError(`${urlName} is not a URL`)
+  }
+  if (url.protocol !== 'postgres:' && url.protocol !== 'postgresql:') {
+    throw new ConfigError(`${urlName} must be a postgres:// URL`)
+  }
+  if (url.password !== '') {
+    throw new ConfigError(`${urlName} must not contain a password; set ${secretName}_FILE instead`)
+  }
+  if (url.username === '' || url.pathname.length <= 1) {
+    throw new ConfigError(`${urlName} must name a user and a database`)
+  }
+  // Encoded explicitly: the URL setter leaves '%' as it is, so a password
+  // containing one would be decoded into something else on connect.
+  url.password = encodeURIComponent(readSecret(env, secretName))
+  return url.toString()
 }
 
 /**
