@@ -57,6 +57,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: ShellCheck
+        run: shellcheck --severity=warning scripts/*.sh
+
       - name: Hadolint
         uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
         with:
@@ -92,7 +95,17 @@ jobs:
 
       - run: npm ci --ignore-scripts
 
+      # The same launcher developers use, so CI runs the database tests
+      # against a server with exactly the settings the app requires.
+      - name: Start PostgreSQL
+        run: |
+          printf '%s' ci-owner-password > "$RUNNER_TEMP/pg-owner-password"
+          scripts/postgres.sh school-election-test-db 5432 "$RUNNER_TEMP/pg-owner-password"
+
       - run: npm test
+        env:
+          # With CI set, database tests fail instead of skipping if this is missing.
+          TEST_DATABASE_URL: postgres://postgres:ci-owner-password@127.0.0.1:5432/postgres
 
   # Build the deployment image on every PR. Publishing only happens on v*
   # tags, so without this a broken Dockerfile or a moved base image would not
@@ -140,9 +153,9 @@ jobs:
             exit 1
           fi
 
-          # Keeps the container name free if the step is retried in place, and
-          # stops a failed assertion from leaving a container running.
-          cleanup() { docker rm -f school-election-ci >/dev/null 2>&1 || true; }
+          # Keeps the container names free if the step is retried in place, and
+          # stops a failed assertion from leaving containers running.
+          cleanup() { docker rm -f school-election-ci school-election-ci-db >/dev/null 2>&1 || true; }
           trap cleanup EXIT
           cleanup
 
@@ -160,19 +173,56 @@ jobs:
             exit 1
           fi
 
-          docker run -d --name school-election-ci --network host \
-            -e PUBLIC_ORIGIN=http://127.0.0.1:3000 \
-            school-election:ci
+          # A database with the production settings, the secrets as files
+          # readable by the image's uid 10001, and only the runtime password
+          # given to the app container.
+          printf '%s' ci-owner-password > "$RUNNER_TEMP/owner-password"
+          printf '%s' 'ci runtime p@ss:w/rd%' > "$RUNNER_TEMP/runtime-password"
+          chmod 644 "$RUNNER_TEMP/owner-password" "$RUNNER_TEMP/runtime-password"
+          scripts/postgres.sh school-election-ci-db 5432 "$RUNNER_TEMP/owner-password"
 
-          ok=0
-          for _ in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1; then ok=1; break; fi
-            sleep 1
-          done
-
-          docker logs school-election-ci
-          if [ "$ok" -ne 1 ]; then
+          migrate() {
+            docker run --rm --network host \
+              -v "$RUNNER_TEMP/owner-password:/run/secrets/owner-password:ro" \
+              -v "$RUNNER_TEMP/runtime-password:/run/secrets/runtime-password:ro" \
+              -e MIGRATION_DATABASE_URL=postgres://postgres@127.0.0.1:5432/school_election \
+              -e MIGRATION_DATABASE_PASSWORD_FILE=/run/secrets/owner-password \
+              -e DB_RUNTIME_PASSWORD_FILE=/run/secrets/runtime-password \
+              school-election:ci node apps/api/scripts/migrate.ts
+          }
+          wait_healthy() {
+            for _ in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1; then return 0; fi
+              sleep 1
+            done
+            docker logs school-election-ci
             echo "image did not become healthy within 30s" >&2
+            return 1
+          }
+
+          migrate
+
+          docker run -d --name school-election-ci --network host \
+            -v "$RUNNER_TEMP/runtime-password:/run/secrets/runtime-password:ro" \
+            -e PUBLIC_ORIGIN=http://127.0.0.1:3000 \
+            -e DATABASE_URL=postgres://school_election_app@127.0.0.1:5432/school_election \
+            -e DATABASE_PASSWORD_FILE=/run/secrets/runtime-password \
+            school-election:ci
+          wait_healthy
+          docker logs school-election-ci
+
+          body="$(curl -fsS http://127.0.0.1:3000/api/health)"
+          if [ "$body" != '{"status":"ok","db":"up"}' ]; then
+            echo "Expected the image to reach the database as the runtime role, got: $body" >&2
+            exit 1
+          fi
+
+          # A redeploy: restart the container and run the migrations again,
+          # which must be a no-op, with no manual step in between.
+          docker restart school-election-ci >/dev/null
+          wait_healthy
+          if ! migrate | grep -q 'nothing to apply'; then
+            echo "Expected a second migration run to be a no-op" >&2
             exit 1
           fi
 

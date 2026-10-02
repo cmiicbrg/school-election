@@ -15,5 +15,6 @@ export const ErrorResponse = StrictObject({
 })
 
 export const HealthResponse = StrictObject({
-  status: Type.Literal('ok'),
+  status: Type.Union([Type.Literal('ok'), Type.Literal('degraded')]),
+  db: Type.Union([Type.Literal('up'), Type.Literal('down')]),
 })

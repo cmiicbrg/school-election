@@ -32,7 +32,7 @@ test('security headers come from the application', async (t) => {
   t.after(() => app.close())
   const res = await app.inject({ method: 'GET', url: '/api/health' })
   assert.equal(res.statusCode, 200)
-  assert.deepEqual(res.json(), { status: 'ok' })
+  assert.deepEqual(res.json(), { status: 'ok', db: 'up' })
   assert.match(String(res.headers['content-security-policy']), /frame-ancestors 'none'/)
   assert.equal(res.headers['x-content-type-options'], 'nosniff')
   assert.equal(res.headers['referrer-policy'], 'no-referrer')

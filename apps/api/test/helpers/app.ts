@@ -5,6 +5,8 @@ import { Writable } from 'node:stream'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../../app.ts'
 import { loadConfig } from '../../config.ts'
+import type { Database } from '../../lib/db.ts'
+import { DB_ENV } from './env.ts'
 
 export const ORIGIN = 'https://wahl.example.org'
 
@@ -14,11 +16,16 @@ export interface TestApp {
   logs: () => string
 }
 
+/** A database that answers every query with one empty row; for tests that do not touch data. */
+export function stubDatabase(query: Database['query'] = () => Promise.resolve({ rows: [{}] }) as never): Database {
+  return { query, tx: async (fn) => fn({ query } as never), close: async () => {} }
+}
+
 /**
  * The app as production builds it, from an environment, with log output
  * captured. Routes can still be added before the first inject().
  */
-export async function buildTestApp(env: Record<string, string> = {}): Promise<TestApp> {
+export async function buildTestApp(env: Record<string, string> = {}, db: Database = stubDatabase()): Promise<TestApp> {
   let captured = ''
   const logStream = new Writable({
     write(chunk: Buffer, _encoding, done) {
@@ -26,8 +33,8 @@ export async function buildTestApp(env: Record<string, string> = {}): Promise<Te
       done()
     },
   })
-  const config = loadConfig({ PUBLIC_ORIGIN: ORIGIN, WEB_DIST_DIR: path.join(tmpdir(), 'no-web-build-here'), ...env })
-  const app = await buildApp(config, { logStream })
+  const config = loadConfig({ ...DB_ENV, PUBLIC_ORIGIN: ORIGIN, WEB_DIST_DIR: path.join(tmpdir(), 'no-web-build-here'), ...env })
+  const app = await buildApp(config, { db, logStream })
   return { app, logs: () => captured }
 }
 
