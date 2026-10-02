@@ -9,10 +9,10 @@
 // A voter cannot award the top points and withhold the rest, because the
 // lower positions decide deputies and runoff tiebreaks. An empty array is a
 // deliberate blank ballot: it is cast and counted, but it is an invalid vote
-// and gives nobody points or a first place. Whether it counts toward the base
-// of the majority rule is decided by the result rules (docs/design.md). A
-// partly filled ballot is rejected rather than turned into an invalid vote,
-// so a slip on the phone cannot silently void a vote.
+// and gives nobody points or a first place. It does count toward the base of
+// the majority rule, which is every ballot cast (docs/design.md). A partly
+// filled ballot is rejected rather than turned into an invalid vote, so a
+// slip on the phone cannot silently void a vote.
 
 import { activeSlots, isRulesetId, RULESETS, type RulesetId, type Slot } from './rulesets.ts'
 

@@ -2,7 +2,8 @@
 // every later result step (majority, runoff selection, derived positions) is
 // computed from, and the figures witnesses see in the result derivation.
 // Blank ballots are counted on their own; they are invalid votes and give
-// nobody points or a first place.
+// nobody points or a first place, but they are part of the majority base,
+// which is every ballot cast: validBallots + blankBallots.
 //
 // Integer arithmetic only, and candidates come back in contest order, so the
 // output depends on the configuration and the multiset of ballots, never on
@@ -23,7 +24,7 @@ export interface CandidateStatistics {
 export interface ContestStatistics {
   /** Ballots with a complete ranking. */
   readonly validBallots: number
-  /** Deliberately empty ballots: cast, but invalid votes. */
+  /** Deliberately empty ballots: invalid votes, but part of the majority base. */
   readonly blankBallots: number
   /** One entry per candidate, in the contest's candidate order. */
   readonly candidates: readonly CandidateStatistics[]
