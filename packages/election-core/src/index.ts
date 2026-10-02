@@ -19,9 +19,10 @@ export {
 
 export {
   contestSlots,
-  isBlank,
+  offersNo,
   validateBallot,
   type BallotError,
+  type BallotKind,
   type BallotResult,
   type Contest,
   type CastBallot,

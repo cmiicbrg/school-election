@@ -31,7 +31,7 @@ These take precedence over convenience:
 
 - Ballots are never persistently linked to a credential, entitlement, session, user or each other (no timestamps or request metadata on ballots).
 - Raw credentials never reach the database, logs or a server-visible URL. QR codes carry them in the URL fragment.
-- Statutory points are fixed (`6..1`, `2, 1`). Smaller candidate counts use a prefix and are never rescaled. A ballot fills every active slot, or none: an empty ballot is a deliberate blank (invalid) vote, a partly filled one is rejected.
+- Statutory points are fixed (`6..1`, `2, 1`). Smaller candidate counts use a prefix and are never rescaled. A ranking fills every active slot; a partly filled or empty one is rejected. A blank (invalid) vote is its own explicit form, and "Nein" exists only in single-candidate contests. The majority base is the valid ballots.
 - No hidden tiebreaks: a statutory lot is an explicit, audited human action.
 - Authorization and security headers live in the application, never in nginx.
 

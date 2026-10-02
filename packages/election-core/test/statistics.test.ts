@@ -14,11 +14,15 @@ function contest(candidates: number, rulesetId: RulesetId = 'at-school-speaker-v
   return { id, rulesetId, candidateIds: Array.from({ length: candidates }, (_, i) => `c${i + 1}`) }
 }
 
-function ballot(c: Contest, ranking: readonly string[]): CastBallot {
-  const result = validateBallot(c, ranking)
+function cast(c: Contest, input: unknown): CastBallot {
+  const result = validateBallot(c, input)
   if (!result.ok) throw new Error(`test ballot invalid: ${result.error.kind}`)
   return result.ballot
 }
+
+const ballot = (c: Contest, ranking: readonly string[]) => cast(c, { kind: 'ranking', ranking })
+const blank = (c: Contest) => cast(c, { kind: 'blank' })
+const no = (c: Contest) => cast(c, { kind: 'no' })
 
 function randomBallots(random: () => number, c: Contest, count: number): CastBallot[] {
   const slots = Math.min(c.candidateIds.length, 6)
@@ -36,6 +40,7 @@ test('first places, rank counts and statutory points for a worked example', () =
   ])
   assert.deepEqual(stats, {
     validBallots: 3,
+    noBallots: 0,
     blankBallots: 0,
     candidates: [
       { candidateId: 'alice', firstPlaces: 2, rankCounts: [2, 1, 0], points: 2 * 6 + 1 * 5 },
@@ -65,16 +70,17 @@ test('representative contests count 2 and 1 points', () => {
 test('no ballots: every count is zero', () => {
   const stats = computeStatistics(contest(4), [])
   assert.equal(stats.validBallots, 0)
+  assert.equal(stats.noBallots, 0)
   assert.equal(stats.blankBallots, 0)
   assert.ok(stats.candidates.every((s) => s.points === 0 && s.firstPlaces === 0 && s.rankCounts.length === 4))
 })
 
-test('blank ballots are counted on their own and change neither points nor the valid-ballot base', () => {
+test('blank ballots are counted on their own and change neither points nor the valid-ballot count', () => {
   const random = prng(0xb1a4c)
   for (const n of [1, 3, 6, 9]) {
     const c = contest(n)
     const ranked = randomBallots(random, c, 50)
-    const blanks = Array.from({ length: 7 }, () => ballot(c, []))
+    const blanks = Array.from({ length: 7 }, () => blank(c))
     const withBlanks = computeStatistics(c, shuffle(random, [...ranked, ...blanks]))
     const withoutBlanks = computeStatistics(c, ranked)
     assert.equal(withBlanks.validBallots, 50)
@@ -85,21 +91,37 @@ test('blank ballots are counted on their own and change neither points nor the v
 
 test('only blank ballots: no valid ballots and nobody has points', () => {
   const c = contest(3)
-  const stats = computeStatistics(c, [ballot(c, []), ballot(c, [])])
+  const stats = computeStatistics(c, [blank(c), blank(c)])
   assert.equal(stats.validBallots, 0)
   assert.equal(stats.blankBallots, 2)
   assert.ok(stats.candidates.every((s) => s.points === 0 && s.firstPlaces === 0))
 })
 
 test('a blank ballot from another contest is refused like any other', () => {
-  assert.throws(() => computeStatistics(contest(3), [ballot(contest(4), [])]), TypeError)
+  assert.throws(() => computeStatistics(contest(3), [blank(contest(4))]), TypeError)
+})
+
+test('single candidate: "Ja" is a first place, "Nein" is a valid ballot without one, blank is neither', () => {
+  const c = contest(1)
+  const yes = () => ballot(c, ['c1'])
+  const stats = computeStatistics(c, [yes(), yes(), yes(), no(c), no(c), blank(c), blank(c), blank(c), blank(c)])
+  assert.deepEqual(stats, {
+    validBallots: 5,
+    noBallots: 2,
+    blankBallots: 4,
+    candidates: [{ candidateId: 'c1', firstPlaces: 3, rankCounts: [3], points: 3 * 6 }],
+  })
+})
+
+test('a "Nein" ballot from another single-candidate contest is refused', () => {
+  assert.throws(() => computeStatistics(contest(1, 'at-school-speaker-v1', 'b'), [no(contest(1, 'at-school-speaker-v1', 'a'))]), TypeError)
 })
 
 test('statistics do not depend on the order of the ballots', () => {
   const random = prng(0x5eed)
   for (const n of [2, 4, 6, 9]) {
     const c = contest(n)
-    const ballots = [...randomBallots(random, c, 200), ballot(c, []), ballot(c, [])]
+    const ballots = [...randomBallots(random, c, 200), blank(c), blank(c)]
     const expected = computeStatistics(c, ballots)
     for (let round = 0; round < 10; round++) {
       assert.deepEqual(computeStatistics(c, shuffle(random, ballots)), expected)
@@ -133,7 +155,7 @@ test('a ballot from another contest with the same configuration is refused', () 
   const classA = contest(3, 'at-representative-v1', 'class-1a')
   const classB = contest(3, 'at-representative-v1', 'class-1b')
   assert.throws(() => computeStatistics(classB, [ballot(classA, ['c1', 'c2'])]), TypeError)
-  assert.throws(() => computeStatistics(classB, [ballot(classA, [])]), TypeError)
+  assert.throws(() => computeStatistics(classB, [blank(classA)]), TypeError)
 })
 
 test('the binding ignores display order: reordering candidates keeps ballots countable', () => {
@@ -143,11 +165,12 @@ test('the binding ignores display order: reordering candidates keeps ballots cou
   assert.deepEqual(stats.candidates.map((s) => [s.candidateId, s.points]), [['c', 4], ['a', 5], ['b', 6]])
 })
 
-test('a ballot cannot be forged from a plain object, and serialises to its ranking only', () => {
+test('a ballot cannot be forged from a plain object, and serialises to its form only', () => {
   const c = contest(2)
-  const forged = { ranking: ['c1', 'c2'] } as unknown as CastBallot
+  const forged = { kind: 'ranking', ranking: ['c1', 'c2'] } as unknown as CastBallot
   assert.throws(() => computeStatistics(c, [forged]), TypeError)
-  assert.equal(JSON.stringify(ballot(c, ['c2', 'c1'])), '{"ranking":["c2","c1"]}')
+  assert.equal(JSON.stringify(ballot(c, ['c2', 'c1'])), '{"kind":"ranking","ranking":["c2","c1"]}')
+  assert.equal(JSON.stringify(blank(c)), '{"kind":"blank","ranking":[]}')
 })
 
 test('a copy of a valid ballot with a different ranking is refused', () => {
@@ -161,12 +184,12 @@ test('a copy of a valid ballot with a different ranking is refused', () => {
   assert.ok(Object.isFrozen(valid))
 })
 
-// Fixed versus rescaled points. With n ≤ 6 candidates every valid ballot ranks
-// every candidate once, so the statutory scale 6, 5, … (7−n) is the rescaled
-// scale n, n−1, … 1 plus the constant 6−n on every ballot. Over V ballots
-// each candidate's statutory total is its rescaled total plus V·(6−n): the
-// same ordering and the same ties. The rescaled scale exists only in this
-// test; production code uses the statutory points alone.
+// Fixed versus rescaled points. With n ≤ 6 candidates every complete ranking
+// lists every candidate once, so the statutory scale 6, 5, … (7−n) is the
+// rescaled scale n, n−1, … 1 plus the constant 6−n on every ranking. Over V
+// rankings each candidate's statutory total is its rescaled total plus
+// V·(6−n): the same ordering and the same ties. The rescaled scale exists
+// only in this test; production code uses the statutory points alone.
 
 function rescaledTotals(c: Contest, ballots: readonly CastBallot[]): Map<string, number> {
   const n = c.candidateIds.length

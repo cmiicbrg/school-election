@@ -1,18 +1,20 @@
 // Ballot validation: the single authority on what may be cast.
 //
-// A ballot is an ordered array of candidate ids. Index 0 fills the highest
-// slot, index 1 the next, and so on; the slot, and with it the points, follows
-// from the position alone. That form cannot express a duplicate slot or a
-// skipped one, so the only ways to be wrong are the ones checked below.
+// A ballot comes in one of three explicit forms:
 //
-// A ballot fills every active slot with a distinct candidate, or none at all.
-// A voter cannot award the top points and withhold the rest, because the
-// lower positions decide deputies and runoff tiebreaks. An empty array is a
-// deliberate blank ballot: it is cast and counted, but it is an invalid vote
-// and gives nobody points or a first place. It does count toward the base of
-// the majority rule, which is every ballot cast (docs/design.md). A partly
-// filled ballot is rejected rather than turned into an invalid vote, so a
-// slip on the phone cannot silently void a vote.
+// - { kind: 'ranking', ranking }: an ordered array of candidate ids. Index 0
+//   fills the highest slot, index 1 the next, and so on; the slot, and with
+//   it the points, follows from the position alone, so the form cannot
+//   express a duplicate slot or a skipped one. It must fill every active
+//   slot with a distinct candidate: a voter cannot award the top points and
+//   withhold the rest, because the lower positions decide deputies and
+//   runoff tiebreaks. A partly filled or empty ranking is rejected.
+// - { kind: 'no' }: "Nein", offered only when a contest has a single
+//   candidate, so that voters can vote against them. A valid vote.
+// - { kind: 'blank' }: a deliberate blank ballot, possible in every contest.
+//   It is cast and counted, but it is an invalid vote: it gives nobody points
+//   or a first place and is not part of the majority base. Because it has its
+//   own form, an untouched or truncated ranking can never turn into one.
 
 import { activeSlots, isRulesetId, RULESETS, type RulesetId, type Slot } from './rulesets.ts'
 
@@ -24,13 +26,16 @@ export interface Contest {
   readonly candidateIds: readonly string[]
 }
 
+export type BallotKind = 'ranking' | 'no' | 'blank'
+
 declare const validBallot: unique symbol
 
 /**
- * A ballot accepted by validateBallot and bound to that contest: a complete
- * ranking, or an empty ranking for a blank (invalid) ballot.
+ * A ballot accepted by validateBallot and bound to that contest. `ranking`
+ * holds the complete ranking for kind 'ranking' and is empty otherwise.
  */
 export interface CastBallot {
+  readonly kind: BallotKind
   readonly ranking: readonly string[]
   readonly [validBallot]: true
 }
@@ -47,7 +52,8 @@ const boundContest = new WeakMap<CastBallot, string>()
 // Errors carry positions and counts, never candidate ids: a rejected ballot
 // may end up in a log line or an HTTP response, and its content must not.
 export type BallotError
-  = | { readonly kind: 'malformed', readonly reason: 'not-an-array' | 'sparse-array' | 'non-string-entry' }
+  = | { readonly kind: 'malformed', readonly reason: 'unknown-form' | 'not-an-array' | 'sparse-array' | 'non-string-entry' }
+    | { readonly kind: 'no-not-offered' }
     | { readonly kind: 'inactive-slot', readonly activeSlots: number, readonly entries: number }
     | { readonly kind: 'incomplete', readonly activeSlots: number, readonly entries: number }
     | { readonly kind: 'unknown-candidate', readonly position: number }
@@ -77,37 +83,71 @@ export function contestSlots(contest: Contest): readonly Slot[] {
   return activeSlots(RULESETS[contest.rulesetId], contest.candidateIds.length)
 }
 
+/** Whether the contest offers "Nein": only with a single candidate. */
+export function offersNo(contest: Contest): boolean {
+  return contest.candidateIds.length === 1
+}
+
 export function validateBallot(contest: Contest, input: unknown): BallotResult {
   const slotCount = contestSlots(contest).length
 
-  if (!Array.isArray(input)) return fail({ kind: 'malformed', reason: 'not-an-array' })
+  switch (formOf(input)) {
+    case 'blank':
+      return cast(contest, 'blank', [])
+    case 'no':
+      return offersNo(contest) ? cast(contest, 'no', []) : fail({ kind: 'no-not-offered' })
+    case 'ranking': {
+      const checked = checkRanking(contest, slotCount, (input as { ranking?: unknown }).ranking)
+      return 'error' in checked ? fail(checked.error) : cast(contest, 'ranking', checked.ranking)
+    }
+    default:
+      return fail({ kind: 'malformed', reason: 'unknown-form' })
+  }
+}
+
+function formOf(input: unknown): BallotKind | undefined {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) return undefined
+  if (!Object.hasOwn(input, 'kind')) return undefined
+  const kind = (input as { kind: unknown }).kind
+  return kind === 'ranking' || kind === 'no' || kind === 'blank' ? kind : undefined
+}
+
+function checkRanking(
+  contest: Contest,
+  slotCount: number,
+  input: unknown,
+): { readonly ranking: readonly string[] } | { readonly error: BallotError } {
+  if (!Array.isArray(input)) return { error: { kind: 'malformed', reason: 'not-an-array' } }
   // Checked before the entries so an oversized array is rejected without
   // walking it. With n candidates the (n+1)-th entry would fill a slot that
   // does not exist on this ballot, e.g. the 2-point slot with 4 candidates.
   if (input.length > slotCount) {
-    return fail({ kind: 'inactive-slot', activeSlots: slotCount, entries: input.length })
+    return { error: { kind: 'inactive-slot', activeSlots: slotCount, entries: input.length } }
   }
 
   const entries = input as unknown[]
   for (let i = 0; i < entries.length; i++) {
-    if (!Object.hasOwn(entries, i)) return fail({ kind: 'malformed', reason: 'sparse-array' })
-    if (typeof entries[i] !== 'string') return fail({ kind: 'malformed', reason: 'non-string-entry' })
+    if (!Object.hasOwn(entries, i)) return { error: { kind: 'malformed', reason: 'sparse-array' } }
+    if (typeof entries[i] !== 'string') return { error: { kind: 'malformed', reason: 'non-string-entry' } }
   }
   const ranking = entries as string[]
 
-  if (ranking.length > 0 && ranking.length < slotCount) {
-    return fail({ kind: 'incomplete', activeSlots: slotCount, entries: ranking.length })
+  if (ranking.length < slotCount) {
+    return { error: { kind: 'incomplete', activeSlots: slotCount, entries: ranking.length } }
   }
 
   const candidates = new Set(contest.candidateIds)
   const seen = new Set<string>()
   for (const [position, id] of ranking.entries()) {
-    if (!candidates.has(id)) return fail({ kind: 'unknown-candidate', position })
-    if (seen.has(id)) return fail({ kind: 'duplicate-candidate', position })
+    if (!candidates.has(id)) return { error: { kind: 'unknown-candidate', position } }
+    if (seen.has(id)) return { error: { kind: 'duplicate-candidate', position } }
     seen.add(id)
   }
+  return { ranking }
+}
 
-  const ballot = Object.freeze({ ranking: Object.freeze([...ranking]) }) as unknown as CastBallot
+function cast(contest: Contest, kind: BallotKind, ranking: readonly string[]): BallotResult {
+  const ballot = Object.freeze({ kind, ranking: Object.freeze([...ranking]) }) as unknown as CastBallot
   boundContest.set(ballot, contestKey(contest))
   return { ok: true, ballot }
 }
@@ -125,11 +165,6 @@ export function contestKey(contest: Contest): string {
 function compareCodeUnits(a: string, b: string): number {
   if (a < b) return -1
   return a > b ? 1 : 0
-}
-
-/** A blank ballot: cast, but an invalid vote. */
-export function isBlank(ballot: CastBallot): boolean {
-  return ballot.ranking.length === 0
 }
 
 export function isBallotFor(ballot: CastBallot, key: string): boolean {
