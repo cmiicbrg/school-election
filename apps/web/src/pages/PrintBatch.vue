@@ -44,7 +44,7 @@ const election = ref<ElectionDetail>()
 const groupName = ref('')
 const batch = ref<BatchKeys>()
 const qr = ref(new Map<string, string>())
-/** Every card has its QR image: only then are the sheets shown and printable. */
+/** An issued batch with every card's QR image drawn: only then are the sheets shown and printable. */
 const ready = ref(false)
 const error = ref<string | null>(null)
 const origin = window.location.origin
@@ -69,6 +69,9 @@ async function load(): Promise<void> {
     error.value = err instanceof ApiError ? MESSAGES[err.code] ?? 'Die Stimmkarten konnten nicht geladen werden.' : 'Die Stimmkarten konnten nicht geladen werden.'
     return
   }
+  // A replaced batch keeps its keys for comparing, but they never vote:
+  // no cards, and nothing to draw.
+  if (batch.value.batch.state !== 'issued') return
   try {
     // One image per key, drawn here: the policy allows data: images. The
     // sheets appear, and can be printed, only once every image is there.
@@ -134,7 +137,7 @@ onMounted(() => {
       Dieser Stapel wurde ersetzt. Seine Codes gelten nicht mehr; die neuen Stimmkarten sind der Stapel, der an seine Stelle getreten ist.
     </p>
 
-    <template v-if="ready && batch && election">
+    <template v-if="ready && batch && batch.batch.state === 'issued' && election">
       <section
         v-for="(page, index) in pages"
         :key="index"
