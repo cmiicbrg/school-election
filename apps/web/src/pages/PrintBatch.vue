@@ -13,7 +13,7 @@ import { computed, onMounted, ref } from 'vue'
 import '@fontsource/dm-sans/400.css'
 import '@fontsource/dm-sans/700.css'
 import '@fontsource/jetbrains-mono/400.css'
-import type { Lifecycle, RoundKind } from '@school-election/election-core'
+import { formatKey, type Lifecycle, type RoundKind } from '@school-election/election-core'
 import { apiGet } from '../lib/api.ts'
 import { ApiError } from '../lib/api-rules.ts'
 import { cardsOf, pagesOf, printable, ROUND_LABELS, voterAddress, type Card } from '../lib/sheet.ts'
@@ -52,6 +52,11 @@ const error = ref<string | null>(null)
 const origin = window.location.origin
 
 const cards = computed(() => batch.value ? cardsOf(batch.value.keys.map((entry) => entry.key), origin) : [])
+/** Once the batch's round has closed the API says which keys voted: then the page lists the codes with their use, and prints nothing. */
+const usage = computed(() => batch.value && batch.value.keys.some((entry) => entry.used !== null)
+  ? batch.value.keys.map((entry) => ({ grouped: formatKey(entry.key), used: entry.used === true }))
+  : null)
+const usedCount = computed(() => usage.value?.filter((entry) => entry.used).length ?? 0)
 const pages = computed(() => pagesOf(cards.value))
 const roundLabel = computed(() => batch.value ? ROUND_LABELS[batch.value.batch.roundKind] : '')
 /** An issued batch whose round has not opened: the only kind with sheets. */
@@ -75,8 +80,9 @@ async function load(): Promise<void> {
     return
   }
   // A replaced batch keeps its keys for comparing, but they never vote,
-  // and a batch whose round has opened is not printed any more: no cards
-  // either way, and nothing to draw.
+  // and a batch whose round has opened is not printed any more (once the
+  // round has closed its codes are listed with their use instead): no
+  // cards either way, and nothing to draw.
   if (!prints.value) return
   try {
     // One image per key, drawn here: the policy allows data: images. The
@@ -142,12 +148,49 @@ onMounted(() => {
       Dieser Stapel wurde ersetzt. Seine Codes gelten nicht mehr; die neuen Stimmkarten sind der Stapel, der an seine Stelle getreten ist.
     </output>
     <output
-      v-else-if="batch && election && !prints"
+      v-else-if="batch && election && !prints && !usage"
       class="replaced"
       data-testid="not-printable"
     >
       Die Runde hat begonnen: Die Stimmkarten dieses Stapels werden nicht mehr gedruckt.
     </output>
+
+    <section
+      v-if="usage && batch && election"
+      class="usage"
+      aria-labelledby="usage-heading"
+    >
+      <h2 id="usage-heading">
+        Codes und ihre Verwendung
+      </h2>
+      <p>
+        {{ election.title }} · {{ roundLabel }} · {{ groupName }}: {{ usedCount }} von {{ usage.length }} Codes wurden verwendet. Die Runde ist geschlossen; übrig gebliebene Stimmkarten müssen hier als „nicht verwendet“ erscheinen.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">
+              Code
+            </th>
+            <th scope="col">
+              Verwendung
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="entry in usage"
+            :key="entry.grouped"
+            data-testid="usage"
+          >
+            <td class="key">
+              {{ entry.grouped }}
+            </td>
+            <td>{{ entry.used ? 'verwendet' : 'nicht verwendet' }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
 
     <template v-if="ready && prints && batch && election">
       <section
@@ -205,6 +248,23 @@ header button {
   font: inherit;
   font-size: 1.1rem;
   padding: 0.5rem 1.25rem;
+}
+
+.usage {
+  max-width: 210mm;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.usage table {
+  border-collapse: collapse;
+}
+
+.usage th,
+.usage td {
+  text-align: left;
+  padding: 4px 12px 4px 0;
+  border-bottom: 1px solid #ddd;
 }
 
 /* An <output> is inline by default; these are paragraphs that announce themselves. */

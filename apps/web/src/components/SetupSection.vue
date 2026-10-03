@@ -39,6 +39,8 @@ const draft = reactive({ title: '', description: '' })
 const contestDrafts = reactive<Record<string, { title: string, rulesetId: RulesetId }>>({})
 const candidateDrafts = reactive<Record<string, { surname: string, givenName: string }>>({})
 const groupDrafts = reactive<Record<string, string>>({})
+/** Each group's contests as the page knows them: changed at once on a click, so a second click builds on the first. */
+const votes = reactive<Record<string, string[]>>({})
 const newContest = reactive<{ title: string, rulesetId: RulesetId }>({ title: '', rulesetId: 'at-representative-v1' })
 const newCandidates = reactive<Record<string, { surname: string, givenName: string }>>({})
 const newGroup = ref('')
@@ -54,7 +56,10 @@ watch(() => props.configuration, (configuration) => {
     newCandidates[contest.id] ??= { surname: '', givenName: '' }
     for (const candidate of contest.candidates) candidateDrafts[candidate.id] = { surname: candidate.surname, givenName: candidate.givenName }
   }
-  for (const group of configuration.voterGroups) groupDrafts[group.id] = group.name
+  for (const group of configuration.voterGroups) {
+    groupDrafts[group.id] = group.name
+    votes[group.id] = [...group.contestIds]
+  }
 }, { immediate: true })
 
 const locked = computed(() => lockedText(props.election.state))
@@ -92,9 +97,22 @@ const addGroup = () => run(async () => {
 })
 const saveGroup = (group: VoterGroup) => run(() => apiPatch(`${base.value}/voter-groups/${group.id}`, { name: groupDrafts[group.id] }))
 const removeGroup = (group: VoterGroup) => run(() => apiDelete(`${base.value}/voter-groups/${group.id}`))
-const setVotes = (group: VoterGroup, contestId: string, votes: boolean) => run(() => apiPut(`${base.value}/voter-groups/${group.id}/contests`, {
-  contestIds: votes ? [...group.contestIds, contestId] : group.contestIds.filter((id) => id !== contestId),
-}))
+async function setVotes(group: VoterGroup, contestId: string, checked: boolean): Promise<void> {
+  const before = votes[group.id] ?? [...group.contestIds]
+  const after = checked ? [...new Set([...before, contestId])] : before.filter((id) => id !== contestId)
+  votes[group.id] = after
+  busy.value = true
+  error.value = null
+  try {
+    await apiPut(`${base.value}/voter-groups/${group.id}/contests`, { contestIds: after })
+    emit('changed')
+  } catch (err) {
+    votes[group.id] = before
+    error.value = errorMessage(err)
+  } finally {
+    busy.value = false
+  }
+}
 
 async function picture(candidate: Candidate, action: () => Promise<unknown>): Promise<void> {
   pictureBusy.value = candidate.id
@@ -119,6 +137,10 @@ function fullName(candidate: Candidate): string {
 
 function checked(event: Event): boolean {
   return (event.target as HTMLInputElement).checked
+}
+
+function votesIn(group: VoterGroup, contestId: string): boolean {
+  return (votes[group.id] ?? group.contestIds).includes(contestId)
 }
 </script>
 
@@ -431,7 +453,7 @@ function checked(event: Event): boolean {
         >
           <input
             type="checkbox"
-            :checked="group.contestIds.includes(contest.id)"
+            :checked="votesIn(group, contest.id)"
             :disabled="busy"
             @change="setVotes(group, contest.id, checked($event))"
           >
