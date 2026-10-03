@@ -114,12 +114,12 @@ onMounted(() => {
       >
         {{ error }}
       </p>
-      <p
+      <output
         v-else-if="batch && batch.batch.state === 'issued' && !ready"
-        role="status"
+        class="note"
       >
         Die Stimmkarten werden vorbereitet …
-      </p>
+      </output>
       <button
         v-if="ready"
         type="button"
@@ -129,13 +129,12 @@ onMounted(() => {
       </button>
     </header>
 
-    <p
+    <output
       v-if="batch && batch.batch.state === 'void'"
       class="replaced"
-      role="status"
     >
       Dieser Stapel wurde ersetzt. Seine Codes gelten nicht mehr; die neuen Stimmkarten sind der Stapel, der an seine Stelle getreten ist.
-    </p>
+    </output>
 
     <template v-if="ready && batch && batch.batch.state === 'issued' && election">
       <section
@@ -193,6 +192,12 @@ header button {
   font: inherit;
   font-size: 1.1rem;
   padding: 0.5rem 1.25rem;
+}
+
+/* An <output> is inline by default; these are paragraphs that announce themselves. */
+.note,
+.replaced {
+  display: block;
 }
 
 .replaced {
