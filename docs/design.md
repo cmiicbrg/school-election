@@ -73,6 +73,16 @@ An invalid vote is never cast by accident. Before submitting, the voter sees for
 
 Counting arithmetic is integer-only, and per-candidate output follows the contest's candidate order, so it never depends on the order in which ballots arrive.
 
+## Audit log
+
+The audit log records what administrators do to an election: who acted (the stable Entra identity, tenant and object id, plus the display name), when, the action, and that action's metadata. It never records voter activity: no ballots or ballot content, no keys, no use of an entitlement, no voter sessions or tokens, no request metadata. Each action has a fixed list of metadata fields with a type each; anything else is refused. The actions and their fields are listed in `apps/api/lib/audit.ts`.
+
+An event is written in the same transaction as the change it records, so a change that fails leaves no event. A lock per election makes concurrent changes wait for each other's events, so each election has one linear chain, and the database refuses anything else: one first event per election, and every other event names an earlier event of the same election, by its sequence number and hash, that no other event names. Since every link points to an earlier event, the links cannot form a cycle. The application's database role can add and read events, but not change or remove them.
+
+Each event carries the SHA-256 hash of its content and of the previous event's hash, so anyone holding the events can check them without the server. The hash is taken over the UTF-8 bytes of the canonical JSON of `{ version: 1, electionId, at, actor: { tid, oid, name }, action, metadata, prevHash }`, with `prevHash` null for an election's first event and `at` in ISO 8601 UTC with milliseconds. Canonical JSON sorts object keys by UTF-16 code unit, has no whitespace, and allows only objects, arrays, strings, safe integers, booleans and null. `apps/api/lib/audit-chain.ts` computes and verifies the chain, and imports nothing but `node:crypto` and canonical JSON, so an offline verifier can use it as is.
+
+Changing, inserting, removing or reordering an event breaks verification at that event or the next, unless every later hash is recomputed as well. The hashes are not signed: whoever can change the table directly (the database owner; the application's role can only add events) can rewrite the history from any event on, or drop the newest events, and the chain still verifies, only with a different head. Verification therefore vouches for the history up to a head hash that was recorded outside the database and is compared with it, for example with a result, in an export or in the witnesses' notes.
+
 ## Statutory rulings
 
 How results are decided, read from the regulation on the election of school representatives (RIS Gesetzesnummer 10009897, checked against the consolidated text of 2 October 2026) or decided for this project where the regulation is silent. Paragraph references are to that regulation. Each confirmed row becomes a test fixture once result computation is implemented; until a row is confirmed, the code must produce an explicit unresolved or lot-required result for that case and never fall back to an alphabetical, id-based or random order.
