@@ -183,6 +183,24 @@ test('election titles are one line of text; descriptions may span lines', DB, as
   assert.equal(ok.statusCode, 201)
 })
 
+test('a display name too long or malformed for the audit log is bounded at sign-in, so creating and binding still work', DB, async (t) => {
+  const s = await electionApp(t)
+  // 405 UTF-16 code units; the cut must not split an emoji's surrogate pair.
+  const longName = `Anna ${'😀'.repeat(200)}`
+  const anna = await signIn(s, { ...ANNA, name: longName })
+  const id = await createElection(anna)
+  assert.equal((await invite(anna, id, WANDA.email)).statusCode, 201)
+  await signIn(s, { ...WANDA, name: `Wanda \ud800Zeugin\u0000${'x'.repeat(300)}` })
+  const { events, chain } = await auditLog(anna, id)
+  assert.deepEqual(chain, { valid: true, length: 3, head: events[2]?.hash })
+  assert.deepEqual(events.map((e) => e.actor.name), [
+    longName.slice(0, 255),
+    longName.slice(0, 255),
+    `Wanda �Zeugin${'x'.repeat(243)}`,
+  ])
+  assert.deepEqual((await members(anna, id)).map((m) => m.displayName?.length), [255, 256])
+})
+
 test('a final election binds no more invitations; another tenant\'s person binds none', DB, async (t) => {
   const s = await electionApp(t)
   const anna = await signIn(s, ANNA)
