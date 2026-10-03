@@ -130,7 +130,8 @@ export const StateResponse = StrictObject({
  * the first time needs no body.
  */
 export const PrepareBody = Type.Union([
-  StrictObject({ confirmVoid: Type.Union([Type.Boolean(), Type.Array(Uuid, { uniqueItems: true, maxItems: 1000 })]) }),
+  // The body limit bounds the list; a cap of its own could stop a caller from confirming every stale batch.
+  StrictObject({ confirmVoid: Type.Union([Type.Boolean(), Type.Array(Uuid, { uniqueItems: true })]) }),
   Type.Null(),
 ])
 

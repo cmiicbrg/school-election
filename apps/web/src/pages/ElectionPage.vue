@@ -26,7 +26,12 @@ const error = ref<string | null>(null)
 
 const rules = computed(() => election.value ? setupRules(election.value.lifecycle, election.value.permissions) : undefined)
 
+// Each load is numbered: a load that is no longer the newest, because the
+// id changed or another change reloaded meanwhile, changes nothing.
+let loads = 0
+
 async function load(): Promise<void> {
+  const current = ++loads
   const base = `/api/elections/${props.id}`
   try {
     const [detail, config, memberList, prep, batchList] = await Promise.all([
@@ -36,6 +41,7 @@ async function load(): Promise<void> {
       apiGet<Preparation>(`${base}/preparation`),
       apiGet<{ batches: BatchSummary[] }>(`${base}/batches`),
     ])
+    if (current !== loads) return
     election.value = detail
     configuration.value = config
     members.value = memberList
@@ -43,14 +49,26 @@ async function load(): Promise<void> {
     batches.value = batchList.batches
     error.value = null
   } catch (err) {
-    error.value = errorMessage(err)
+    if (current === loads) error.value = errorMessage(err)
   }
+}
+
+function clear(): void {
+  election.value = undefined
+  configuration.value = undefined
+  members.value = undefined
+  preparation.value = undefined
+  batches.value = undefined
+  error.value = null
 }
 
 onMounted(() => {
   void load()
 })
+// Another election under the same page: nothing of the previous one stays
+// on view, so no click can reach it while the new one loads.
 watch(() => props.id, () => {
+  clear()
   void load()
 })
 

@@ -55,8 +55,10 @@ function closed(batch: BatchSummary): boolean {
   return round === 'closed'
 }
 
+/** A link to the batch's page: to print while that is possible, otherwise to see its codes, which a replaced batch keeps for comparing. */
 function readable(batch: BatchSummary): boolean {
-  return batch.state === 'issued' && mayReadKeys(props.role, props.lifecycle, batch.roundKind) && (prints(batch) || closed(batch))
+  if (!mayReadKeys(props.role, props.lifecycle, batch.roundKind)) return false
+  return batch.state === 'void' || prints(batch) || closed(batch)
 }
 
 async function issue(groupId: string, roundKind: RoundKind): Promise<void> {

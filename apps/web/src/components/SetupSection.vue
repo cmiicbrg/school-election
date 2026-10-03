@@ -326,6 +326,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
               Speichern
             </button>
             <button
+              v-if="rules.structure || contest.candidates.length > 1"
               type="button"
               class="danger"
               :disabled="busy"

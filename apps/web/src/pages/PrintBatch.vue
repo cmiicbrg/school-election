@@ -52,11 +52,18 @@ const error = ref<string | null>(null)
 const origin = window.location.origin
 
 const cards = computed(() => batch.value ? cardsOf(batch.value.keys.map((entry) => entry.key), origin) : [])
-/** Once the batch's round has closed the API says which keys voted: then the page lists the codes with their use, and prints nothing. */
-const usage = computed(() => batch.value && batch.value.keys.some((entry) => entry.used !== null)
-  ? batch.value.keys.map((entry) => ({ grouped: formatKey(entry.key), used: entry.used === true }))
-  : null)
-const usedCount = computed(() => usage.value?.filter((entry) => entry.used).length ?? 0)
+/**
+ * The codes as a list: for a replaced batch, which keeps them so its old
+ * sheets can be compared, and for any batch once its round has closed,
+ * when the API says which keys voted. Nothing is printed then.
+ */
+const usage = computed(() => {
+  if (!batch.value) return null
+  const known = batch.value.keys.some((entry) => entry.used !== null)
+  if (batch.value.batch.state !== 'void' && !known) return null
+  return { known, codes: batch.value.keys.map((entry) => ({ grouped: formatKey(entry.key), used: entry.used })) }
+})
+const usedCount = computed(() => usage.value?.codes.filter((entry) => entry.used === true).length ?? 0)
 const pages = computed(() => pagesOf(cards.value))
 const roundLabel = computed(() => batch.value ? ROUND_LABELS[batch.value.batch.roundKind] : '')
 /** An issued batch whose round has not opened: the only kind with sheets. */
@@ -161,10 +168,13 @@ onMounted(() => {
       aria-labelledby="usage-heading"
     >
       <h2 id="usage-heading">
-        Codes und ihre Verwendung
+        {{ usage.known ? 'Codes und ihre Verwendung' : 'Codes dieses Stapels' }}
       </h2>
-      <p>
-        {{ election.title }} · {{ roundLabel }} · {{ groupName }}: {{ usedCount }} von {{ usage.length }} Codes wurden verwendet. Die Runde ist geschlossen; übrig gebliebene Stimmkarten müssen hier als „nicht verwendet“ erscheinen.
+      <p v-if="usage.known">
+        {{ election.title }} · {{ roundLabel }} · {{ groupName }}: {{ usedCount }} von {{ usage.codes.length }} Codes wurden verwendet. Die Runde ist geschlossen; übrig gebliebene Stimmkarten müssen hier als „nicht verwendet“ erscheinen.
+      </p>
+      <p v-else>
+        {{ election.title }} · {{ roundLabel }} · {{ groupName }}: {{ usage.codes.length }} Codes, zum Vergleich mit den alten Stimmkarten.
       </p>
       <table>
         <thead>
@@ -172,21 +182,26 @@ onMounted(() => {
             <th scope="col">
               Code
             </th>
-            <th scope="col">
+            <th
+              v-if="usage.known"
+              scope="col"
+            >
               Verwendung
             </th>
           </tr>
         </thead>
         <tbody>
           <tr
-            v-for="entry in usage"
+            v-for="entry in usage.codes"
             :key="entry.grouped"
             data-testid="usage"
           >
             <td class="key">
               {{ entry.grouped }}
             </td>
-            <td>{{ entry.used ? 'verwendet' : 'nicht verwendet' }}</td>
+            <td v-if="usage.known">
+              {{ entry.used ? 'verwendet' : 'nicht verwendet' }}
+            </td>
           </tr>
         </tbody>
       </table>
