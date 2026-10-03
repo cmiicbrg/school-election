@@ -1,4 +1,4 @@
-import { test } from 'node:test'
+import { test, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { cp, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -180,23 +180,30 @@ test('connecting as the owner superuser is refused', DB, async (t) => {
   assert.ok(problems.some((p) => /which owns the database/.test(p)), problems.join('\n'))
 })
 
-test('direct schema privileges on the runtime role are caught, and the next migration removes them', DB, async (t) => {
+/**
+ * On a migrated database, runs `sql` as the superuser (privileges are per
+ * database, so no other test sees them), expects the startup check to name
+ * exactly `problems`, then nothing after the next migration run.
+ */
+async function repairedByNextRun(t: TestContext, sql: (database: string) => string, problems: string[]) {
   const testDb = await createTestDatabase(t)
-  // Schema and database privileges are per database, so no other test sees these.
-  await withClient(testDb.ownerUrl, (client) => client.query(`grant create on schema public to school_election_app; grant create, temporary on database ${testDb.name} to school_election_app`))
+  await withClient(testDb.ownerUrl, (c) => c.query(sql(testDb.name)))
   const db = createDatabase(testDb.runtimeUrl, () => {})
   t.after(() => db.close())
-  assert.deepEqual(await checkDatabaseSettings(db), [
-    'the server connects as school_election_app, which can create objects in schema public, schemas, temporary tables; the runtime role may only use what migrations grant',
-  ])
+  assert.deepEqual(await checkDatabaseSettings(db), problems)
   await migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD })
   assert.deepEqual(await checkDatabaseSettings(db), [])
+  return { testDb, db }
+}
+
+test('direct schema privileges on the runtime role are caught, and the next migration removes them', DB, async (t) => {
+  await repairedByNextRun(t, (database) => `grant create on schema public to school_election_app; grant create, temporary on database ${database} to school_election_app`, [
+    'the server connects as school_election_app, which can create objects in schema public, schemas, temporary tables; the runtime role may only use what migrations grant',
+  ])
 })
 
 test('object privileges granted by hand are caught at startup, and the next migration takes them away', DB, async (t) => {
-  const testDb = await createTestDatabase(t)
-  // Per database, so no other test sees these.
-  await withClient(testDb.ownerUrl, (c) => c.query(`
+  const { testDb, db } = await repairedByNextRun(t, () => `
     grant update on audit_event to school_election_app;
     grant update (title) on election to school_election_app;
     grant references (title) on election to public;
@@ -204,14 +211,9 @@ test('object privileges granted by hand are caught at startup, and the next migr
     grant usage on sequence audit_event_seq_seq to school_election_app;
     create function leak() returns int language sql as 'select 1';
     grant execute on function leak() to school_election_app;
-    grant execute on function election_member_bind_once() to public`))
-  const db = createDatabase(testDb.runtimeUrl, () => {})
-  t.after(() => db.close())
-  assert.deepEqual(await checkDatabaseSettings(db), [
+    grant execute on function election_member_bind_once() to public`, [
     'the runtime role has DELETE on table app_user, EXECUTE on function election_member_bind_once(), EXECUTE on function leak(), REFERENCES on column election.title, UPDATE on column election.title, UPDATE on table audit_event, USAGE on sequence audit_event_seq_seq, beyond what lib/runtime-privileges.ts grants; run the migrations, which reset its privileges',
   ])
-  await migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD })
-  assert.deepEqual(await checkDatabaseSettings(db), [])
   // Revoking a table privilege revokes it on every column, to the role and to PUBLIC alike.
   const { rows } = await withClient(testDb.ownerUrl, (c) => c.query<{ n: number }>('select count(*)::int as n from pg_attribute where attrelid = \'election\'::regclass and attacl is not null'))
   assert.equal(rows[0]?.n, 0)
@@ -221,30 +223,22 @@ test('object privileges granted by hand are caught at startup, and the next migr
 })
 
 test('grant options on any privilege are caught at startup, and the next migration takes them away', DB, async (t) => {
-  const testDb = await createTestDatabase(t)
-  await withClient(testDb.ownerUrl, (c) => c.query(`
-    grant connect on database ${testDb.name} to school_election_app with grant option;
+  await repairedByNextRun(t, (database) => `
+    grant connect on database ${database} to school_election_app with grant option;
     grant usage on schema public to school_election_app with grant option;
     grant select on election to school_election_app with grant option;
     grant update (user_id) on election_member to school_election_app with grant option;
-    grant execute on function preload_settings() to school_election_app with grant option`))
-  const db = createDatabase(testDb.runtimeUrl, () => {})
-  t.after(() => db.close())
-  assert.deepEqual(await checkDatabaseSettings(db), [
+    grant execute on function preload_settings() to school_election_app with grant option`, [
     'the runtime role has CONNECT WITH GRANT OPTION on database, EXECUTE WITH GRANT OPTION on function preload_settings(), SELECT WITH GRANT OPTION on table election, UPDATE WITH GRANT OPTION on column election_member.user_id, USAGE WITH GRANT OPTION on schema public, beyond what lib/runtime-privileges.ts grants; run the migrations, which reset its privileges',
   ])
-  await migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD })
-  assert.deepEqual(await checkDatabaseSettings(db), [])
 })
 
 test('default privileges for PUBLIC or the runtime role, global or per schema, are reset by the next run', DB, async (t) => {
-  const testDb = await createTestDatabase(t)
-  // Per database, so no other test sees these.
-  await withClient(testDb.ownerUrl, (c) => c.query(`
+  // Defaults grant nothing until an object is created, so the check is clean before the run, too.
+  const { testDb, db } = await repairedByNextRun(t, () => `
     alter default privileges in schema public grant execute on routines to public;
     alter default privileges grant select on tables to school_election_app;
-    alter default privileges in schema public grant usage on sequences to school_election_app`))
-  await migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD })
+    alter default privileges in schema public grant usage on sequences to school_election_app`, [])
   await withClient(testDb.ownerUrl, async (c) => {
     const { rows } = await c.query<{ n: number }>(
       `select count(*)::int as n from pg_default_acl d, aclexplode(d.defaclacl) a
@@ -253,8 +247,6 @@ test('default privileges for PUBLIC or the runtime role, global or per schema, a
     assert.equal(rows[0]?.n, 0)
     await c.query('create function later() returns int language sql as \'select 1\'; create table later_table (id int); create sequence later_seq')
   })
-  const db = createDatabase(testDb.runtimeUrl, () => {})
-  t.after(() => db.close())
   assert.deepEqual(await checkDatabaseSettings(db), [])
 })
 
