@@ -167,16 +167,14 @@ export function lifecycleOf(election: ElectionState): Lifecycle {
   }
 }
 
-// Everything below /api/elections/, the bare /api/elections/ included.
-const ELECTION_ROUTE = /^\/api\/elections\//
-
 /**
  * An onRoute hook (app.ts): every route below /api/elections/ must address
  * the election as :id and start with requireElectionAccess, or the app does
  * not start.
  */
 export function assertElectionGuard(route: RouteOptions): void {
-  if (!ELECTION_ROUTE.test(route.url)) return
+  // Everything below /api/elections/, the bare /api/elections/ included.
+  if (!route.url.startsWith('/api/elections/')) return
   const first: unknown = [route.onRequest ?? []].flat()[0]
   const addressed = route.url === '/api/elections/:id' || route.url.startsWith('/api/elections/:id/')
   if (!addressed || typeof first !== 'function' || !guards.has(first)) {
