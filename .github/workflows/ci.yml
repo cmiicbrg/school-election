@@ -168,17 +168,24 @@ jobs:
             exit 1
           fi
           echo "$out"
-          if ! printf '%s' "$out" | grep -q 'PUBLIC_ORIGIN must be set'; then
-            echo "Expected the refusal to name PUBLIC_ORIGIN" >&2
-            exit 1
-          fi
+          for setting in 'PUBLIC_ORIGIN must be set' 'ENTRA_TENANT_ID must be set' 'ENTRA_CLIENT_SECRET_FILE must be set' 'SESSION_KEY_FILE must be set'; do
+            if ! printf '%s' "$out" | grep -qF "$setting"; then
+              echo "Expected the refusal to say: $setting" >&2
+              exit 1
+            fi
+          done
 
           # A database with the production settings, the secrets as files
-          # readable by the image's uid 10001, and only the runtime password
-          # given to the app container.
+          # readable by the image's uid 10001, and only the runtime password,
+          # the Entra client secret and the session key given to the app
+          # container. Dummy Entra ids: nothing contacts Entra before a
+          # sign-in.
           printf '%s' ci-owner-password > "$RUNNER_TEMP/owner-password"
           printf '%s' 'ci runtime p@ss:w/rd%' > "$RUNNER_TEMP/runtime-password"
-          chmod 644 "$RUNNER_TEMP/owner-password" "$RUNNER_TEMP/runtime-password"
+          printf '%s' 'ci-entra-client-secret' > "$RUNNER_TEMP/entra-client-secret"
+          openssl rand -hex 32 > "$RUNNER_TEMP/session-key"
+          chmod 644 "$RUNNER_TEMP/owner-password" "$RUNNER_TEMP/runtime-password" "$RUNNER_TEMP/entra-client-secret" "$RUNNER_TEMP/session-key"
+          tenant=00000000-0000-4000-8000-000000000001
           scripts/postgres.sh school-election-ci-db 5432 "$RUNNER_TEMP/owner-password"
 
           migrate() {
@@ -204,9 +211,15 @@ jobs:
 
           docker run -d --name school-election-ci --network host \
             -v "$RUNNER_TEMP/runtime-password:/run/secrets/runtime-password:ro" \
+            -v "$RUNNER_TEMP/entra-client-secret:/run/secrets/entra-client-secret:ro" \
+            -v "$RUNNER_TEMP/session-key:/run/secrets/session-key:ro" \
             -e PUBLIC_ORIGIN=http://127.0.0.1:3000 \
             -e DATABASE_URL=postgres://school_election_app@127.0.0.1:5432/school_election \
             -e DATABASE_PASSWORD_FILE=/run/secrets/runtime-password \
+            -e ENTRA_TENANT_ID="$tenant" \
+            -e ENTRA_CLIENT_ID=00000000-0000-4000-8000-000000000002 \
+            -e ENTRA_CLIENT_SECRET_FILE=/run/secrets/entra-client-secret \
+            -e SESSION_KEY_FILE=/run/secrets/session-key \
             school-election:ci
           wait_healthy
           docker logs school-election-ci
@@ -216,6 +229,24 @@ jobs:
             echo "Expected the image to reach the database as the runtime role, got: $body" >&2
             exit 1
           fi
+
+          # Sessions are sealed with the native libsodium binding, which has
+          # to load in the image: without a session cookie /me is a 401.
+          status="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/auth/me)"
+          if [ "$status" != 401 ]; then
+            echo "Expected /api/auth/me without a session to answer 401, got $status" >&2
+            exit 1
+          fi
+          # Sign-in starts at the configured tenant, with PKCE, and needs no
+          # outbound request to get there.
+          location="$(curl -s -o /dev/null -w '%{redirect_url}' http://127.0.0.1:3000/api/auth/login)"
+          case "$location" in
+            "https://login.microsoftonline.com/$tenant/oauth2/v2.0/authorize?"*code_challenge_method=S256*) ;;
+            *)
+              echo "Expected /api/auth/login to redirect to the tenant's authorize endpoint with PKCE, got: $location" >&2
+              exit 1
+              ;;
+          esac
 
           # A redeploy: restart the container and run the migrations again,
           # which must be a no-op, with no manual step in between.
