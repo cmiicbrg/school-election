@@ -152,7 +152,7 @@ onMounted(() => {
       v-if="batch && batch.batch.state === 'void'"
       class="replaced"
     >
-      Dieser Stapel wurde ersetzt. Seine Codes gelten nicht mehr; die neuen Stimmkarten sind der Stapel, der an seine Stelle getreten ist.
+      Dieser Stapel gilt nicht mehr: Er wurde ersetzt, oder eine Änderung des Aufbaus hat seine Stimmkarten ungültig gemacht. Seine Codes wählen nicht; sie bleiben nur zum Vergleich mit den alten Stimmkarten.
     </output>
     <output
       v-else-if="batch && election && !prints && !usage"

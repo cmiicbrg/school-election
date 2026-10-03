@@ -24,7 +24,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ changed: [] }>()
 
-const BATCH_STATE_LABELS = { issued: 'ausgegeben', void: 'ersetzt' } as const
+const BATCH_STATE_LABELS = { issued: 'ausgegeben', void: 'ungültig' } as const
 
 const busy = ref(false)
 const error = ref<string | null>(null)
