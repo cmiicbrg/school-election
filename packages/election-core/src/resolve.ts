@@ -136,10 +136,18 @@ function positionsOutcome(derived: DerivedPositions, trace: readonly TraceStep[]
   return lots.length > 0 ? { kind: 'lot-required', lots, positions, trace } : { kind: 'final', positions, trace }
 }
 
-/** Whether `order` lists every member of `set` exactly once and nothing else. */
+/**
+ * Whether `order` lists every member of `set` exactly once and nothing else.
+ * Checked index by index, so a hole in a sparse array is refused rather than
+ * skipped as every() would.
+ */
 function isOrderOf(order: readonly unknown[], set: readonly string[]): boolean {
-  return Array.isArray(order)
-    && order.length === set.length
-    && new Set(order).size === order.length
-    && order.every((id) => typeof id === 'string' && set.includes(id))
+  if (!Array.isArray(order) || order.length !== set.length) return false
+  const seen = new Set<string>()
+  for (let i = 0; i < order.length; i++) {
+    const id: unknown = Object.hasOwn(order, i) ? order[i] : undefined
+    if (typeof id !== 'string' || !set.includes(id) || seen.has(id)) return false
+    seen.add(id)
+  }
+  return true
 }

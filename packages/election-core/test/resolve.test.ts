@@ -146,6 +146,10 @@ test('a decision must order exactly the tied set, once per lot, for a lot that i
   for (const order of [['a', 'b'], ['b'], ['b', 'c', 'a'], ['b', 'b'], ['b', 'c', 'c'], []]) {
     assert.deepEqual(refused([{ lotId: 'positions:deputy', order }]), { kind: 'not-the-tied-set', lotId: 'positions:deputy' }, JSON.stringify(order))
   }
+  // A sparse array of the right length with one tied candidate in it.
+  const sparse: string[] = []
+  sparse[1] = 'b'
+  assert.deepEqual(refused([{ lotId: 'positions:deputy', order: sparse }]), { kind: 'not-the-tied-set', lotId: 'positions:deputy' })
   assert.deepEqual(refused([{ lotId: 'positions:deputy', order: ['b', 'c'] }, { lotId: 'positions:deputy', order: ['b', 'c'] }]), { kind: 'duplicate-lot', lotId: 'positions:deputy' })
   assert.deepEqual(refused([{ lotId: 'runoff-entry', order: ['b', 'c'] }]), { kind: 'unknown-lot', lotId: 'runoff-entry' })
   // A deputy lot cannot be recorded before the runoff has decided who is left.
