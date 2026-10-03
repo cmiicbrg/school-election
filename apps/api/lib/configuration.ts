@@ -159,15 +159,16 @@ export interface ContestInput {
 }
 
 // The longest title or name, in code points, as the database holds them.
-const MAX_TITLE = 200
+export const MAX_TITLE = 200
 const MAX_NAME = 100
 
 /**
  * A title or name as it is stored (cleanName), refused with 400 too_long
  * if that made it longer than the database holds: NFC can turn one code
- * point into two.
+ * point into two. Election and contest titles, voter group and candidate
+ * names all pass through it.
  */
-function cleaned(value: string, max: number): string {
+export function cleaned(value: string, max: number): string {
   const result = cleanName(value)
   if ([...result].length > max) throw new Refusal(400, 'too_long')
   return result
@@ -259,7 +260,8 @@ async function findCandidate(client: pg.ClientBase, electionId: string, candidat
   )
   if (!row) throw new Refusal(404, 'not_found')
   const contest = await readContest(client, electionId, row.contest_id)
-  const current = contest.candidates.find((candidate) => candidate.id === candidateId)
+  // Ids from a path may be in uppercase; the database returns them in lowercase.
+  const current = contest.candidates.find((candidate) => candidate.id === candidateId.toLowerCase())
   if (!current) throw new Error('a candidate the lookup found is not in its contest')
   return { contestId: row.contest_id, current, contest }
 }
@@ -269,7 +271,7 @@ export async function renameCandidate(client: pg.ClientBase, access: ElectionAcc
   const { contestId, current, contest } = await findCandidate(client, access.electionId, candidateId)
   const name = cleanCandidateName({ surname: input.surname ?? current.surname, givenName: input.givenName ?? current.givenName })
   if (name.surname === current.surname && name.givenName === current.givenName) return contest
-  refuseTakenName(contest, name, candidateId)
+  refuseTakenName(contest, name, current.id)
   await client.query('update candidate set surname = $2, given_name = $3 where id = $1', [candidateId, name.surname, name.givenName])
   await appendAudit(client, access.electionId, { actor: access.actor, action: 'candidate.renamed', metadata: { candidate: candidateId, ...name } })
   return readContest(client, access.electionId, contestId)
@@ -294,7 +296,7 @@ export async function removeCandidate(client: pg.ClientBase, access: ElectionAcc
 /** Stores a picture that normalizePicture() produced; the same picture again changes nothing. */
 export async function setCandidatePicture(client: pg.ClientBase, access: ElectionAccess, candidateId: string, picture: StoredPicture): Promise<Contest> {
   const { contestId, current, contest } = await findCandidate(client, access.electionId, candidateId)
-  if (current.picture === pictureUrl(access.electionId, candidateId, picture.sha256)) return contest
+  if (current.picture === pictureUrl(access.electionId, current.id, picture.sha256)) return contest
   await client.query('update candidate set picture = $2, picture_sha256 = $3 where id = $1', [candidateId, picture.data, picture.sha256])
   await appendAudit(client, access.electionId, { actor: access.actor, action: 'candidate.picture-set', metadata: { candidate: candidateId, sha256: picture.sha256 } })
   return readContest(client, access.electionId, contestId)
@@ -381,7 +383,8 @@ async function refuseTakenLabel(
   except: string | null,
 ): Promise<void> {
   const { rows } = await client.query<{ id: string, label: string }>(LABELS[kind].query, [electionId])
-  if (rows.some((row) => row.id !== except && compareLabels(row.label, label) === 0)) {
+  const excluded = except?.toLowerCase()
+  if (rows.some((row) => row.id !== excluded && compareLabels(row.label, label) === 0)) {
     throw new Refusal(409, LABELS[kind].refusal)
   }
 }

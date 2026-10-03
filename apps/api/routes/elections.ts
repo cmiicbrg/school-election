@@ -14,7 +14,7 @@ import { boundedName } from '../lib/app-user.ts'
 import { appendAudit, readAuditChain } from '../lib/audit.ts'
 import { verifyAuditChain } from '../lib/audit-chain.ts'
 import { callerOf, requireGlobalRole, requireSession } from '../lib/auth.ts'
-import { createContest } from '../lib/configuration.ts'
+import { cleaned, createContest, MAX_TITLE } from '../lib/configuration.ts'
 import type { Database } from '../lib/db.ts'
 import { changeElection, electionAccessOf, requireElectionAccess } from '../lib/election-access.ts'
 import { ELECTION_ACTIONS, ELECTION_ROLES, permissionsOf, type ElectionRole } from '../lib/permissions.ts'
@@ -80,7 +80,8 @@ export function electionRoutes(app: FastifyInstance, { db }: { db: Database }, d
     schema: { body: CreateElectionBody, response: { '201': ElectionDetail, '4xx': ErrorResponse } },
   }, async (request, reply) => {
     const caller = callerOf(request)
-    const { title, description = '', preset } = request.body
+    const { description = '', preset } = request.body
+    const title = cleaned(request.body.title, MAX_TITLE)
     const row = await db.tx(async (client) => {
       const { rows: [election] } = await client.query<ElectionRow>(
         'insert into election (title, description) values ($1, $2) returning id, title, description, state',
@@ -136,7 +137,8 @@ export function electionRoutes(app: FastifyInstance, { db }: { db: Database }, d
     const row = await changeElection(db, request, async (client, access) => {
       const { rows: [current] } = await client.query<ElectionRow>('select id, title, description, state from election where id = $1', [access.electionId])
       if (!current) throw new Error('an election the guard found is gone')
-      const { title = current.title, description = current.description } = request.body
+      const title = request.body.title === undefined ? current.title : cleaned(request.body.title, MAX_TITLE)
+      const { description = current.description } = request.body
       if (title === current.title && description === current.description) return current
       await client.query('update election set title = $2, description = $3 where id = $1', [access.electionId, title, description])
       await appendAudit(client, access.electionId, { actor: access.actor, action: 'election.updated', metadata: { title, description } })

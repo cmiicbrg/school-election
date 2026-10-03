@@ -9,6 +9,9 @@ test('metadata must match its action exactly: known fields, each of its type', (
   assert.deepEqual(auditMetadata('election.created', { title: 'Wahl' }), { title: 'Wahl' })
   assert.deepEqual(auditMetadata('contest.removed', { contest: CONTEST.toUpperCase(), title: 'T', candidates: 0 }), { contest: CONTEST, title: 'T', candidates: 0 })
   assert.deepEqual(auditMetadata('election.updated', { title: 'T', description: 'x'.repeat(2000) }), { title: 'T', description: 'x'.repeat(2000) })
+  // A description is counted in code points, as the API and the database count it.
+  const emoji = `${'x'.repeat(1999)}🎉`
+  assert.deepEqual(auditMetadata('election.updated', { title: 'T', description: emoji }), { title: 'T', description: emoji })
   assert.deepEqual(auditMetadata('election.unprepared', {}), {})
   assert.deepEqual(auditMetadata('member.invited', { email: 'a@school.example', role: 'admin' }), { email: 'a@school.example', role: 'admin' })
   const rejected: [string, unknown, RegExp][] = [
@@ -28,6 +31,7 @@ test('metadata must match its action exactly: known fields, each of its type', (
     ['contest.removed', { contest: CONTEST, title: 'T', candidates: 1.5 }, /must be a non-negative safe integer$/],
     ['contest.removed', { contest: CONTEST, title: 'T', candidates: '2' }, /must be a non-negative safe integer$/],
     ['election.updated', { title: 'T', description: 'x'.repeat(2001) }, /metadata field description must be well-formed text of 0 to 2000 characters$/],
+    ['election.updated', { title: 'T', description: `${'x'.repeat(2000)}🎉` }, /metadata field description must be well-formed text/],
     ['election.unprepared', { reason: 'x' }, /metadata field reason is not allowed$/],
   ]
   for (const [action, metadata, message] of rejected) {

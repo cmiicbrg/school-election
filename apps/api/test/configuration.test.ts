@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { LightMyRequestResponse } from 'fastify'
+import sharp from 'sharp'
 import { verifyAuditChain, type AuditEvent } from '../lib/audit-chain.ts'
 import { DB, withClient } from './helpers/db.ts'
 import { ANNA, auditActions, BERND, CARLA, createElection, electionApp, forceElectionState, signIn, WANDA, type Browser } from './helpers/elections.ts'
@@ -342,4 +343,41 @@ test('witnesses read the configuration but change nothing; once voting has start
     }
     assert.deepEqual(await auditActions(anna, id), recorded)
   }
+})
+
+test('ids in uppercase work as in lowercase; titles are cleaned; a description is counted in code points', DB, async (t) => {
+  const s = await electionApp(t)
+  const anna = await signIn(s, ANNA)
+  const id = ok<{ id: string, title: string }>(await anna.request('POST', '/api/elections', { title: '  Wahl \u00a0 2026 ' }), 201)
+  assert.equal(id.title, 'Wahl 2026')
+  const base = `/api/elections/${id.id}`
+  const steps = setup(anna, id.id)
+  const contest = await steps.contest('Schulsprecher/in', 'at-school-speaker-v1')
+  const group = await steps.group('2a')
+  const candidate = (await steps.candidate(contest.id, 'Huber', 'Lena')).candidates[0]
+  assert.ok(candidate)
+  const upper = (value: string) => value.toUpperCase()
+
+  ok(await anna.request('PATCH', `${base}/contests/${upper(contest.id)}`, { rulesetId: 'at-representative-v1' }))
+  assert.equal(ok<VoterGroup>(await anna.request('PATCH', `${base}/voter-groups/${upper(group.id)}`, { name: '2A' })).name, '2A')
+  const renamed = ok<Contest>(await anna.request('PATCH', `${base}/candidates/${upper(candidate.id)}`, { givenName: 'LENA' }))
+  assert.equal(renamed.candidates[0]?.givenName, 'LENA')
+  const photo = await sharp({ create: { width: 40, height: 30, channels: 3, background: '#468' } }).jpeg().toBuffer()
+  for (let i = 0; i < 2; i++) {
+    ok(await anna.request('PUT', `${base}/candidates/${upper(candidate.id)}/picture`, { data: photo.toString('base64') }))
+  }
+  ok(await anna.request('PATCH', base, { title: ' Wahl  2026 ' }))
+  const description = `${'x'.repeat(1999)}🎉`
+  assert.equal(ok<{ description: string }>(await anna.request('PATCH', base, { description })).description, description)
+  await steps.candidate(contest.id, 'Wagner', 'Paul')
+  assert.equal(ok<Contest>(await anna.request('DELETE', `${base}/candidates/${upper(candidate.id)}`)).candidates.length, 1)
+
+  const events = await auditEvents(anna, id.id)
+  assert.deepEqual(events.map((e) => e.action), [
+    'election.created', 'contest.created', 'voter-group.created', 'candidate.added', 'contest.updated', 'voter-group.renamed',
+    'candidate.renamed', 'candidate.picture-set', 'election.updated', 'candidate.added', 'candidate.removed',
+  ])
+  assert.deepEqual(events[0]?.metadata, { title: 'Wahl 2026' })
+  assert.deepEqual(events.find((e) => e.action === 'candidate.renamed')?.metadata, { candidate: candidate.id, surname: 'Huber', givenName: 'LENA' })
+  assert.equal(verifyAuditChain(events).valid, true)
 })

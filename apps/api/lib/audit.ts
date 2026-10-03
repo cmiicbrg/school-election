@@ -15,9 +15,11 @@ import { auditEventHash, MAX_ACTOR_NAME, type AuditActor, type AuditEvent, type 
 import { INVITED_ROLES } from './permissions.ts'
 
 /**
- * A metadata field: free text of at most 1000 UTF-16 code units ('text') or
- * 2000 ('long-text'), the id of a row ('uuid', in lowercase), a count (a
- * non-negative safe integer), or one of a fixed list of strings.
+ * A metadata field: free text of at most 1000 UTF-16 code units ('text'),
+ * or of at most 2000 code points ('long-text': a description, counted as
+ * the API and the database count it), the id of a row ('uuid', in
+ * lowercase), a count (a non-negative safe integer), or one of a fixed
+ * list of strings.
  */
 export type AuditField = 'text' | 'long-text' | 'uuid' | 'count' | readonly [string, ...string[]]
 
@@ -218,7 +220,7 @@ function fieldValue(field: AuditField, value: unknown, label: string): string | 
     case 'text':
       return text(value, MAX_TEXT, label)
     case 'long-text':
-      return text(value, MAX_LONG_TEXT, label)
+      return text(value, MAX_LONG_TEXT, label, 0, (string) => [...string].length)
     case 'uuid':
       return uuid(value, label)
     case 'count':
@@ -243,8 +245,8 @@ function uuid(value: unknown, label: string): string {
 
 // Text the log can store and hash unchanged: PostgreSQL holds neither U+0000
 // nor a lone surrogate.
-function text(value: unknown, max: number, label: string, min = 0): string {
-  if (typeof value === 'string' && value.length >= min && value.length <= max && value.isWellFormed() && !value.includes('\0')) {
+function text(value: unknown, max: number, label: string, min = 0, length = (string: string) => string.length): string {
+  if (typeof value === 'string' && length(value) >= min && length(value) <= max && value.isWellFormed() && !value.includes('\0')) {
     return value
   }
   throw new AuditError(`${label} must be well-formed text of ${min} to ${max} characters`)

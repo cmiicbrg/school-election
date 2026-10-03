@@ -169,7 +169,7 @@ Each kind of thing is edited through its own routes (`apps/api/routes/configurat
 
 A preset is only a template: it gives a new election its first contest. Schulsprecherwahl starts with Schulsprecher/in (`at-school-speaker-v1`), Abteilungs- and Klassensprecherwahl with one contest under `at-representative-v1`, and an anonyme Abstimmung with one under `single-choice-v1`, whose candidates are the options. After that the election is configured like any other, so a Schulsprecherwahl can gain department and class contests.
 
-Names and titles are stored cleaned: Unicode NFC, trimmed, with every run of white space inside them as one space. Within an election, two contest titles or two voter group names that compare equal ignoring case are refused, as are two candidates of one contest whose names do.
+Names and titles, the election's title included, are stored cleaned: Unicode NFC, trimmed, with every run of white space inside them as one space, and refused if that makes them longer than allowed. Within an election, two contest titles or two voter group names that compare equal ignoring case are refused, as are two candidates of one contest whose names do.
 
 ### Candidate order
 
