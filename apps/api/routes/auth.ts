@@ -6,8 +6,9 @@
 //   POST /api/auth/logout
 //   GET  /api/auth/me
 //
-// The callback is the one GET that changes state: it records the person and
-// starts the session. It has to be a GET, because Entra returns the browser
+// The callback is the one GET that changes state: it records the person,
+// binds the election invitations sent to their address, and starts the
+// session. It has to be a GET, because Entra returns the browser
 // with a top-level redirect that carries the code in the query. A forged or
 // replayed callback gets nowhere: the state must match the state cookie, the
 // code is redeemed only with the client secret, and the ID token must carry
@@ -23,6 +24,7 @@ import { upsertAppUser } from '../lib/app-user.ts'
 import { callerOf, GLOBAL_ROLES, requireSession, withinSeconds } from '../lib/auth.ts'
 import type { Database } from '../lib/db.ts'
 import { registerEntra, SIGN_IN_SECONDS, SignInError } from '../lib/entra.ts'
+import { bindInvitations } from '../lib/members.ts'
 import { safeReturnTo } from '../lib/return-to.ts'
 import { ErrorResponse, StrictObject } from '../lib/schemas/common.ts'
 
@@ -108,7 +110,13 @@ export async function authRoutes(app: FastifyInstance, { config, db, entraAuthor
     } catch (err) {
       return refuse(request, reply, err)
     }
-    const id = await upsertAppUser(db, signIn)
+    // The person is recorded, and invitations to their address are bound
+    // to them, in one transaction with the audit events of the bindings.
+    const id = await db.tx(async (client) => {
+      const userId = await upsertAppUser(client, signIn)
+      await bindInvitations(client, userId, signIn, config.entra.tenantId)
+      return userId
+    })
     session.set('user', { id, displayName: signIn.displayName, roles: signIn.roles, issuedAt: Date.now() })
     // Checked at login and sealed since; checked again all the same.
     return reply.redirect(safeReturnTo(pending.returnTo), 303)

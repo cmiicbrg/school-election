@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { TALLY_VERSION } from '@school-election/election-core'
 import { createDatabase, describeDatabase } from '../../lib/db.ts'
 import { buildTestApp } from '../helpers/app.ts'
 import { createTestDatabase, DB, withClient } from '../helpers/db.ts'
@@ -47,7 +48,7 @@ test('health reports the database as down when it cannot connect', async (t) => 
   })
   const res = await app.inject({ method: 'GET', url: '/api/health' })
   assert.equal(res.statusCode, 503)
-  assert.deepEqual(res.json(), { status: 'degraded', db: 'down', version: 'dev', gitSha: 'unknown' })
+  assert.deepEqual(res.json(), { status: 'degraded', db: 'down', version: 'dev', gitSha: 'unknown', tallyVersion: TALLY_VERSION })
 })
 
 test('health reports the database as up', DB, async (t) => {
@@ -58,7 +59,7 @@ test('health reports the database as up', DB, async (t) => {
     await app.close()
     await db.close()
   })
-  assert.deepEqual((await app.inject({ method: 'GET', url: '/api/health' })).json(), { status: 'ok', db: 'up', version: 'dev', gitSha: 'unknown' })
+  assert.deepEqual((await app.inject({ method: 'GET', url: '/api/health' })).json(), { status: 'ok', db: 'up', version: 'dev', gitSha: 'unknown', tallyVersion: TALLY_VERSION })
 })
 
 test('log lines name the database without its password', () => {

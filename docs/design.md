@@ -143,11 +143,25 @@ A closed round never reopens. A state transition and every guard return either a
 
 Whether a result actually requires a runoff or a lot is decided by the result (see above), not by the lifecycle.
 
+## Access to an election
+
+Teachers and witnesses sign in with Entra ID. The global teacher role only lets a person create an election; what anyone may do with an election comes from their membership in it (`apps/api/lib/permissions.ts`):
+
+| Role | May |
+| --- | --- |
+| Owner, the teacher who created it | everything |
+| Co-admin (`admin`) | everything but managing members and finalizing |
+| Witness | read the election, its members and its audit log, and results once their round has closed |
+
+Every route under `/api/elections/:id` starts with the same guard (`apps/api/lib/election-access.ts`), before the request body is read: a session (401), then membership, looked up on every request (404), then the role (403), then the lifecycle (409, with the lifecycle's refusal as the error code, such as `election_final`). An election the caller is not a member of answers exactly like one that does not exist, so guessing ids reveals nothing, and a removed member loses access with their next request. The app refuses to start if a route under `/api/elections/` does not begin with the guard. A change takes the election's lock and checks access again inside its transaction, so a removal or a state change that happens in between stops it.
+
+Co-admins and witnesses are invited by their school e-mail address. A pending invitation grants nothing. When someone signs in, every pending invitation whose address matches theirs (the ID token's `email`, or `preferred_username` without one), ignoring case, is bound to their Entra identity in the same transaction that records the sign-in, with an audit event whose actor is the invited person. Only people of the configured tenant are matched, and an invitation is bound once: the database refuses to change it afterwards, so an address that is later given to someone else does not move it. Invitations in a final election, or to someone who is already a member, stay pending. Someone who is signed in already when they are invited sees the election after their next sign-in. The address stays with the member, so the member list and the audit log show who was invited.
+
 ## Audit log
 
 The audit log records what administrators do to an election: who acted (the stable Entra identity, tenant and object id, plus the display name), when, the action, and that action's metadata. It never records voter activity: no ballots or ballot content, no keys, no use of an entitlement, no voter sessions or tokens, no request metadata. Each action has a fixed list of metadata fields with a type each; anything else is refused. The actions and their fields are listed in `apps/api/lib/audit.ts`.
 
-An event is written in the same transaction as the change it records, so a change that fails leaves no event. A lock per election makes concurrent changes wait for each other's events, so each election has one linear chain, and the database refuses anything else: one first event per election, and every other event names an earlier event of the same election, by its sequence number and hash, that no other event names. Since every link points to an earlier event, the links cannot form a cycle. The application's database role can add and read events, but not change or remove them.
+An event is written in the same transaction as the change it records, so a change that fails leaves no event. A lock per election makes concurrent changes wait for each other's events, so each election has one linear chain, and the database refuses anything else: one first event per election, and every other event names an earlier event of the same election, by its sequence number and hash, that no other event names. Since every link points to an earlier event, the links cannot form a cycle. Every event belongs to an election that exists. The application's database role can add and read events, but not change or remove them.
 
 Each event carries the SHA-256 hash of its content and of the previous event's hash, so anyone holding the events can check them without the server. The hash is taken over the UTF-8 bytes of the canonical JSON of `{ version: 1, electionId, at, actor: { tid, oid, name }, action, metadata, prevHash }`, with `prevHash` null for an election's first event and `at` in ISO 8601 UTC with milliseconds. Canonical JSON sorts object keys by UTF-16 code unit, has no whitespace, and allows only objects, arrays, strings, safe integers, booleans and null. `apps/api/lib/audit-chain.ts` computes and verifies the chain, and imports nothing but `node:crypto` and canonical JSON, so an offline verifier can use it as is.
 

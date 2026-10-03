@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Type } from 'typebox'
+import { TALLY_VERSION } from '@school-election/election-core'
 import { StrictObject } from '../lib/schemas/common.ts'
 import { buildTestApp, fakeWebDist, ORIGIN } from './helpers/app.ts'
 
@@ -32,7 +33,7 @@ test('security headers come from the application', async (t) => {
   t.after(() => app.close())
   const res = await app.inject({ method: 'GET', url: '/api/health' })
   assert.equal(res.statusCode, 200)
-  assert.deepEqual(res.json(), { status: 'ok', db: 'up', version: 'dev', gitSha: 'unknown' })
+  assert.deepEqual(res.json(), { status: 'ok', db: 'up', version: 'dev', gitSha: 'unknown', tallyVersion: TALLY_VERSION })
   assert.match(String(res.headers['content-security-policy']), /frame-ancestors 'none'/)
   assert.equal(res.headers['x-content-type-options'], 'nosniff')
   assert.equal(res.headers['referrer-policy'], 'no-referrer')

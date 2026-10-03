@@ -1,5 +1,6 @@
 // Who is calling, and the guards protected routes put in front of their
-// handler (`preHandler: requireSession` or `preHandler: requireGlobalRole('teacher')`).
+// handler (`preHandler: requireSession` or `onRequest: requireGlobalRole('teacher')`;
+// election routes use requireElectionAccess in election-access.ts).
 //
 // Status codes for refused requests, the same on every route:
 //
@@ -46,22 +47,30 @@ export function withinSeconds(since: unknown, seconds: number, now = Date.now())
 // session expired a moment later, and fail a request already authorized.
 const authorized = new WeakMap<FastifyRequest, SessionUser>()
 
-/** For handlers behind requireSession or requireGlobalRole: the caller the guard authorized. */
+/** For handlers behind a guard: the caller it authorized. */
 export function callerOf(request: FastifyRequest): SessionUser {
   const user = authorized.get(request)
-  if (!user) throw new Error('callerOf() used on a route without requireSession or requireGlobalRole')
+  if (!user) throw new Error('callerOf() used on a route without a guard')
   return user
 }
 
 // A guard that replies does not call done(), so Fastify stops before the handler.
 
-export function requireSession(request: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction): void {
+/**
+ * For guards: the signed-in caller, recorded as the one callerOf() returns
+ * for this request, or undefined without a session.
+ */
+export function authenticate(request: FastifyRequest): SessionUser | undefined {
   const user = currentUser(request)
-  if (!user) {
+  if (user) authorized.set(request, user)
+  return user
+}
+
+export function requireSession(request: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction): void {
+  if (!authenticate(request)) {
     void reply.code(401).send({ error: 'unauthenticated' })
     return
   }
-  authorized.set(request, user)
   done()
 }
 
