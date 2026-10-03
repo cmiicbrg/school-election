@@ -16,6 +16,7 @@
 
 import { randomBytes } from 'node:crypto'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import rateLimit from '@fastify/rate-limit'
 import { Type, type Static } from 'typebox'
 import type { Config } from '../config.ts'
 import { upsertAppUser } from '../lib/app-user.ts'
@@ -48,13 +49,24 @@ const MeResponse = StrictObject({
   roles: Type.Array(Type.Union(GLOBAL_ROLES.map((role) => Type.Literal(role)))),
 })
 
+// Starting and completing a sign-in is limited per client address: generous
+// enough for a staff room behind one NAT address, tight enough that nobody
+// can make this server send Entra a token request per request they send.
+// Only the routes that set this are limited; the plugin logs nothing.
+const SIGN_IN_RATE_LIMIT = { max: 60, timeWindow: 60_000 }
+
 export async function authRoutes(app: FastifyInstance, { config, db, entraAuthority }: AuthRoutesOptions): Promise<void> {
+  await app.register(rateLimit, {
+    global: false,
+    errorResponseBuilder: (_request, context) => Object.assign(new Error('rate limited'), { statusCode: context.statusCode, code: 'rate_limited' }),
+  })
   const entra = await registerEntra(app, config.entra, `${config.publicOrigin}/api/auth/callback`, entraAuthority)
 
   // Sets the state and verifier cookies and the pending sign-in; changes
   // nothing on the server.
   app.get<{ Querystring: Static<typeof LoginQuery> }>('/api/auth/login', {
     exposeHeadRoute: false,
+    config: { rateLimit: SIGN_IN_RATE_LIMIT },
     schema: { querystring: LoginQuery, response: { '4xx': ErrorResponse } },
   }, async (request, reply) => {
     const nonce = randomBytes(32).toString('base64url')
@@ -64,6 +76,7 @@ export async function authRoutes(app: FastifyInstance, { config, db, entraAuthor
 
   app.get<{ Querystring: Static<typeof CallbackQuery> }>('/api/auth/callback', {
     exposeHeadRoute: false,
+    config: { rateLimit: SIGN_IN_RATE_LIMIT },
     schema: { querystring: CallbackQuery, response: { '4xx': ErrorResponse } },
   }, async (request, reply) => {
     const session = request.adminSession

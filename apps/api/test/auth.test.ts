@@ -292,6 +292,22 @@ test('logout clears the session cookie and is a protected state change', async (
   assert.equal((await app.inject({ method: 'GET', url: '/api/auth/logout', headers: { cookie } })).statusCode, 404)
 })
 
+test('sign-in is rate-limited per client address, and nothing else is', async (t) => {
+  const { app, logs } = await buildTestApp()
+  t.after(() => app.close())
+  const from = (remoteAddress: string, url: string) => app.inject({ method: 'GET', url, remoteAddress })
+  for (const url of ['/api/auth/login', '/api/auth/callback']) {
+    for (let i = 0; i < 60; i++) assert.notEqual((await from('198.51.100.7', url)).statusCode, 429, `${url} #${i + 1}`)
+    const limited = await from('198.51.100.7', url)
+    assert.equal(limited.statusCode, 429, url)
+    assert.deepEqual(limited.json(), { error: 'rate_limited' })
+    assert.ok(Number(limited.headers['retry-after']) > 0)
+    assert.notEqual((await from('203.0.113.9', url)).statusCode, 429, `${url} from another address`)
+  }
+  for (let i = 0; i < 70; i++) assert.equal((await from('198.51.100.7', '/api/auth/me')).statusCode, 401)
+  assert.ok(!logs().includes('198.51.100.7'))
+})
+
 test('the callback is the only GET that starts a session, and only with a pending sign-in', async (t) => {
   const { app } = await buildTestApp()
   t.after(() => app.close())
