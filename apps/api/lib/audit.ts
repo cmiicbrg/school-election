@@ -10,7 +10,7 @@
 // adds the actions it writes, with their fields, to AUDIT_ACTIONS.
 
 import type pg from 'pg'
-import { RULESET_IDS } from '@school-election/election-core'
+import { ROUND_KINDS, RULESET_IDS } from '@school-election/election-core'
 import { auditEventHash, MAX_ACTOR_NAME, type AuditActor, type AuditEvent, type AuditMetadata } from './audit-chain.ts'
 import { INVITED_ROLES } from './permissions.ts'
 
@@ -25,10 +25,10 @@ export type AuditField = 'text' | 'long-text' | 'uuid' | 'count' | readonly [str
 
 /**
  * Every action the log accepts, with exactly the metadata fields it carries:
- * creating an election, managing its members, configuring it and preparing
- * it. Rows are named by their id, so an event still says which contest or
- * candidate it means after a rename, and names and titles are recorded as
- * they were set.
+ * creating an election, managing its members, configuring it, preparing it
+ * and issuing its keys. Rows are named by their id, so an event still says
+ * which contest or candidate it means after a rename, and names and titles
+ * are recorded as they were set.
  */
 export const AUDIT_ACTIONS = {
   'election.created': { title: 'text' },
@@ -56,6 +56,11 @@ export const AUDIT_ACTIONS = {
   // What was prepared: the numbers the summary showed.
   'election.prepared': { contests: 'count', voterGroups: 'count', candidates: 'count' },
   'election.unprepared': {},
+  // Batches of keys, with how many keys each holds; never a key.
+  'credential-batch.issued': { batch: 'uuid', group: 'uuid', round: ROUND_KINDS, keys: 'count' },
+  'credential-batch.replaced': { batch: 'uuid', replacement: 'uuid', group: 'uuid', round: ROUND_KINDS, keys: 'count' },
+  // Voided by preparing again, because the group's contests had changed.
+  'credential-batch.voided': { batch: 'uuid', group: 'uuid', keys: 'count' },
 } as const satisfies Readonly<Record<string, Readonly<Record<string, AuditField>>>>
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS

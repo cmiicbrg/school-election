@@ -335,7 +335,7 @@ export async function renameVoterGroup(client: pg.ClientBase, access: ElectionAc
   return { ...current, name }
 }
 
-/** Removes a voter group with its mapping. */
+/** Removes a voter group with its mapping and its batches of keys, which a draft can only have kept from before a return to draft. */
 export async function removeVoterGroup(client: pg.ClientBase, access: ElectionAccess, groupId: string): Promise<void> {
   const current = await readVoterGroup(client, access.electionId, groupId)
   await client.query('delete from voter_group where id = $1', [groupId])

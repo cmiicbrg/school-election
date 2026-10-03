@@ -6,11 +6,18 @@
 // regular round, or brings the round's ballot boxes in line with the
 // contests after a return to draft. Unpreparing goes back to draft, only
 // before any round has opened, which the lifecycle guard of its route checks.
+//
+// Keys issued before a return to draft stay valid as long as they still fit:
+// preparing again voids the unused regular batches of the voter groups whose
+// contests changed meanwhile, so that their keys no longer match what the
+// group votes in, and only once the caller confirms it. Every other batch,
+// and every candidate correction, leaves the keys as they are.
 
 import type pg from 'pg'
 import { transition, type LifecycleAction, type RulesetId } from '@school-election/election-core'
 import { appendAudit } from './audit.ts'
 import { readConfiguration, type Configuration } from './configuration.ts'
+import { voidBatches } from './credentials.ts'
 import type { Database } from './db.ts'
 import { Refusal, type ElectionAccess } from './election-access.ts'
 
@@ -39,9 +46,17 @@ export interface Preparation {
   summary: Summary
 }
 
+/** A batch that preparing again would void: its keys no longer match the contests its voter group votes in. */
+export interface StaleBatch {
+  id: string
+  voterGroupId: string
+  keys: number
+}
+
 export type PrepareResult
   = | { prepared: true, summary: Summary, warnings: Warning[] }
     | { prepared: false, problems: Problem[] }
+    | { prepared: false, problems: [], staleBatches: StaleBatch[] }
 
 /** The summary, its warnings and what blocks preparing, for the configuration as it is. */
 export async function readPreparation(db: Pick<Database, 'query'>, electionId: string): Promise<Preparation> {
@@ -97,11 +112,23 @@ async function warnings(db: Pick<Database, 'query'>, electionId: string): Promis
 /**
  * Prepares the election, inside changeElection: unless something blocks
  * it, creates the regular round or adds the ballot boxes of contests
- * created since, moves the election to prepared and records it.
+ * created since, moves the election to prepared and records it. Batches
+ * whose keys no longer fit are voided, each recorded, if confirmVoid is
+ * set; without it, preparing stops and names them.
  */
-export async function prepareElection(client: pg.ClientBase, access: ElectionAccess): Promise<PrepareResult> {
+export async function prepareElection(client: pg.ClientBase, access: ElectionAccess, { confirmVoid = false } = {}): Promise<PrepareResult> {
   const { problems, warnings, summary } = await readPreparation(client, access.electionId)
   if (problems.length > 0) return { prepared: false, problems }
+  const stale = await staleBatches(client, access.electionId)
+  if (stale.length > 0 && !confirmVoid) return { prepared: false, problems: [], staleBatches: stale }
+  await voidBatches(client, stale.map((batch) => batch.id))
+  for (const batch of stale) {
+    await appendAudit(client, access.electionId, {
+      actor: access.actor,
+      action: 'credential-batch.voided',
+      metadata: { batch: batch.id, group: batch.voterGroupId, keys: batch.keys },
+    })
+  }
   await client.query(
     `insert into round (election_id, kind) select $1, 'regular'
       where not exists (select 1 from round where election_id = $1 and kind = 'regular')`,
@@ -128,7 +155,39 @@ export async function prepareElection(client: pg.ClientBase, access: ElectionAcc
   return { prepared: true, summary, warnings }
 }
 
-/** Takes the election back to draft, inside changeElection. Its round and ballot boxes stay, planned. */
+/**
+ * The unused regular batches whose keys are entitled to other contests than
+ * their voter group now votes in. A contest removed in the draft takes its
+ * entitlements with it, so only a group that gained a contest, or lost one
+ * that still exists, has such batches. Runoff batches have no entitlements
+ * until the runoff is activated, and are never stale.
+ */
+async function staleBatches(client: pg.ClientBase, electionId: string): Promise<StaleBatch[]> {
+  const { rows } = await client.query<{ id: string, voter_group_id: string, keys: number }>(
+    `with batch as (
+       select b.id, b.voter_group_id from credential_batch b
+        where b.election_id = $1 and b.round_kind = 'regular' and b.state = 'issued'
+          and not exists (select 1 from credential c join credential_entitlement e on e.credential_id = c.id where c.batch_id = b.id and e.consumed)
+     ), entitled as (
+       select distinct c.batch_id, rc.contest_id
+         from credential c
+         join credential_entitlement e on e.credential_id = c.id
+         join round_contest rc on rc.id = e.round_contest_id
+        where c.batch_id in (select id from batch)
+     ), mapped as (
+       select b.id as batch_id, m.contest_id from batch b join voter_group_contest m on m.voter_group_id = b.voter_group_id
+     )
+     select b.id, b.voter_group_id, (select count(*) from credential c where c.batch_id = b.id)::int as keys
+       from batch b
+      where exists (select contest_id from entitled e where e.batch_id = b.id except select contest_id from mapped m where m.batch_id = b.id)
+         or exists (select contest_id from mapped m where m.batch_id = b.id except select contest_id from entitled e where e.batch_id = b.id)
+      order by b.id`,
+    [electionId],
+  )
+  return rows.map((row) => ({ id: row.id, voterGroupId: row.voter_group_id, keys: row.keys }))
+}
+
+/** Takes the election back to draft, inside changeElection. Its round and ballot boxes stay, planned, and so do its batches. */
 export async function unprepareElection(client: pg.ClientBase, access: ElectionAccess): Promise<void> {
   await moveTo(client, access, 'unprepare')
   await appendAudit(client, access.electionId, { actor: access.actor, action: 'election.unprepared', metadata: {} })

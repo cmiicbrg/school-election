@@ -122,9 +122,20 @@ export const StateResponse = StrictObject({
   state: Literals(ELECTION_STATES),
 })
 
-/** A refusal: the lifecycle's or the guard's code, or not_ready with what blocks preparing. */
+/**
+ * Preparing again after a return to draft voids the batches whose keys no
+ * longer fit only when the body confirms it. Preparing for the first time
+ * needs no body.
+ */
+export const PrepareBody = Type.Union([StrictObject({ confirmVoid: Type.Boolean() }), Type.Null()])
+
+/**
+ * A refusal: the lifecycle's or the guard's code, not_ready with what
+ * blocks preparing, or void_required with the batches preparing would void.
+ */
 export const PrepareRefusal = StrictObject({
   error: Type.String(),
   message: Type.Optional(Type.String()),
   problems: Type.Optional(Type.Array(Problem)),
+  batches: Type.Optional(Type.Array(StrictObject({ id: Type.String(), voterGroupId: Type.String(), keys: Type.Integer() }))),
 })
