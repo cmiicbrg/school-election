@@ -90,7 +90,7 @@ export function parseKey(input: string): ParsedKey {
   const key = normalizeKey(input)
   if (key.length !== KEY_LENGTH) return { ok: false, problem: 'length' }
   const values = [...key].map((symbol) => VALUE.get(symbol))
-  if (values.some((value) => value === undefined)) return { ok: false, problem: 'symbol' }
+  if (values.includes(undefined)) return { ok: false, problem: 'symbol' }
   return weightedSum(values as number[]) === 0 ? { ok: true, key } : { ok: false, problem: 'check' }
 }
 

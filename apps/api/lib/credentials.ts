@@ -89,7 +89,7 @@ export async function readBatchKeys(db: Queryable, access: Pick<ElectionAccess, 
        from credential c left join credential_entitlement e on e.credential_id = c.id
       where c.batch_id = $1
       group by c.id, c.key
-      order by c.key`,
+      order by c.key collate "C"`,
     [batchId],
   )
   return { batch: toSummary(row), keys: rows.map(({ key, used }) => ({ key, used: closed ? used : null })) }
@@ -173,12 +173,7 @@ async function createBatch(client: pg.ClientBase, electionId: string, groupId: s
     [electionId, groupId, roundKind],
   )
   if (!batch) throw new Error('batch insert returned no row')
-  const keys: string[] = []
-  for (let attempt = 0; keys.length < count; attempt++) {
-    if (attempt === MAX_ATTEMPTS) throw new Error('could not draw unique keys')
-    const drawn = Array.from({ length: count - keys.length }, () => generateKey(crypto.getRandomValues(new Uint8Array(KEY_RANDOM_BYTES))))
-    keys.push(...await storeKeys(client, electionId, batch.id, drawn))
-  }
+  const keys = await drawKeys(client, electionId, batch.id, count, MAX_ATTEMPTS)
   if (roundKind === 'regular') {
     await client.query(
       `insert into credential_entitlement (election_id, credential_id, round_contest_id)
@@ -193,8 +188,17 @@ async function createBatch(client: pg.ClientBase, electionId: string, groupId: s
   }
   return {
     batch: { id: batch.id, voterGroupId: groupId, roundKind, state: 'issued', keys: count },
-    keys: keys.toSorted().map((key) => ({ key, used: null })),
+    keys: keys.toSorted(order).map((key) => ({ key, used: null })),
   }
+}
+
+/** Draws `count` new keys for the batch and stores them, drawing again for any that was taken already. */
+async function drawKeys(client: pg.ClientBase, electionId: string, batchId: string, count: number, attempts: number): Promise<string[]> {
+  if (attempts === 0) throw new Error('could not draw unique keys')
+  const drawn = Array.from({ length: count }, () => generateKey(crypto.getRandomValues(new Uint8Array(KEY_RANDOM_BYTES))))
+  const stored = await storeKeys(client, electionId, batchId, drawn)
+  if (stored.length === count) return stored
+  return [...stored, ...await drawKeys(client, electionId, batchId, count - stored.length, attempts - 1)]
 }
 
 /** Stores the keys that are not taken yet and returns them. */
@@ -225,6 +229,7 @@ function toSummary(row: BatchRow): BatchSummary {
   return { id: row.id, voterGroupId: row.voter_group_id, roundKind: row.round_kind, state: row.state, keys: row.keys }
 }
 
+/** By UTF-16 code unit, the order of the C collation for keys and ids. */
 function order(a: string, b: string): number {
   if (a < b) return -1
   return a > b ? 1 : 0

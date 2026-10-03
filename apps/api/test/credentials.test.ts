@@ -95,7 +95,7 @@ const refusedWith = (statusCode: number, code: string) => (err: unknown) => err 
 
 /** The stored keys of a batch, in key order, as the database owner reads them. */
 async function storedKeys(s: ElectionApp, batchId: string): Promise<string[]> {
-  return withClient(s.ownerUrl, async (client) => (await client.query<{ key: string }>('select key from credential where batch_id = $1 order by key', [batchId])).rows.map((row) => row.key))
+  return withClient(s.ownerUrl, async (client) => (await client.query<{ key: string }>('select key from credential where batch_id = $1 order by key collate "C"', [batchId])).rows.map((row) => row.key))
 }
 
 /** Each key of a batch with the contests and round kind it is entitled to, as "KEY round:contest,contest". */
