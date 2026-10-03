@@ -114,14 +114,15 @@ export async function registerEntra(app: FastifyInstance, config: EntraConfig, r
 }
 
 // What an operator needs to tell a forged or stale callback from a broken
-// app registration. The HTTP client fails with a Boom error, which carries
-// the token endpoint's answer; its `error` is an OAuth error code (such as
-// invalid_client for a wrong secret), a fixed vocabulary that is safe to
-// log, unlike `error_description`. The one other failure is the state check.
+// app registration or an unreachable Entra. @fastify/oauth2 reports a state
+// that does not match its cookie with exactly the error "Invalid state".
+// The HTTP client fails with a Boom error; an answer from the token
+// endpoint carries an OAuth error code (such as invalid_client for a wrong
+// secret), a fixed vocabulary that is safe to log, unlike
+// `error_description`. Anything else is a failed token request.
 function exchangeFailure(err: unknown): string {
-  const boom = err as { isBoom?: unknown, data?: { payload?: { error?: unknown } } } | null
-  if (boom?.isBoom !== true) return 'state_mismatch'
-  const code = boom.data?.payload?.error
+  if (err instanceof Error && err.message === 'Invalid state' && !('isBoom' in err)) return 'state_mismatch'
+  const code = (err as { data?: { payload?: { error?: unknown } } } | null)?.data?.payload?.error
   return typeof code === 'string' && /^[a-z_]{1,64}$/.test(code) ? `token_request_${code}` : 'token_request_failed'
 }
 

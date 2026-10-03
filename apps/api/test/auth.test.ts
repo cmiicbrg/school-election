@@ -192,6 +192,19 @@ test('every failed check ends without a session and without an app_user row', DB
   }
 })
 
+test('an unreachable token endpoint is logged as a failed token request, not as a forged state', async (t) => {
+  const s = await setup(t, { withDatabase: false })
+  const jar = new CookieJar()
+  const login = await s.app.inject({ method: 'GET', url: '/api/auth/login' })
+  jar.update(login)
+  const callback = s.entra.authorize(String(login.headers.location))
+  await s.entra.close()
+  const res = await s.app.inject({ method: 'GET', url: callback, headers: { cookie: jar.header() } })
+  assert.equal(res.statusCode, 401)
+  assert.match(s.logs(), /"code":"token_request_failed".*"msg":"sign-in refused"/)
+  assert.doesNotMatch(s.logs(), /state_mismatch/)
+})
+
 test('a callback works once', DB, async (t) => {
   const s = await setup(t)
   const jar = new CookieJar()
