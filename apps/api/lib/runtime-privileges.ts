@@ -43,6 +43,15 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   // opened, closed or removed yet.
   round: { table: ['SELECT', 'INSERT'] },
   round_contest: { table: ['SELECT', 'INSERT', 'DELETE'] },
+  // Keys are issued in batches and a batch is voided; keys and batches are
+  // removed only with their voter group or election. Triggers keep the
+  // windows (migration 0008), reading the batch states as the role that
+  // runs them.
+  credential_batch_state: { table: ['SELECT'] },
+  credential_batch: { table: ['SELECT', 'INSERT'], updateColumns: ['state'] },
+  credential: { table: ['SELECT', 'INSERT'] },
+  // A vote uses an entitlement up, and nothing else changes it.
+  credential_entitlement: { table: ['SELECT', 'INSERT'], updateColumns: ['consumed'] },
 }
 
 /** Functions the runtime role may execute, by their signature. */

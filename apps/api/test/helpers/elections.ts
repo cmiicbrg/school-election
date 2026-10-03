@@ -17,6 +17,8 @@ export interface ElectionApp {
   ownerUrl: string
   /** Every route the app registered. */
   routes: RouteOptions[]
+  /** Every log line the app has written so far, raw. */
+  logs: () => string
 }
 
 export async function electionApp(t: TestContext): Promise<ElectionApp> {
@@ -26,9 +28,9 @@ export async function electionApp(t: TestContext): Promise<ElectionApp> {
   const db = createDatabase(testDb.runtimeUrl, () => {})
   t.after(() => db.close())
   const routes: RouteOptions[] = []
-  const { app } = await buildTestApp({}, db, { entraAuthority: entra.authority, onRoute: (route) => routes.push(route) })
+  const { app, logs } = await buildTestApp({}, db, { entraAuthority: entra.authority, onRoute: (route) => routes.push(route) })
   t.after(() => app.close())
-  return { app, db, entra, ownerUrl: testDb.ownerUrl, routes }
+  return { app, db, entra, ownerUrl: testDb.ownerUrl, routes, logs }
 }
 
 export interface Person {

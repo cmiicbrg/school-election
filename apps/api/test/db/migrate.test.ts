@@ -197,7 +197,7 @@ test('a full run refuses a runtime privilege on a table that no migration create
   // Only the migrations before the election tables and preload_settings(), which the list grants on.
   const dir = await mkdtemp(path.join(tmpdir(), 'school-election-migrations-'))
   for (const name of REAL.filter((file) => file < '0004')) await cp(path.join(MIGRATIONS_DIR, name), path.join(dir, name))
-  await assert.rejects(run(db.ownerUrl, dir), (err: Error) => err instanceof MigrationError && /grants on election, election_member, election_state, round_kind, round_state, contest, candidate, voter_group, voter_group_contest, round, round_contest, preload_settings\(\), refuse\(text\), which no migration creates/.test(err.message))
+  await assert.rejects(run(db.ownerUrl, dir), (err: Error) => err instanceof MigrationError && /grants on election, election_member, election_state, round_kind, round_state, contest, candidate, voter_group, voter_group_contest, round, round_contest, credential_batch_state, credential_batch, credential, credential_entitlement, preload_settings\(\), refuse\(text\), which no migration creates/.test(err.message))
   // A run that stops early on purpose grants what exists so far.
   assert.deepEqual(await migrate({ databaseUrl: db.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD, until: '0003_audit_event.sql' }), [])
 })
