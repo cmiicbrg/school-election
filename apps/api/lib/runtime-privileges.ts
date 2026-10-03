@@ -1,13 +1,13 @@
 // Everything the runtime role may do with the objects in schema public, in
 // one list. The migrator revokes every table, sequence and function privilege
 // from PUBLIC and the runtime role and grants exactly this list on every run,
-// after the migrations, so a grant made by hand does not survive the next
-// deploy; the server refuses to start while the role can do anything more.
-// Deny by default: a table or function that is not listed gets nothing, and
-// sequences get nothing at all (identity columns need no grant).
+// after the migrations: PostgreSQL's own defaults (every new function is
+// executable by PUBLIC), a restored dump or a grant a newer version no longer
+// lists do not survive the next deploy. Deny by default: a table or function
+// that is not listed gets nothing, and sequences get nothing at all
+// (identity columns need no grant).
 
-export const TABLE_PRIVILEGES = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER', 'MAINTAIN'] as const
-export type TablePrivilege = typeof TABLE_PRIVILEGES[number]
+export type TablePrivilege = 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE' | 'TRUNCATE' | 'REFERENCES' | 'TRIGGER' | 'MAINTAIN'
 
 export interface TableGrant {
   /** Privileges on the whole table. */
@@ -32,25 +32,6 @@ export const RUNTIME_FUNCTIONS: readonly string[] = [
   // The preload settings for the startup check (migration 0006).
   'preload_settings()',
 ]
-
-/** One privilege, as the startup check reports what the role can do. */
-export interface Privilege {
-  kind: 'database' | 'schema' | 'table' | 'column' | 'sequence' | 'function'
-  /** A table, `table.column`, a sequence, a function signature, a schema, or '' for the database. */
-  object: string
-  privilege: string
-}
-
-/** The privileges the list grants, in the form the startup check reports them. */
-export function expectedPrivileges(): Privilege[] {
-  return [
-    ...Object.entries(RUNTIME_TABLES).flatMap(([table, grant]) => [
-      ...grant.table.map((privilege): Privilege => ({ kind: 'table', object: table, privilege })),
-      ...(grant.updateColumns ?? []).map((column): Privilege => ({ kind: 'column', object: `${table}.${column}`, privilege: 'UPDATE' })),
-    ]),
-    ...RUNTIME_FUNCTIONS.map((signature): Privilege => ({ kind: 'function', object: signature, privilege: 'EXECUTE' })),
-  ]
-}
 
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/
 const SIGNATURE = /^[a-z_][a-z0-9_]*\((?:[a-z_][a-z0-9_ ]*(?:, [a-z_][a-z0-9_ ]*)*)?\)$/

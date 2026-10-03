@@ -176,13 +176,20 @@ test('a runtime role given more rights by hand is brought back down', DB, async 
   assert.deepEqual(rows[0], { rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false, rolbypassrls: false, rolcanlogin: true })
 })
 
-test('a runtime role with an extra membership is refused, not silently changed, with everything it inherits', DB, async (t) => {
+test('every run resets object privileges to the declared list', DB, async (t) => {
   const db = await createTestDatabase(t)
-  await withClient(db.ownerUrl, (c) => c.query('grant pg_monitor to school_election_app'))
-  // Roles are cluster-wide: undo it on the server connection, which outlives
-  // this test's database, so the other tests find the role as they expect.
-  t.after(() => withClient(process.env.TEST_DATABASE_URL ?? '', (c) => c.query('revoke pg_monitor from school_election_app')))
-  await assert.rejects(run(db.ownerUrl), /school_election_app is a member of pg_monitor, pg_read_all_stats, pg_stat_scan_tables; revoke that first/)
+  // What an older version or a restored dump may leave: a grant the list does
+  // not name, and a function created since, executable by PUBLIC as
+  // PostgreSQL makes every new function.
+  await withClient(db.ownerUrl, (c) => c.query('grant update on audit_event to school_election_app; create function later() returns int language sql as \'select 1\''))
+  await run(db.ownerUrl)
+  const { rows } = await withClient(db.ownerUrl, (c) => c.query<Record<string, boolean>>(
+    `select has_table_privilege('school_election_app', 'audit_event', 'UPDATE') as audit_update,
+            has_function_privilege('school_election_app', 'later()', 'EXECUTE') as later_execute,
+            has_function_privilege('school_election_app', 'preload_settings()', 'EXECUTE') as preload_execute,
+            has_column_privilege('school_election_app', 'app_user', 'email', 'UPDATE') as email_update`,
+  ))
+  assert.deepEqual(rows[0], { audit_update: false, later_execute: false, preload_execute: true, email_update: true })
 })
 
 test('a full run refuses a runtime privilege on a table that no migration creates', DB, async (t) => {

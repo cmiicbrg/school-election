@@ -166,13 +166,11 @@ async function migrationFiles(dir: string, until: string | undefined): Promise<M
 }
 
 // The runtime role logs in with its own password and holds nothing but what
-// lib/runtime-privileges.ts grants it. Its attributes are set on every run, so
-// a role that was created or changed by hand with more rights is brought back
-// down; a membership in any role is refused rather than silently revoked.
-// The one exception is pg_read_all_settings, which earlier versions granted
-// for the startup check: preload_settings() (migration 0006) replaces it, so
-// the grant is taken back with the privilege reset, once the migrations have
-// succeeded. Until then the server still running may need it to restart.
+// lib/runtime-privileges.ts grants it; its attributes are set on every run.
+// Earlier versions made it a member of pg_read_all_settings for the startup
+// check; preload_settings() (migration 0006) replaces that, so the grant is
+// taken back with the privilege reset, once the migrations have succeeded.
+// Until then the server still running may need it to restart.
 const SUPERSEDED_MEMBERSHIP = 'pg_read_all_settings'
 const UNPRIVILEGED = 'login nosuperuser nocreatedb nocreaterole noreplication nobypassrls inherit'
 
@@ -188,42 +186,7 @@ async function ensureRuntimeRole(client: pg.Client, password: string): Promise<b
     }
   }
   if (existed) await client.query(await formatted(client, `alter role %I with ${UNPRIVILEGED}`))
-  await refuseMemberships(client, { except: SUPERSEDED_MEMBERSHIP })
-  await refuseOwnership(client)
   return existed
-}
-
-// An owner keeps the right to alter, drop and grant on its objects, which no
-// revoke takes away; like a membership, ownership is refused, not changed.
-// pg_shdepend records the owner of every kind of object, in this database
-// and cluster-wide.
-async function refuseOwnership(client: pg.Client): Promise<void> {
-  const owned = await client.query<{ name: string }>(
-    `select pg_describe_object(d.classid, d.objid, d.objsubid) as name from pg_shdepend d
-      where d.refclassid = 'pg_authid'::regclass and d.deptype = 'o'
-        and d.refobjid = (select oid from pg_roles where rolname = $1)
-        and d.dbid in (0, (select oid from pg_database where datname = current_database()))`,
-    [RUNTIME_ROLE],
-  )
-  if (owned.rows.length > 0) {
-    const names = owned.rows.map((row) => row.name).sort(byName).join(', ')
-    throw new MigrationError(`${RUNTIME_ROLE} owns ${names}; reassign that to the migration role first, the runtime role must own nothing`)
-  }
-}
-
-// Effective membership, not only direct grants: a role granted to any role
-// the runtime role is a member of is inherited just the same.
-async function refuseMemberships(client: pg.Client, { except }: { except?: string } = {}): Promise<void> {
-  const memberships = await client.query<{ rolname: string }>(
-    `select granted.rolname::text as rolname from pg_roles granted, pg_roles runtime
-      where runtime.rolname = $1 and granted.oid <> runtime.oid
-        and pg_has_role(runtime.oid, granted.oid, 'MEMBER') and granted.rolname is distinct from $2`,
-    [RUNTIME_ROLE, except ?? null],
-  )
-  if (memberships.rows.length > 0) {
-    const names = memberships.rows.map((row) => row.rolname).sort(byName).join(', ')
-    throw new MigrationError(`${RUNTIME_ROLE} is a member of ${names}; revoke that first, the runtime role must hold nothing else`)
-  }
 }
 
 async function setRuntimePassword(client: pg.Client, password: string): Promise<void> {
@@ -251,14 +214,14 @@ async function formatted(client: pg.Client, template: string, password?: string)
   return rows[0]?.sql ?? ''
 }
 
-// Privileges are per database, so they are reset here on every run: a
-// reused runtime role may hold privileges granted by hand, such as CREATE on
-// the schema or UPDATE on a table. Every database, schema, table, sequence
-// and function privilege of PUBLIC and the runtime role is revoked, and the
-// role gets back CONNECT, USAGE on the schema and exactly what
-// lib/runtime-privileges.ts lists; the grants in earlier migrations are
-// superseded by that list. New functions are no longer executable by PUBLIC
-// by default either.
+// Privileges are per database, so they are reset here on every run. Every
+// database, schema, table, sequence and function privilege of PUBLIC and the
+// runtime role is revoked, and the role gets back CONNECT, USAGE on the
+// schema and exactly what lib/runtime-privileges.ts lists; the grants in
+// earlier migrations are superseded by that list. That covers PostgreSQL's
+// defaults (PUBLIC may connect to a new database, create temporary tables
+// and execute every new function), a database restored from a dump, and
+// grants a newer version no longer lists.
 async function resetRuntimePrivileges(client: pg.Client, { complete }: { complete: boolean }): Promise<void> {
   const tables = new Set((await client.query<{ name: string }>(
     `select relname::text as name from pg_class
@@ -292,23 +255,6 @@ async function resetRuntimePrivileges(client: pg.Client, { complete }: { complet
     // list goes as one multi-statement query, inside this transaction.
     await client.query(['tables', 'sequences', 'routines']
       .map((kind) => `revoke all on all ${kind} in schema public from public, ${RUNTIME_ROLE}`).join(';\n'))
-    // Default privileges of every role, globally and per schema: none may
-    // give PUBLIC or the runtime role anything on objects created later.
-    await client.query(`do $$
-      declare d record; k text;
-      begin
-        for d in select distinct pg_get_userbyid(a.defaclrole) as owner, n.nspname as schema
-                   from pg_default_acl a left join pg_namespace n on n.oid = a.defaclnamespace loop
-          foreach k in array array['tables', 'sequences', 'routines'] loop
-            if d.schema is null then
-              execute format('alter default privileges for role %I revoke all on %s from public, ${RUNTIME_ROLE}', d.owner, k);
-            else
-              execute format('alter default privileges for role %I in schema %I revoke all on %s from public, ${RUNTIME_ROLE}', d.owner, d.schema, k);
-            end if;
-          end loop;
-        end loop;
-      end $$`)
-    await client.query('alter default privileges revoke execute on routines from public')
     const grants = grantStatements(RUNTIME_ROLE, { tables, functions })
     if (grants.length > 0) await client.query(grants.join(';\n'))
     const superseded = await client.query(
@@ -323,8 +269,6 @@ async function resetRuntimePrivileges(client: pg.Client, { complete }: { complet
     await client.query('rollback').catch(() => {})
     throw err
   }
-  // A grant by another role, which the revoke above does not remove.
-  await refuseMemberships(client)
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
