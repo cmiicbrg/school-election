@@ -219,30 +219,48 @@ header button {
 .card {
   box-sizing: border-box;
   border: 0.3mm dashed #888;
-  padding: 6mm;
+  padding: 5mm;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
-  gap: 3mm;
+  gap: 2.5mm;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
+}
+
+/* Text is clamped to its lines, so a long title or class name, both valid,
+   never pushes the QR code or the key out of the card. */
+.title,
+.round,
+.how {
+  margin: 0;
+  max-width: 100%;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
 }
 
 .title {
   font-size: 12pt;
   font-weight: 700;
-  margin: 0;
+  line-height: 1.2;
+  -webkit-line-clamp: 2;
 }
 
 .round {
   font-size: 10pt;
-  margin: 0;
+  line-height: 1.2;
+  -webkit-line-clamp: 1;
 }
 
 .qr {
-  width: 36mm;
-  height: 36mm;
+  width: 32mm;
+  height: 32mm;
+  flex-shrink: 0;
 }
 
 .key {
@@ -250,12 +268,14 @@ header button {
   font-size: 14pt;
   letter-spacing: 0.04em;
   margin: 0;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .how {
   font-size: 8.5pt;
-  margin: 0;
   line-height: 1.3;
+  -webkit-line-clamp: 2;
 }
 
 @media screen {
@@ -279,5 +299,18 @@ header button {
 @page {
   size: A4 portrait;
   margin: 0;
+}
+</style>
+
+<style>
+/* The sheets are sized to A4 exactly, so the browser's default body margin
+   would push them over the page edge in print: none while printing. Global,
+   like the page size above. */
+@media print {
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+  }
 }
 </style>
