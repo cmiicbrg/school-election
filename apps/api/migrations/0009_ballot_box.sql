@@ -70,25 +70,29 @@ create table ballot (
 -- random ids alone.
 create index ballot_round_contest on ballot (election_id, round_contest_id);
 
--- A ballot is staged only while its round accepts ballots, read with a
--- share lock on the election's row like every other trigger: a change of
--- the round's state waits for the vote to commit, and the other way
--- round. It names each candidate once, candidates of its own contest
--- only, and "Nein" only where the contest has a single candidate. This
--- binds everyone, the seal and the owner included.
+-- A ballot is staged only while its round accepts ballots. The trigger
+-- takes the election's row with a share lock first, as every trigger
+-- does: a seal in progress holds that row until it commits, so this waits
+-- for it, and a seal that comes later waits for the vote to commit. The
+-- round's state is read afterwards, by a statement of its own, so it is
+-- the state a seal left behind and not the one this transaction saw
+-- before waiting (in read committed each statement takes a new snapshot;
+-- a lock taken in the same statement would not refresh the round's row).
+-- A ballot names each candidate once, candidates of its own contest only,
+-- and "Nein" only where the contest has a single candidate. This binds
+-- everyone, the seal and the owner included.
 create function ballot_staged() returns trigger
   language plpgsql set search_path = pg_catalog as $$
 declare
   accepting boolean;
   box_contest uuid;
 begin
+  perform 1 from public.election e where e.id = new.election_id for share of e;
   select rs.accepts_ballots, rc.contest_id into accepting, box_contest
     from public.round_contest rc
     join public.round r on r.id = rc.round_id
     join public.round_state rs on rs.state = r.state
-    join public.election e on e.id = r.election_id
-   where rc.id = new.round_contest_id
-     for share of e;
+   where rc.id = new.round_contest_id and rc.election_id = new.election_id;
   if accepting is not true then
     perform public.refuse('a ballot is cast only while its round is open');
   end if;
@@ -141,13 +145,17 @@ create table round_transition (
 insert into round_transition (from_state, to_state) values ('planned', 'open'), ('open', 'closed');
 
 -- A round never moves to another election or kind, changes its state only
--- along round_transition, and leaves a state that accepts ballots only
+-- along round_transition, opens only once its election is active (its
+-- candidates fixed, as the lifecycle in election-core has it: the
+-- application moves the election and opens the round in one transaction,
+-- the election first), and leaves a state that accepts ballots only
 -- through the seal, which is not a direct statement: so a closed round is
 -- always a sealed one. A closed round has no transition and never changes.
 create function round_lifecycle() returns trigger
   language plpgsql set search_path = pg_catalog as $$
 declare
   leaving public.round_state;
+  entering public.round_state;
 begin
   if (new.id, new.election_id, new.kind) is distinct from (old.id, old.election_id, old.kind) then
     perform public.refuse('a round never moves');
@@ -157,6 +165,14 @@ begin
       perform public.refuse(format('a round does not go from %s to %s', old.state, new.state));
     end if;
     select * into leaving from public.round_state s where s.state = old.state;
+    select * into entering from public.round_state s where s.state = new.state;
+    if entering.opened and not leaving.opened and not exists (
+      select 1 from public.election e join public.election_state s on s.state = e.state
+       where e.id = new.election_id and not s.candidates_editable and not s.final
+         for share of e
+    ) then
+      perform public.refuse('a round opens only once its election is active');
+    end if;
     if leaving.accepts_ballots and current_user = session_user then
       perform public.refuse('a round leaves a state that accepts ballots only through the seal');
     end if;
@@ -178,11 +194,14 @@ create trigger round_lifecycle before update on round
 -- It locks the election's row as a change of the election would: every
 -- vote holds that row for share until it commits (the entitlement
 -- triggers of 0008 and ballot_staged above), so the seal waits for the
--- votes in flight, and a vote that arrives afterwards waits here and then
--- finds the round closed.
+-- votes in flight, and a vote that arrives afterwards waits there and then
+-- finds the round closed. A second seal waits for the first the same way,
+-- and then reads the round, by a statement of its own with a snapshot of
+-- its own, as closed.
 create function seal_round(target uuid) returns integer
   language plpgsql security definer set search_path = pg_catalog as $$
 declare
+  election uuid;
   the_round public.round;
   is_open boolean;
   closed_state text;
@@ -190,13 +209,14 @@ declare
   sealed integer;
   kept public.credential_entitlement[];
 begin
-  select r.* into the_round
+  select e.id into election
     from public.round r join public.election e on e.id = r.election_id
    where r.id = target
      for no key update of e;
-  if the_round.id is null then
+  if election is null then
     perform public.refuse('no such round');
   end if;
+  select r.* into the_round from public.round r where r.id = target for no key update;
   select rs.opened and rs.accepts_ballots into is_open from public.round_state rs where rs.state = the_round.state;
   if not is_open then
     perform public.refuse('only an open round is sealed');

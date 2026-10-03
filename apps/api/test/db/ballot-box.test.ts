@@ -126,12 +126,14 @@ test('a ballot is staged only while its round is open, and only one that fits it
   await withClient(runtimeUrl, (client) => refused(client, '55000', [stage(SPEAKER_BOX, 'ranking', [PAULA, QUIRIN]), stage(POLL_BOX, 'no', [])]))
 })
 
-test('a round moves only along its transitions, and leaves the open state only through the seal', DB, async (t) => {
+test('a round moves only along its transitions, opens only once its election is active, and leaves the open state only through the seal', DB, async (t) => {
   const { ownerUrl, runtimeUrl } = await setup(t)
   const move = (state: string) => `update round set state = '${state}' where id = '${ROUND}'`
   await withClient(runtimeUrl, async (client) => {
-    await refused(client, '55000', [move('closed')])
+    // Prepared: the round stays planned.
+    await refused(client, '55000', [move('closed'), move('open')])
     await refused(client, '42501', [`update round set kind = 'runoff' where id = '${ROUND}'`, 'delete from round'])
+    await client.query(`update election set state = 'active' where id = '${ELECTION}'`)
     await client.query(move('open'))
     await refused(client, '55000', [move('planned'), move('closed')])
   })

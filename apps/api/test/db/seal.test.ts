@@ -128,3 +128,42 @@ async function race(voter: pg.Client, sealer: pg.Client, ownerUrl: string): Prom
     refusedWith('55000'),
   )
 }
+
+test('a ballot or a second seal that waits for a seal in progress finds the round closed afterwards', DB, async (t) => {
+  const { ownerUrl, runtimeUrl } = await setup(t)
+  await open(ownerUrl)
+  const sealer = new pg.Client({ connectionString: runtimeUrl })
+  const late = new pg.Client({ connectionString: runtimeUrl })
+  const second = new pg.Client({ connectionString: runtimeUrl })
+  await Promise.all([sealer.connect(), late.connect(), second.connect()])
+  try {
+    // The seal has run but not committed: it holds the election's row.
+    await sealer.query('begin')
+    assert.equal((await sealer.query<{ n: number }>('select seal_round($1) as n', [ROUND])).rows[0]?.n, 0)
+    // A ballot and another seal start now, while the round still reads as
+    // open to them, and wait for the seal to commit.
+    const staging = late.query('insert into ballot_box (election_id, round_contest_id, kind, ranking) values ($1, $2, $3, $4::uuid[])', [ELECTION, BOX, 'ranking', [PAULA, QUIRIN]])
+    const sealing = second.query('select seal_round($1)', [ROUND])
+    let settled = 0
+    const counting = Promise.allSettled([staging, sealing]).then((results) => {
+      settled = results.length
+      return results
+    })
+    await sleep(300)
+    assert.equal(settled, 0, 'both wait for the seal in progress')
+    await sealer.query('commit')
+    const [stagingResult, sealingResult] = await counting
+    for (const [what, result] of [['the late ballot', stagingResult], ['the second seal', sealingResult]] as const) {
+      assert.ok(result.status === 'rejected' && refusedWith('55000')(result.reason), `${what} is refused`)
+    }
+  } finally {
+    await Promise.all([sealer.end(), late.end(), second.end()])
+  }
+  await withClient(ownerUrl, async (client) => {
+    assert.equal((await client.query('select 1 from ballot_box')).rowCount, 0, 'nothing is staged in the closed round')
+    const { rows: [round] } = await client.query<{ state: string, versions: number }>(
+      `select state, (select count(*)::int from credential_entitlement) as versions from round where id = $1`, [ROUND],
+    )
+    assert.deepEqual(round, { state: 'closed', versions: 3 })
+  })
+})

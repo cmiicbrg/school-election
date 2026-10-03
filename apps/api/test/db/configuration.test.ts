@@ -203,8 +203,12 @@ test('an election moves only along the lifecycle, and back to draft only while n
     await client.query(`update election set state = 'draft' where id = '${A}'`)
     await client.query(`update election set state = 'prepared' where id = '${A}'`)
   })
-  // A round that has opened, which only the owner can make here.
-  await withClient(ownerUrl, (client) => client.query(`update round set state = 'open' where election_id = '${A}'`))
+  // A round that has opened while the election is still prepared, which
+  // the round's own trigger (migration 0009) refuses: made past the
+  // triggers, to test this one's rule on its own.
+  await withClient(ownerUrl, (client) => client.query(
+    `begin; set local session_replication_role = replica; update round set state = 'open' where election_id = '${A}'; commit`,
+  ))
   await withClient(runtimeUrl, (client) => refused(client, '55000', [`update election set state = 'draft' where id = '${A}'`]))
 })
 
@@ -224,10 +228,11 @@ test('rounds start planned before voting, and their ballot boxes change only whi
     await client.query(`insert into contest (id, election_id, title, ruleset_id) values ('${CONTEST_A}', '${A}', 'Schulsprecher/in', 'at-school-speaker-v1')`)
     await client.query(`insert into round_contest (election_id, round_id, contest_id) select '${A}', id, '${CONTEST_A}' from round where election_id = '${A}'`)
     await client.query(`update election set state = 'prepared' where id = '${A}'`)
-    // The runtime role opens a round (test/db/ballot-box.test.ts has the
-    // rest of its transitions), and removes none.
+    // The runtime role opens the round of an active election
+    // (test/db/ballot-box.test.ts has the rest of its transitions), and
+    // removes none.
     await refused(client, '42501', [`delete from round`, `update round_contest set contest_id = contest_id`])
-    await client.query(`update round set state = 'open' where election_id = '${A}'`)
+    await client.query(`update election set state = 'active' where id = '${A}'; update round set state = 'open' where election_id = '${A}'`)
     await refused(client, '55000', [`delete from round_contest where election_id = '${A}'`])
   })
 })
