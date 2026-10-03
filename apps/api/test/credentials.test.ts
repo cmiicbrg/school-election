@@ -6,11 +6,11 @@
 import { test, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import type { LightMyRequestResponse } from 'fastify'
-import { parseKey, type ElectionState, type RoundKind } from '@school-election/election-core'
+import { parseKey, type ElectionState, type RoundKind, type RoundState } from '@school-election/election-core'
 import type pg from 'pg'
 import { lockElection } from '../lib/audit.ts'
 import { issueBatch, listBatches, readBatchKeys, replaceBatch, type BatchKeys } from '../lib/credentials.ts'
-import { lifecycleOf, Refusal, type ElectionAccess } from '../lib/election-access.ts'
+import { lifecycleOf, Refusal, ROUND_STATES_SQL, type ElectionAccess } from '../lib/election-access.ts'
 import { prepareElection, type PrepareResult } from '../lib/prepare.ts'
 import type { ElectionRole } from '../lib/permissions.ts'
 import { DB, withClient } from './helpers/db.ts'
@@ -83,14 +83,14 @@ async function prepared(t: TestContext): Promise<Setup> {
 /** What the guard would establish for the person, from the database as it is. */
 async function accessOf(s: ElectionApp, electionId: string, person: Person): Promise<ElectionAccess> {
   return withClient(s.ownerUrl, async (client) => {
-    const { rows: [row] } = await client.query<{ role: ElectionRole, state: ElectionState, tid: string, oid: string, display_name: string }>(
-      `select m.role, e.state, u.tid, u.oid, u.display_name
+    const { rows: [row] } = await client.query<{ role: ElectionRole, state: ElectionState, regular: RoundState | null, runoff: RoundState | null, tid: string, oid: string, display_name: string }>(
+      `select m.role, e.state, u.tid, u.oid, u.display_name, ${ROUND_STATES_SQL}
          from election_member m join election e on e.id = m.election_id join app_user u on u.id = m.user_id
         where m.election_id = $1 and u.oid = $2`,
       [electionId, person.oid],
     )
     assert.ok(row, person.name)
-    return { electionId, role: row.role, lifecycle: lifecycleOf(row.state), actor: { tid: row.tid, oid: row.oid, name: row.display_name } }
+    return { electionId, role: row.role, lifecycle: lifecycleOf(row.state, row), actor: { tid: row.tid, oid: row.oid, name: row.display_name } }
   })
 }
 
@@ -188,13 +188,10 @@ test('the owner and co-admins read a batch\'s keys whenever they like; a witness
   // Voting with one key while the round is open; nobody learns which yet.
   const [usedKey, ...unused] = keysOf(issued)
   await forceElectionState(s.ownerUrl, id, 'active')
-  await withClient(s.ownerUrl, async (client) => {
-    await client.query(`update round set state = 'open' where election_id = $1 and kind = 'regular'`, [id])
-    await client.query(
-      `update credential_entitlement e set consumed = true from credential c where c.id = e.credential_id and c.key = $1`,
-      [usedKey],
-    )
-  })
+  await withClient(s.ownerUrl, (client) => client.query(
+    `update credential_entitlement e set consumed = true from credential c where c.id = e.credential_id and c.key = $1`,
+    [usedKey],
+  ))
   await assert.rejects(read(WANDA, issued.batch.id), refusedWith(403, 'forbidden'))
   assert.deepEqual((await read(ANNA, issued.batch.id)).keys.map((k) => k.used), [null, null, null, null])
 
@@ -234,7 +231,6 @@ test('replacing a batch voids its keys and issues as many new ones, only until i
 
   // Once voting has started, regular keys are fixed; runoff keys can still be issued and replaced.
   await forceElectionState(s.ownerUrl, id, 'active')
-  await withClient(s.ownerUrl, (client) => client.query(`update round set state = 'open' where election_id = $1 and kind = 'regular'`, [id]))
   await assert.rejects(issue(ANNA, g1a, 'regular', 1), refusedWith(409, 'voting_started'))
   await assert.rejects(replace(ANNA, replacement.batch.id), refusedWith(409, 'voting_started'))
   const runoff = await issue(ANNA, g1a, 'runoff', 2)

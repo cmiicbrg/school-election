@@ -5,6 +5,8 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse, RouteOptions } from 'fastify'
 import { createDatabase, type Database } from '../../lib/db.ts'
+import { lifecycleOf, ROUND_STATES_SQL, type ElectionAccess } from '../../lib/election-access.ts'
+import type { ElectionRole } from '../../lib/permissions.ts'
 import type { ElectionState, RoundState } from '@school-election/election-core'
 import { buildTestApp, ORIGIN } from './app.ts'
 import { createTestDatabase, withClient } from './db.ts'
@@ -93,16 +95,25 @@ export async function auditActions(owner: Browser, electionId: string): Promise<
   return res.json<{ events: { action: string }[] }>().events.map((event) => event.action)
 }
 
+/** The regular round's state that goes with each election state, as the lifecycle has it. */
+const REGULAR_ROUND: Record<ElectionState, RoundState> = { draft: 'planned', prepared: 'planned', active: 'open', final: 'closed' }
+
 /**
- * Puts an election into a state no route reaches yet (none opens a round),
- * or back out of one, as the database owner and past the lifecycle
- * triggers, which would otherwise refuse such a jump.
+ * Puts an election into a state no route reaches yet, or back out of one,
+ * together with the regular round's state that goes with it (created if
+ * the election has none yet), as the database owner and past the
+ * lifecycle triggers, which would otherwise refuse such a jump.
  */
 export async function forceElectionState(ownerUrl: string, electionId: string, state: ElectionState): Promise<void> {
   await withClient(ownerUrl, async (client) => {
     await client.query('begin')
     await client.query('set local session_replication_role = replica')
     await client.query('update election set state = $2 where id = $1', [electionId, state])
+    await client.query(
+      `insert into round (election_id, kind, state) values ($1, 'regular', $2)
+       on conflict (election_id, kind) do update set state = excluded.state`,
+      [electionId, REGULAR_ROUND[state]],
+    )
     await client.query('commit')
   })
 }
@@ -119,6 +130,22 @@ export async function forceRoundState(ownerUrl: string, electionId: string, stat
     await client.query('update round set state = $2 where election_id = $1 and kind = $3', [electionId, state, 'regular'])
     await client.query('commit')
   })
+}
+
+/** A made-up administrator, for library calls that record an audit event without a signed-in person. */
+export const ACTOR = { tid: '6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b', oid: 'a0000000-0000-4000-8000-00000000000a', name: 'Anna Lehrerin' }
+
+/**
+ * What the route's guard would establish for a member in `role`, from
+ * the election's stored states as they are now, with the made-up actor:
+ * for tests that call the library without the app.
+ */
+export async function accessAs(ownerUrl: string, electionId: string, role: ElectionRole): Promise<ElectionAccess> {
+  const row = await withClient(ownerUrl, async (client) => (await client.query<{ state: ElectionState, regular: RoundState | null, runoff: RoundState | null }>(
+    `select e.state, ${ROUND_STATES_SQL} from election e where e.id = $1`, [electionId],
+  )).rows[0])
+  if (!row) throw new Error(`no election ${electionId}`)
+  return { electionId, role, lifecycle: lifecycleOf(row.state, row), actor: ACTOR }
 }
 
 /** A route's URL for an election, with made-up ids for everything else it names. */
