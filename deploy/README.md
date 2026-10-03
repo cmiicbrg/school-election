@@ -22,7 +22,7 @@ Development uses a separate registration in the school's tenant, with its own se
 
 ## Host
 
-The host needs rootless podman with `podman compose` (which runs docker-compose or podman-compose, whichever is installed), nginx and certbot. Create the user `election` without sudo rights, then let its containers run without a login session and start at boot:
+The host needs rootless podman with `podman compose` (which runs docker-compose or podman-compose, whichever is installed), nginx 1.25.1 or newer (older versions need the change noted in the example) and certbot. Create the user `election` without sudo rights, then let its containers run without a login session and start at boot:
 
 ```bash
 sudo loginctl enable-linger election
@@ -100,10 +100,10 @@ The example expects the certificate under `/etc/letsencrypt/live/wahl.example.or
 ```bash
 sudo mkdir -p /var/www/certbot   # certbot refuses a webroot that does not exist
 sudo nginx -t && sudo systemctl reload nginx
-sudo certbot certonly --webroot -w /var/www/certbot -d wahl.example.org
+sudo certbot certonly --webroot -w /var/www/certbot -d wahl.example.org --deploy-hook 'nginx -t && systemctl reload nginx'
 ```
 
-Then restore the port 443 server. On an SELinux host, nginx may not connect to the app's port until `sudo setsebool -P httpd_can_network_connect 1` allows it.
+Then restore the port 443 server. certbot keeps the deploy hook for renewals, so nginx picks up each renewed certificate. On an SELinux host, nginx may not connect to the app's port until `sudo setsebool -P httpd_can_network_connect 1` allows it.
 
 ```bash
 sudo nginx -t && sudo systemctl reload nginx
@@ -112,7 +112,7 @@ curl -fsS https://wahl.example.org/api/health
 
 Then sign in at `https://wahl.example.org/api/auth/login`. Afterwards `https://wahl.example.org/api/auth/me` shows the signed-in name, with the role `teacher` for teachers.
 
-nginx only terminates TLS, forwards and logs. Do not add security headers or access rules there: the app sets the headers (CSP, HSTS, Referrer-Policy and the rest) and checks every request itself. The log format leaves out query strings and cookies, `/api/voter` is not logged at all, and neither request bodies nor responses are ever buffered to disk.
+nginx only terminates TLS, forwards and logs. Do not add security headers or access rules there: the app sets the headers (CSP, HSTS, Referrer-Policy and the rest) and checks every request itself. The log format leaves out query strings and cookies, `/api/voter` and the plain-HTTP redirects are not logged at all, the error log keeps only critical entries for `/api/voter` and the sign-in callback, and neither request bodies nor responses are ever buffered to disk.
 
 ## Updates
 
@@ -135,7 +135,7 @@ With linger enabled, `podman-restart.service` starts every container with `resta
 
 ## Backups
 
-- Logical dumps only, and without the ballot box: `podman compose exec -T postgres pg_dump -U postgres -d school_election --format=custom --exclude-table-data=ballot_box > school-election-$(date +%F).dump`. A dump outlives the election, and ballots must not.
+- Logical dumps only, and without the ballot box: `(umask 077 && podman compose exec -T postgres pg_dump -U postgres -d school_election --format=custom --exclude-table-data=ballot_box > school-election-$(date +%F).dump)`. A dump outlives the election, and ballots must not. It still holds names, addresses and the audit log, hence the umask: only `election` may read it.
 - Never during an election, from opening its first round until the clean-up after its export has finished. In that time, also no file-level copy or snapshot of the PostgreSQL volume or the virtual machine: until the clean-up, deleted rows and the write-ahead log in the data files can still link ballots to keys.
 - No WAL archiving and no point-in-time recovery. `archive_mode` is off, and the app refuses to start otherwise.
 
@@ -143,4 +143,4 @@ With linger enabled, `podman-restart.service` starts every container with `resta
 
 - The app logs JSON lines to `podman compose logs app`, without request lines, client addresses, query strings or error messages.
 - PostgreSQL logs warnings and errors only, never statements or their parameters.
-- nginx logs what its log format allows, and nothing for `/api/voter`.
+- nginx logs what its log format allows, and nothing for `/api/voter` or the plain-HTTP redirects.

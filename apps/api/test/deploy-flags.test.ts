@@ -16,9 +16,13 @@ const COMPOSE = 'deploy/compose.example.yml'
 
 const read = (file: string) => readFile(path.join(root, file), 'utf8')
 
-/** Every `-c name=value` that stands on a line of its own, in order. */
+/**
+ * Every setting on a line of its own, in order: `-c name=value`, and the
+ * `--name=value` form PostgreSQL also accepts. Any name counts, including
+ * a module's dotted ones, so a setting the check does not know is caught.
+ */
 async function flags(file: string): Promise<[string, string][]> {
-  return [...(await read(file)).matchAll(/^\s*-c ([a-z_]+)=(\S+)$/gm)].map((match) => [match[1] ?? '', match[2] ?? ''])
+  return [...(await read(file)).matchAll(/^\s*(?:-c |--)([^=\s]+)=(\S*)$/gm)].map((match) => [match[1] ?? '', match[2] ?? ''])
 }
 
 for (const file of [LAUNCHER, COMPOSE]) {
