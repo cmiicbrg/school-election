@@ -11,6 +11,7 @@
 
 import type pg from 'pg'
 import { auditEventHash, MAX_ACTOR_NAME, type AuditActor, type AuditEvent, type AuditMetadata } from './audit-chain.ts'
+import { INVITED_ROLES } from './permissions.ts'
 
 /**
  * A metadata field: free text of at most 1000 UTF-16 code units, or one of a
@@ -18,8 +19,6 @@ import { auditEventHash, MAX_ACTOR_NAME, type AuditActor, type AuditEvent, type 
  * action that needs them.
  */
 export type AuditField = 'text' | readonly [string, ...string[]]
-
-const INVITED_ROLE = ['admin', 'witness'] as const
 
 /**
  * Every action the log accepts, with exactly the metadata fields it carries.
@@ -29,9 +28,9 @@ export const AUDIT_ACTIONS = {
   'election.created': { title: 'text' },
   // The actor of member.bound is the invited person on their first sign-in,
   // so the event names the Entra identity the invitation was bound to.
-  'member.invited': { email: 'text', role: INVITED_ROLE },
-  'member.bound': { email: 'text', role: INVITED_ROLE },
-  'member.removed': { email: 'text', role: INVITED_ROLE },
+  'member.invited': { email: 'text', role: INVITED_ROLES },
+  'member.bound': { email: 'text', role: INVITED_ROLES },
+  'member.removed': { email: 'text', role: INVITED_ROLES },
 } as const satisfies Readonly<Record<string, Readonly<Record<string, AuditField>>>>
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS
@@ -84,13 +83,7 @@ export async function appendAudit<A extends AuditAction>(
   const action: string = input.action
   const metadata = auditMetadata(action, input.metadata)
 
-  const lock = await client.query<{ isolation: string }>(
-    'select current_setting(\'transaction_isolation\') as isolation from pg_advisory_xact_lock($1, $2)',
-    [LOCK_CLASS, lockKey(election)],
-  )
-  if (lock.rows[0]?.isolation !== 'read committed') {
-    throw new AuditError('appendAudit needs a READ COMMITTED transaction to see the newest event of the chain')
-  }
+  await lockElection(client, election)
   // The time is taken under the lock, so it follows the chain order (as long
   // as the server clock does not go back), and in whole milliseconds, which
   // a JavaScript Date and the hashed ISO 8601 text hold exactly.
@@ -110,6 +103,27 @@ export async function appendAudit<A extends AuditAction>(
     [election, content.at, actor.tid, actor.oid, actor.name, action, JSON.stringify(metadata), row.prev_seq, content.prevHash, hash],
   )
   return { seq: toSeq(inserted.rows[0]?.seq), ...content, hash }
+}
+
+/**
+ * Takes the election's lock until the open transaction on `client` ends.
+ * Every change to an election takes it before it reads what it changes, and
+ * appendAudit takes it (again; the lock is reentrant) before reading the
+ * chain head, so changes to one election and their events happen one after
+ * another. The transaction must be READ COMMITTED (the default), so that
+ * what it reads after the lock is the newest committed state.
+ */
+export async function lockElection(client: pg.ClientBase, electionId: string): Promise<void> {
+  if (client.getTransactionStatus() !== 'T') {
+    throw new AuditError('the election lock is only held inside a transaction')
+  }
+  const lock = await client.query<{ isolation: string }>(
+    'select current_setting(\'transaction_isolation\') as isolation from pg_advisory_xact_lock($1, $2)',
+    [LOCK_CLASS, lockKey(uuid(electionId, 'electionId'))],
+  )
+  if (lock.rows[0]?.isolation !== 'read committed') {
+    throw new AuditError('the election lock needs a READ COMMITTED transaction to see the newest committed state')
+  }
 }
 
 interface AuditEventRow {
