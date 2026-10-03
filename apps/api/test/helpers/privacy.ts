@@ -39,7 +39,11 @@ export interface PrivacyScenario extends TestDatabase {
   /** Every key's credential id; the tracked one is the first. */
   credentialIds: string[]
   tracked: string
-  /** The 32-bit transaction id of every vote, as xmin shows it; filled by the caster. */
+  /**
+   * The 32-bit transaction id of every vote, as xmin shows it; filled by
+   * the caster. castBallot writes under a savepoint, whose rows carry the
+   * subtransaction's id, so the caster records the id its rows carry.
+   */
   voteXids: Set<string>
   /** The votes in the order they were cast; filled by voteInterleaved. */
   castOrder: Vote[]
@@ -262,6 +266,12 @@ export function castBallotCaster(db: Database, scenario: PrivacyScenario): Caste
       scenario.voteXids.add(xid?.xid ?? assert.fail('no transaction id'))
       const result = await castBallot(client, { credentialId: vote.credentialId, roundContestId: vote.boxId, contest, ballot: validated.ballot })
       assert.deepEqual(result, { cast: true })
+      // What the rows castBallot wrote actually carry: the savepoint's id.
+      const { rows: [written] } = await client.query<{ xid: string }>(
+        'select xmin::text as xid from credential_entitlement where credential_id = $1 and round_contest_id = $2',
+        [vote.credentialId, vote.boxId],
+      )
+      scenario.voteXids.add(written?.xid ?? assert.fail('the entitlement castBallot used up'))
     })
   }
 }
@@ -381,7 +391,7 @@ export async function assertUnlinkable(scenario: PrivacyScenario): Promise<void>
     const { rows: entitlementXids } = await client.query<{ xid: string }>('select distinct xmin::text as xid from credential_entitlement where round_contest_id = any($1)', [boxes])
     assert.equal(ballotXids.length, 1)
     assert.deepEqual(entitlementXids, ballotXids)
-    assert.equal(scenario.voteXids.size, expected, 'the caster recorded every vote')
+    assert.ok(scenario.voteXids.size >= expected, 'the caster recorded every vote')
     assert.equal(scenario.voteXids.has(ballotXids[0]?.xid ?? ''), false)
     const { rows: credentials } = await client.query<{ id: string, xmin: string }>('select id, xmin::text from credential where election_id = $1', [scenario.electionId])
     assert.deepEqual(new Map(credentials.map((row) => [row.id, row.xmin])), scenario.credentialXmins)

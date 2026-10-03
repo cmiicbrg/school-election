@@ -62,18 +62,21 @@ export async function castBallot(client: pg.ClientBase, input: CastInput): Promi
       [input.credentialId, input.roundContestId, input.contest.id],
     )
     const electionId = used.rows[0]?.election_id
-    if (electionId === undefined) {
-      await client.query('release savepoint cast_ballot')
-      return { cast: false, reason: await whyNot(client, input) }
+    // The reason is read while the savepoint stands, so a failure of that
+    // read is recovered from like any other.
+    const reason = electionId === undefined ? await whyNot(client, input) : undefined
+    if (electionId !== undefined) {
+      await client.query(
+        'insert into ballot_box (election_id, round_contest_id, kind, ranking) values ($1, $2, $3, $4::uuid[])',
+        [electionId, input.roundContestId, input.ballot.kind, [...input.ballot.ranking]],
+      )
     }
-    await client.query(
-      'insert into ballot_box (election_id, round_contest_id, kind, ranking) values ($1, $2, $3, $4::uuid[])',
-      [electionId, input.roundContestId, input.ballot.kind, [...input.ballot.ranking]],
-    )
     await client.query('release savepoint cast_ballot')
-    return { cast: true }
+    return reason === undefined ? { cast: true } : { cast: false, reason }
   } catch (err) {
-    await client.query('rollback to savepoint cast_ballot')
+    // A rollback that fails itself leaves the transaction broken either
+    // way; the error worth reporting is the first one.
+    await client.query('rollback to savepoint cast_ballot').catch(() => undefined)
     if (sqlState(err) === SQLSTATE.objectNotInPrerequisiteState) return { cast: false, reason: 'refused' }
     throw err
   }
