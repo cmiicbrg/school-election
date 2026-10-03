@@ -1,6 +1,5 @@
 import { test, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import { ELECTION_STATES } from '@school-election/election-core'
 import { ELECTION_ROLES } from '../../lib/permissions.ts'
 import { sqlState } from '../../lib/pg-errors.ts'
 import { checkedValues, createTestDatabase, DB, withClient } from '../helpers/db.ts'
@@ -21,9 +20,10 @@ async function setup(t: TestContext) {
   return { ...db, userId }
 }
 
-test('the stored states and roles are exactly the ones the code knows', DB, async (t) => {
+// The election states are rows of election_state (migration 0007), which
+// test/db/configuration.test.ts compares with the lifecycle.
+test('the stored roles are exactly the ones the code knows', DB, async (t) => {
   const { ownerUrl } = await setup(t)
-  assert.deepEqual(await checkedValues(ownerUrl, 'election', 'state'), [...ELECTION_STATES])
   assert.deepEqual(await checkedValues(ownerUrl, 'election_member', 'role'), [...ELECTION_ROLES])
 })
 

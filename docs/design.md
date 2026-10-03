@@ -145,7 +145,7 @@ A closed round never reopens. A state transition and every guard return either a
 
 Whether a result actually requires a runoff or a lot is decided by the result (see above), not by the lifecycle.
 
-The database keeps the same windows (migration `0007`): triggers refuse a change to contests, voter groups or their mapping outside a draft, to candidates, title or description once voting has started, the removal of a prepared contest's last candidate, and any change to a final election, and they let an election move only along the arrows above, back to draft only while no round has opened. A trigger reads the election's state with a share lock on its row, so a change of state and a configuration change wait for each other instead of passing each other.
+The database keeps the same windows (migration `0007`): triggers refuse a change to contests, voter groups or their mapping outside a draft, to candidates, title or description once voting has started, the removal of a prepared contest's last candidate, and any change to a final election, and they let an election move only along the arrows above, back to draft only while no round has opened. The states are rows of `election_state`, `round_kind` and `round_state`, each with what it allows (whether the structure or the candidates may change, which state an election advances or returns to, whether a round has opened), and the triggers read those flags instead of naming states; a test keeps the rows equal to the lifecycle's states, guards and transitions. A trigger reads the election's state with a share lock on its row, so a change of state and a configuration change wait for each other instead of passing each other.
 
 ## Access to an election
 

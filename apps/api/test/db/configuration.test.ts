@@ -6,7 +6,23 @@ import { test, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import type pg from 'pg'
-import { RULESET_IDS, ROUND_KINDS, ROUND_STATES } from '@school-election/election-core'
+import {
+  canCastBallot,
+  canEditCandidates,
+  canEditStructure,
+  canIssueBatch,
+  canManageMembers,
+  ELECTION_STATES,
+  isConsistentLifecycle,
+  LIFECYCLE_ACTIONS,
+  NEW_ELECTION,
+  ROUND_KINDS,
+  ROUND_STATES,
+  RULESET_IDS,
+  transition,
+  type Lifecycle,
+  type RoundKind,
+} from '@school-election/election-core'
 import { sqlState } from '../../lib/pg-errors.ts'
 import { checkedValues, createTestDatabase, DB, withClient } from '../helpers/db.ts'
 
@@ -38,11 +54,68 @@ async function refused(client: pg.Client, code: string, statements: string[]): P
   }
 }
 
-test('the stored kinds, states and ruleset ids are exactly the ones the code knows', DB, async (t) => {
+test('the stored ruleset ids are exactly the ones the code knows', DB, async (t) => {
   const { ownerUrl } = await setup(t)
-  assert.deepEqual(await checkedValues(ownerUrl, 'round', 'kind'), [...ROUND_KINDS])
-  assert.deepEqual(await checkedValues(ownerUrl, 'round', 'state'), [...ROUND_STATES])
   assert.deepEqual(await checkedValues(ownerUrl, 'contest', 'ruleset_id'), [...RULESET_IDS])
+})
+
+/** Every combination of states the lifecycle allows. */
+const LIFECYCLES: Lifecycle[] = ELECTION_STATES.flatMap((election) => ROUND_STATES.flatMap((regular) =>
+  [null, ...ROUND_STATES].map((runoff) => ({ election, regular, runoff }) as Lifecycle))).filter(isConsistentLifecycle)
+
+interface StateRows {
+  election: { state: string, structure_editable: boolean, candidates_editable: boolean, final: boolean, advances_to: string | null, returns_to: string | null }[]
+  kind: { kind: string, created_planned: boolean }[]
+  round: { state: string, opened: boolean, accepts_ballots: boolean }[]
+}
+
+async function stateRows(url: string): Promise<StateRows> {
+  return withClient(url, async (client) => ({
+    election: (await client.query<StateRows['election'][number]>('select * from election_state order by state')).rows,
+    kind: (await client.query<StateRows['kind'][number]>('select * from round_kind order by kind')).rows,
+    round: (await client.query<StateRows['round'][number]>('select * from round_state order by state')).rows,
+  }))
+}
+
+function byKey<T>(rows: T[], key: (row: T) => string): Map<string, T> {
+  return new Map(rows.map((row) => [key(row), row]))
+}
+
+test('the state tables say what the lifecycle in packages/election-core allows', DB, async (t) => {
+  const { ownerUrl } = await setup(t)
+  const rows = await stateRows(ownerUrl)
+  assert.deepEqual(rows.election.map((row) => row.state), [...ELECTION_STATES].sort())
+  assert.deepEqual(rows.kind.map((row) => row.kind), [...ROUND_KINDS].sort())
+  assert.deepEqual(rows.round.map((row) => row.state), [...ROUND_STATES].sort())
+  const electionState = byKey(rows.election, (row) => row.state)
+  const roundState = byKey(rows.round, (row) => row.state)
+
+  for (const lifecycle of LIFECYCLES) {
+    const row = electionState.get(lifecycle.election)
+    const label = JSON.stringify(lifecycle)
+    assert.equal(row?.structure_editable, canEditStructure(lifecycle).ok, label)
+    assert.equal(row?.candidates_editable, canEditCandidates(lifecycle).ok, label)
+    assert.equal(row?.final, !canManageMembers(lifecycle).ok, label)
+    for (const kind of ROUND_KINDS) {
+      const state = kind === 'regular' ? lifecycle.regular : lifecycle.runoff
+      if (state === null) continue
+      assert.equal(roundState.get(state)?.accepts_ballots, canCastBallot(lifecycle, kind).ok, `${label} ${kind}`)
+      // Keys for a round are issued until it opens, unless the election refuses them.
+      const issue = canIssueBatch(lifecycle, kind)
+      if (issue.ok || issue.refusal === 'voting-started') assert.equal(roundState.get(state)?.opened, !issue.ok, `${label} ${kind}`)
+    }
+  }
+  for (const row of rows.kind) {
+    assert.equal(row.created_planned, NEW_ELECTION[row.kind as RoundKind] === 'planned', row.kind)
+  }
+
+  // An election moves exactly along the lifecycle's transitions.
+  const moves = new Set(LIFECYCLES.flatMap((lifecycle) => LIFECYCLE_ACTIONS.flatMap((action) => {
+    const result = transition(lifecycle, action)
+    return result.ok && result.next.election !== lifecycle.election ? [`${lifecycle.election} → ${result.next.election}`] : []
+  })))
+  const stored = rows.election.flatMap((row) => [row.advances_to, row.returns_to].flatMap((to) => to === null ? [] : [`${row.state} → ${to}`]))
+  assert.deepEqual(stored.sort(), [...moves].sort())
 })
 
 test('no table numbers its rows by a sequence or a time-ordered id; the audit log alone has its sequence', DB, async (t) => {

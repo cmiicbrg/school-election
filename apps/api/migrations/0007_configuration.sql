@@ -10,11 +10,71 @@
 -- The editing windows of the lifecycle (packages/election-core) are kept by
 -- triggers as well as by the API: contests, voter groups and their mapping
 -- change only in a draft; candidates, title and description until voting
--- starts; nothing once the election is final. A trigger reads the
--- election's state with a share lock on its row, so a change of state waits
--- for a configuration change to commit, and the other way round. What the
--- runtime role may do with each table is declared in
--- apps/api/lib/runtime-privileges.ts.
+-- starts; nothing once the election is final. The states are rows that say
+-- what each state allows, and the triggers read those flags instead of
+-- naming states. A trigger reads the election's state with a share lock on
+-- its row, so a change of state waits for a configuration change to commit,
+-- and the other way round. What the runtime role may do with each table is
+-- declared in apps/api/lib/runtime-privileges.ts.
+
+-- Every trigger of the migrations refuses a change through this one
+-- function, with SQLSTATE 55000 (object_not_in_prerequisite_state).
+create function refuse(reason text) returns void
+  language plpgsql set search_path = pg_catalog as $$
+begin
+  raise exception '%', reason using errcode = 'object_not_in_prerequisite_state';
+end
+$$;
+
+-- The states of the lifecycle (packages/election-core/src/lifecycle.ts),
+-- each with what it allows; a test keeps the rows equal to the lifecycle's
+-- states, guards and transitions.
+--
+-- An election's state: structure_editable as canEditStructure (contests,
+-- voter groups and their mapping), candidates_editable as
+-- canEditCandidates (candidates, title and description, and with them the
+-- regular round and its ballot boxes: until voting starts), and final for
+-- the state in which nothing changes any more. An election advances to the
+-- next state of draft → prepared → active → final, and returns from
+-- prepared to draft.
+create table election_state (
+  state text primary key,
+  structure_editable boolean not null,
+  candidates_editable boolean not null,
+  final boolean not null,
+  advances_to text references election_state (state),
+  returns_to text references election_state (state)
+);
+insert into election_state (state, structure_editable, candidates_editable, final, advances_to, returns_to) values
+  ('draft', true, true, false, 'prepared', null),
+  ('prepared', false, true, false, 'active', 'draft'),
+  ('active', false, false, false, 'final', null),
+  ('final', false, false, true, null, null);
+
+alter table election
+  drop constraint election_state_check,
+  add foreign key (state) references election_state (state);
+
+-- A round's kind: created_planned for the regular round, which preparing
+-- the election creates, planned; a runoff round is created when it is
+-- activated, which opens it.
+create table round_kind (
+  kind text primary key,
+  created_planned boolean not null
+);
+insert into round_kind (kind, created_planned) values ('regular', true), ('runoff', false);
+
+-- A round's state: opened once voting in it has started (canIssueBatch
+-- refuses), accepts_ballots while it is open (canCastBallot).
+create table round_state (
+  state text primary key,
+  opened boolean not null,
+  accepts_ballots boolean not null
+);
+insert into round_state (state, opened, accepts_ballots) values
+  ('planned', false, false),
+  ('open', true, true),
+  ('closed', true, false);
 
 -- A contest elects one office, or is one question of a poll, under a fixed
 -- ruleset: the list mirrors RULESET_IDS in packages/election-core, and a
@@ -79,18 +139,16 @@ create table voter_group_contest (
 );
 create index voter_group_contest_contest on voter_group_contest (election_id, contest_id);
 
--- Rounds: kind and state mirror ROUND_KINDS and ROUND_STATES in
--- packages/election-core/src/lifecycle.ts, and a test keeps them equal. An
--- election has at most one round of each kind. Preparing an election
--- creates its regular round, planned, with one round_contest (the ballot
--- box of a contest in that round) per contest; preparing it again after a
--- return to draft adds those of contests created meanwhile, and a contest
--- removed in the draft takes its own with it.
+-- Rounds: an election has at most one round of each kind. Preparing an
+-- election creates its regular round, planned, with one round_contest (the
+-- ballot box of a contest in that round) per contest; preparing it again
+-- after a return to draft adds those of contests created meanwhile, and a
+-- contest removed in the draft takes its own with it.
 create table round (
   id uuid primary key default gen_random_uuid(),
   election_id uuid not null references election (id),
-  kind text not null check (kind in ('regular', 'runoff')),
-  state text not null default 'planned' check (state in ('planned', 'open', 'closed')),
+  kind text not null references round_kind (kind),
+  state text not null default 'planned' references round_state (state),
   unique (election_id, kind),
   unique (election_id, id)
 );
@@ -106,28 +164,55 @@ create table round_contest (
 );
 create index round_contest_contest on round_contest (election_id, contest_id);
 
--- A prepared election has its regular round from now on. Before this
--- migration nothing prepared an election, so this only completes what a
--- test or a hand-made row left.
-insert into round (election_id, kind) select id, 'regular' from election where state = 'prepared';
+-- A prepared election, its structure fixed and voting not yet started, has
+-- its regular round from now on. Before this migration nothing prepared an
+-- election, so this only completes what a test or a hand-made row left.
+insert into round (election_id, kind)
+select e.id, k.kind
+  from election e
+  join election_state s on s.state = e.state
+  join round_kind k on k.created_planned
+ where not s.structure_editable and s.candidates_editable;
 
--- The editing window of a configuration table: a row of an election
--- changes only while the election is in one of the states the trigger
--- names as its arguments.
-create function election_change_window() returns trigger
+-- The editing windows of the configuration tables: contests, voter groups
+-- and their mapping change while their election's structure is editable,
+-- candidates while its candidates are. Each reads the state of the
+-- election, or of both elections of a row that would move, with a share
+-- lock on its row.
+create function structure_window() returns trigger
   language plpgsql set search_path = pg_catalog as $$
 declare
-  current text;
+  editable boolean;
 begin
-  for current in
-    select e.state from public.election e
+  for editable in
+    select s.structure_editable
+      from public.election e join public.election_state s on s.state = e.state
      where e.id = old.election_id or e.id = new.election_id
      order by e.id
-     for share
+       for share of e
   loop
-    if not current = any (tg_argv) then
-      raise exception '% rows change only while their election is %', tg_table_name, array_to_string(tg_argv, ' or ')
-        using errcode = 'object_not_in_prerequisite_state';
+    if not editable then
+      perform public.refuse(format('%s rows change only while their election is draft', tg_table_name));
+    end if;
+  end loop;
+  return coalesce(new, old);
+end
+$$;
+
+create function candidate_window() returns trigger
+  language plpgsql set search_path = pg_catalog as $$
+declare
+  editable boolean;
+begin
+  for editable in
+    select s.candidates_editable
+      from public.election e join public.election_state s on s.state = e.state
+     where e.id = old.election_id or e.id = new.election_id
+     order by e.id
+       for share of e
+  loop
+    if not editable then
+      perform public.refuse('candidate rows change only while their election is draft or prepared');
     end if;
   end loop;
   return coalesce(new, old);
@@ -135,23 +220,25 @@ end
 $$;
 
 create trigger contest_window before insert or update or delete on contest
-  for each row execute function election_change_window('draft');
+  for each row execute function structure_window();
 create trigger voter_group_window before insert or update or delete on voter_group
-  for each row execute function election_change_window('draft');
+  for each row execute function structure_window();
 create trigger voter_group_contest_window before insert or update or delete on voter_group_contest
-  for each row execute function election_change_window('draft');
+  for each row execute function structure_window();
 -- Prepared means that no round has opened yet.
 create trigger candidate_window before insert or update or delete on candidate
-  for each row execute function election_change_window('draft', 'prepared');
+  for each row execute function candidate_window();
 
--- Once prepared, every contest keeps at least one candidate: a contest
--- without any has no ballot. In a draft, preparing checks it.
+-- Once the structure is fixed, every contest keeps at least one candidate:
+-- a contest without any has no ballot. In a draft, preparing checks it.
 create function candidate_keep_one() returns trigger
   language plpgsql set search_path = pg_catalog as $$
 begin
-  if exists (select 1 from public.election e where e.id = old.election_id and e.state <> 'draft')
-     and not exists (select 1 from public.candidate c where c.contest_id = old.contest_id) then
-    raise exception 'a contest keeps at least one candidate once its election is prepared' using errcode = 'object_not_in_prerequisite_state';
+  if exists (
+    select 1 from public.election e join public.election_state s on s.state = e.state
+     where e.id = old.election_id and not s.structure_editable
+  ) and not exists (select 1 from public.candidate c where c.contest_id = old.contest_id) then
+    perform public.refuse('a contest keeps at least one candidate once its election is prepared');
   end if;
   return null;
 end
@@ -160,24 +247,31 @@ $$;
 create trigger candidate_keep_one after delete on candidate
   for each row execute function candidate_keep_one();
 
--- An election moves only along the lifecycle: draft ⇄ prepared → active →
--- final, and back to draft only while no round has opened. Title and
--- description change until voting starts, and a final election not at all.
+-- An election moves only along the lifecycle, to the state its state
+-- advances to or returns to, and back to draft only while no round has
+-- opened. Title and description change until voting starts, and a final
+-- election not at all.
 create function election_lifecycle() returns trigger
   language plpgsql set search_path = pg_catalog as $$
+declare
+  was public.election_state;
 begin
-  if old.state = 'final' then
-    raise exception 'a final election never changes' using errcode = 'object_not_in_prerequisite_state';
+  select * into was from public.election_state s where s.state = old.state;
+  if was.final then
+    perform public.refuse('a final election never changes');
   end if;
-  if (new.title, new.description) is distinct from (old.title, old.description) and old.state not in ('draft', 'prepared') then
-    raise exception 'title and description change only until voting starts' using errcode = 'object_not_in_prerequisite_state';
+  if (new.title, new.description) is distinct from (old.title, old.description) and not was.candidates_editable then
+    perform public.refuse('title and description change only until voting starts');
   end if;
   if new.state is distinct from old.state then
-    if (old.state, new.state) not in (('draft', 'prepared'), ('prepared', 'draft'), ('prepared', 'active'), ('active', 'final')) then
-      raise exception 'an election does not go from % to %', old.state, new.state using errcode = 'object_not_in_prerequisite_state';
+    if new.state is distinct from was.advances_to and new.state is distinct from was.returns_to then
+      perform public.refuse(format('an election does not go from %s to %s', old.state, new.state));
     end if;
-    if new.state = 'draft' and exists (select 1 from public.round r where r.election_id = new.id and r.state <> 'planned') then
-      raise exception 'an election goes back to draft only before any round has opened' using errcode = 'object_not_in_prerequisite_state';
+    if new.state = was.returns_to and exists (
+      select 1 from public.round r join public.round_state rs on rs.state = r.state
+       where r.election_id = new.id and rs.opened
+    ) then
+      perform public.refuse('an election goes back to draft only before any round has opened');
     end if;
   end if;
   return new;
@@ -187,15 +281,21 @@ $$;
 create trigger election_lifecycle before update on election
   for each row execute function election_lifecycle();
 
--- The regular round is created planned, while its election is a draft or
--- prepared. Its ballot boxes are added and removed only while it is
--- planned and its election is not yet active.
+-- The regular round is created planned, while its election's candidates
+-- can still change. Its ballot boxes are added and removed only while it
+-- has not opened and its election is not yet active.
 create function round_created_planned() returns trigger
   language plpgsql set search_path = pg_catalog as $$
 begin
-  if new.kind <> 'regular' or new.state <> 'planned'
-     or not exists (select 1 from public.election e where e.id = new.election_id and e.state in ('draft', 'prepared') for share) then
-    raise exception 'a regular round is created planned, before voting starts' using errcode = 'object_not_in_prerequisite_state';
+  if not exists (
+    select 1 from public.round_kind k, public.round_state rs
+     where k.kind = new.kind and k.created_planned and rs.state = new.state and not rs.opened
+  ) or not exists (
+    select 1 from public.election e join public.election_state s on s.state = e.state
+     where e.id = new.election_id and s.candidates_editable
+       for share of e
+  ) then
+    perform public.refuse('a regular round is created planned, before voting starts');
   end if;
   return new;
 end
@@ -210,11 +310,14 @@ declare
   target uuid := coalesce(new.round_id, old.round_id);
 begin
   if not exists (
-    select 1 from public.round r join public.election e on e.id = r.election_id
-     where r.id = target and r.state = 'planned' and e.state in ('draft', 'prepared')
+    select 1 from public.round r
+      join public.round_state rs on rs.state = r.state
+      join public.election e on e.id = r.election_id
+      join public.election_state s on s.state = e.state
+     where r.id = target and not rs.opened and s.candidates_editable
        for share of e
   ) then
-    raise exception 'ballot boxes change only while their round is planned' using errcode = 'object_not_in_prerequisite_state';
+    perform public.refuse('ballot boxes change only while their round is planned');
   end if;
   return coalesce(new, old);
 end
