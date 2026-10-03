@@ -6,7 +6,7 @@ import fastifyStatic from '@fastify/static'
 import { TALLY_VERSION } from '@school-election/election-core'
 import type { Config } from './config.ts'
 import type { Database } from './lib/db.ts'
-import { assertElectionGuard } from './lib/election-access.ts'
+import { assertElectionGuard, onlyGuardedElectionRoutes } from './lib/election-access.ts'
 import { ErrorResponse, HealthResponse } from './lib/schemas/common.ts'
 import { pathOf } from './lib/url.ts'
 import { applyHardening } from './plugins/hardening.ts'
@@ -93,11 +93,12 @@ export async function buildApp(config: Config, options: AppOptions): Promise<Fas
   })
 
   // Before any route exists: an election route without the election guard
-  // stops the app from starting.
+  // stops the app from starting, and no other route serves an election path.
   app.addHook('onRoute', (route) => {
     assertElectionGuard(route)
     options.onRoute?.(route)
   })
+  app.addHook('onRequest', onlyGuardedElectionRoutes)
 
   const webDist = existsSync(config.webDistDir) ? config.webDistDir : undefined
   // Hooks before routes: a plugin context inherits only the hooks that

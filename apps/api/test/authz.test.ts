@@ -88,6 +88,29 @@ test('the app refuses to register an election route without the guard', async (t
   assert.doesNotThrow(() => app.get('/api/elections/:id/also-fine', { onRequest: [guard(), async () => {}] }, handler))
 })
 
+test('a route that matches election paths through a parameter or a wildcard does not serve them', DB, async (t) => {
+  const s = await electionApp(t)
+  // Registered without complaint: its pattern does not start with /api/elections/.
+  s.app.get('/api/:resource/:id/leak', async (request) => ({ leaked: request.params }))
+  s.app.post('/api/:resource/*', async () => ({ leaked: true }))
+  const anna = await signIn(s, ANNA)
+  const id = await createElection(anna)
+  for (const [method, url] of [
+    ['GET', `/api/elections/${id}/leak`],
+    ['GET', `/api/%65lections/${id}/leak`],
+    ['HEAD', `/api/elections/${id}/leak`],
+    ['POST', `/api/elections/${id}/anything`],
+  ] as const) {
+    const res = await anna.request(method, url, method === 'POST' ? {} : undefined)
+    assert.equal(res.statusCode, 404, `${method} ${url}`)
+    if (method !== 'HEAD') assert.deepEqual(res.json(), { error: 'not_found' }, `${method} ${url}`)
+  }
+  // Elsewhere such a route works as before, and the guarded routes still answer.
+  assert.equal((await anna.request('GET', `/api/other/${id}/leak`)).statusCode, 200)
+  assert.equal((await anna.request('GET', `/api/elections/${id}`)).statusCode, 200)
+  assert.equal((await anna.request('GET', `/api/%65lections/${id}`)).statusCode, 200)
+})
+
 test('teacher A can neither read nor change teacher B\'s election, and a guessed id is the same 404', DB, async (t) => {
   const s = await electionApp(t)
   const anna = await signIn(s, ANNA)

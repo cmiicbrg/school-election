@@ -14,9 +14,11 @@
 // A change runs through changeElection(), which takes the election's lock
 // and checks all of it again inside its transaction, so a member removed
 // or a state changed meanwhile stops the change instead of slipping past.
-// app.ts refuses to register an election route without the guard.
+// app.ts refuses to register an election route without the guard, and
+// answers a request for an election path that some other route would
+// match (a parameter or wildcard in place of "elections") with 404.
 
-import type { FastifyReply, FastifyRequest, RouteOptions } from 'fastify'
+import type { FastifyReply, FastifyRequest, HookHandlerDoneFunction, RouteOptions } from 'fastify'
 import type pg from 'pg'
 import type { ElectionState, Lifecycle, Verdict } from '@school-election/election-core'
 import type { AuditActor } from './audit-chain.ts'
@@ -24,6 +26,7 @@ import { lockElection } from './audit.ts'
 import { authenticate, callerOf } from './auth.ts'
 import type { Database } from './db.ts'
 import { isPermitted, type ElectionAction, type ElectionRole } from './permissions.ts'
+import { pathOf } from './url.ts'
 
 /** Whether the lifecycle allows the action now, e.g. canManageMembers. */
 export type LifecycleGuard = (lifecycle: Lifecycle) => Verdict
@@ -167,6 +170,11 @@ export function lifecycleOf(election: ElectionState): Lifecycle {
   }
 }
 
+const ELECTION_PATH = '/api/elections/'
+
+// The election routes that start with the guard, as "METHOD /url/pattern".
+const guardedRoutes = new Set<string>()
+
 /**
  * An onRoute hook (app.ts): every route below /api/elections/ must address
  * the election as :id and start with requireElectionAccess, or the app does
@@ -174,10 +182,32 @@ export function lifecycleOf(election: ElectionState): Lifecycle {
  */
 export function assertElectionGuard(route: RouteOptions): void {
   // Everything below /api/elections/, the bare /api/elections/ included.
-  if (!route.url.startsWith('/api/elections/')) return
+  if (!route.url.startsWith(ELECTION_PATH)) return
   const first: unknown = [route.onRequest ?? []].flat()[0]
   const addressed = route.url === '/api/elections/:id' || route.url.startsWith('/api/elections/:id/')
   if (!addressed || typeof first !== 'function' || !guards.has(first)) {
     throw new Error(`${String(route.method)} ${route.url} must address the election as :id and start with requireElectionAccess`)
   }
+  for (const method of [route.method].flat()) guardedRoutes.add(`${method} ${route.url}`)
+}
+
+/**
+ * An onRequest hook for every route (app.ts): a request for a path below
+ * /api/elections/ goes ahead only if the route that matched it starts with
+ * the guard. A route whose pattern matches such a path through a parameter
+ * or a wildcard, say /api/:resource/:id, answers it as not found. The path
+ * is decoded the way the router decodes it before matching.
+ */
+export function onlyGuardedElectionRoutes(request: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction): void {
+  let path = pathOf(request.url)
+  try {
+    path = decodeURI(path)
+  } catch {
+    // Not decodable: matched as it is, if at all.
+  }
+  if (path.startsWith(ELECTION_PATH) && !guardedRoutes.has(`${request.method} ${request.routeOptions.url}`)) {
+    void reply.code(404).send({ error: 'not_found' })
+    return
+  }
+  done()
 }
