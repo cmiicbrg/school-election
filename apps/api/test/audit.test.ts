@@ -5,7 +5,7 @@ import { AUDIT_ACTIONS, AuditError, auditMetadata } from '../lib/audit.ts'
 
 test('metadata must match its action exactly: known fields, each of its type', () => {
   assert.deepEqual(auditMetadata('election.created', { title: 'Wahl' }), { title: 'Wahl' })
-  assert.deepEqual(auditMetadata('member.invited', { upn: 'a@school.example', role: 'admin' }), { upn: 'a@school.example', role: 'admin' })
+  assert.deepEqual(auditMetadata('member.invited', { email: 'a@school.example', role: 'admin' }), { email: 'a@school.example', role: 'admin' })
   const rejected: [string, unknown, RegExp][] = [
     ['ballot.cast', {}, /^unknown audit action ballot\.cast$/],
     ['toString', {}, /^unknown audit action toString$/],
@@ -16,7 +16,7 @@ test('metadata must match its action exactly: known fields, each of its type', (
     ['election.created', { title: 1 }, /metadata field title must be well-formed text of 0 to 1000 characters$/],
     ['election.created', { title: 'x'.repeat(1001) }, /must be well-formed text/],
     ['election.created', { title: 'nul \0' }, /must be well-formed text/],
-    ['member.invited', { upn: 'a@school.example', role: 'owner' }, /metadata field role must be one of admin, witness$/],
+    ['member.invited', { email: 'a@school.example', role: 'owner' }, /metadata field role must be one of admin, witness$/],
   ]
   for (const [action, metadata, message] of rejected) {
     assert.throws(() => auditMetadata(action, metadata), (err: Error) => err instanceof AuditError && message.test(err.message), action)

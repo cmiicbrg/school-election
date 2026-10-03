@@ -29,9 +29,9 @@ export const AUDIT_ACTIONS = {
   'election.created': { title: 'text' },
   // The actor of member.bound is the invited person on their first sign-in,
   // so the event names the Entra identity the invitation was bound to.
-  'member.invited': { upn: 'text', role: INVITED_ROLE },
-  'member.bound': { upn: 'text', role: INVITED_ROLE },
-  'member.removed': { upn: 'text', role: INVITED_ROLE },
+  'member.invited': { email: 'text', role: INVITED_ROLE },
+  'member.bound': { email: 'text', role: INVITED_ROLE },
+  'member.removed': { email: 'text', role: INVITED_ROLE },
 } as const satisfies Readonly<Record<string, Readonly<Record<string, AuditField>>>>
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS

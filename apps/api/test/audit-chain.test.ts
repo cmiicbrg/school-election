@@ -14,7 +14,7 @@ function chain(n: number, electionId = ELECTION, firstSeq = 1): AuditEvent[] {
       at: new Date(Date.UTC(2026, 9, 5, 8, 0, i)).toISOString(),
       actor: ACTOR,
       action: 'member.invited',
-      metadata: { upn: `member${i}@school.example`, role: 'witness' },
+      metadata: { email: `member${i}@school.example`, role: 'witness' },
       prevHash: events.at(-1)?.hash ?? null,
     }
     events.push({ seq: firstSeq + 2 * i, ...content, hash: auditEventHash(content) })
@@ -38,10 +38,10 @@ test('the hash is SHA-256 over a fixed canonical record, so another implementati
     ...first,
     at: '2026-10-05T07:46:03.001Z',
     action: 'member.invited',
-    metadata: { upn: 'witness@school.example', role: 'witness' },
+    metadata: { email: 'witness@school.example', role: 'witness' },
     prevHash: 'b6022b1fc84736cd665f1d8fec5926ca1d82bfcb1c9e51896c5350a3d34fe2cc',
   }
-  assert.equal(auditEventHash(second), 'ba962248b19e7ba197012fc1e41358c9473159f1a83428ac3b07ecf7a97474ca')
+  assert.equal(auditEventHash(second), '7827d380b44d772cbfee0ecf7bb7189ab5d24c5255a70752db1489e0aa166ed6')
 })
 
 test('a genuine chain verifies and reports its head; an empty one is valid', () => {
@@ -60,7 +60,7 @@ test('editing any hashed field breaks verification at that event', () => {
     'action': (e) => ({ ...e, action: 'member.removed' }),
     'metadata value': (e) => ({ ...e, metadata: { ...e.metadata, role: 'admin' } }),
     'metadata key added': (e) => ({ ...e, metadata: { ...e.metadata, note: 'x' } }),
-    'metadata key removed': (e) => ({ ...e, metadata: { upn: e.metadata.upn ?? null } }),
+    'metadata key removed': (e) => ({ ...e, metadata: { email: e.metadata.email ?? null } }),
     'stored hash': (e) => ({ ...e, hash: 'f'.repeat(64) }),
   }
   for (const [field, edit] of Object.entries(edits)) {
@@ -76,7 +76,7 @@ test('editing any hashed field breaks verification at that event', () => {
 
 test('an edited event with a recomputed hash breaks the link from the next event', () => {
   const events = chain(3)
-  const forged = { ...(events[1] as AuditEvent), metadata: { upn: 'someone@school.example', role: 'admin' } }
+  const forged = { ...(events[1] as AuditEvent), metadata: { email: 'someone@school.example', role: 'admin' } }
   events[1] = { ...forged, hash: auditEventHash(forged) }
   assert.deepEqual(verifyAuditChain(events), { valid: false, length: 3, index: 2, problem: 'broken-link' })
 })
@@ -90,7 +90,7 @@ test('removing, inserting or reordering events breaks verification', () => {
   // seq is not hashed, but must still increase along the chain.
   assert.deepEqual(verifyAuditChain([e0, { ...e1, seq: e0.seq }, e2]), { valid: false, length: 3, index: 1, problem: 'out-of-order' })
   // A forged first event with a valid hash still does not lead to the rest.
-  const genesis = { ...e0, metadata: { upn: 'forged@school.example', role: 'witness' } }
+  const genesis = { ...e0, metadata: { email: 'forged@school.example', role: 'witness' } }
   assert.deepEqual(verifyAuditChain([{ ...genesis, hash: auditEventHash(genesis) }, e1]), { valid: false, length: 2, index: 1, problem: 'broken-link' })
 })
 
@@ -112,7 +112,7 @@ test('a shortened chain, or one rewritten with every later hash recomputed, veri
   const rewritten: AuditEvent[] = [events[0] as AuditEvent]
   for (const event of events.slice(1)) {
     const content = { ...event, prevHash: rewritten.at(-1)?.hash ?? null }
-    if (event === events[1]) content.metadata = { upn: 'someone@school.example', role: 'admin' }
+    if (event === events[1]) content.metadata = { email: 'someone@school.example', role: 'admin' }
     rewritten.push({ ...content, hash: auditEventHash(content) })
   }
   const status = verifyAuditChain(rewritten)

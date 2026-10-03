@@ -14,7 +14,7 @@ const ELECTION_B = '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d'
 const ACTOR = { tid: '6F1C2B3A-4D5E-4F60-8A7B-9C0D1E2F3A4B', oid: '2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d', name: 'Maria Huber' }
 
 const invited = (n: number): AuditInput<'member.invited'> =>
-  ({ actor: ACTOR, action: 'member.invited', metadata: { upn: `member${n}@school.example`, role: 'witness' } })
+  ({ actor: ACTOR, action: 'member.invited', metadata: { email: `member${n}@school.example`, role: 'witness' } })
 
 /** A migrated database and a pool connected as the runtime role, as the server runs. */
 async function setup(t: TestContext): Promise<{ db: Database, ownerUrl: string, runtimeUrl: string }> {
@@ -76,9 +76,9 @@ test('a rolled-back transaction leaves no event, and the chain goes on from the 
 test('metadata outside the allow-list, or a malformed actor or election, is refused and nothing is written', DB, async (t) => {
   const { db } = await setup(t)
   const refused: [string, unknown, unknown][] = [
-    ['unknown key', ELECTION_A, { ...invited(1), metadata: { upn: 'a@school.example', role: 'witness', key: 'ABCD-EFGH-JKLM' } }],
-    ['missing key', ELECTION_A, { ...invited(1), metadata: { upn: 'a@school.example' } }],
-    ['wrong type', ELECTION_A, { ...invited(1), metadata: { upn: 7, role: 'witness' } }],
+    ['unknown key', ELECTION_A, { ...invited(1), metadata: { email: 'a@school.example', role: 'witness', key: 'ABCD-EFGH-JKLM' } }],
+    ['missing key', ELECTION_A, { ...invited(1), metadata: { email: 'a@school.example' } }],
+    ['wrong type', ELECTION_A, { ...invited(1), metadata: { email: 7, role: 'witness' } }],
     ['unknown action', ELECTION_A, { ...invited(1), action: 'ballot.cast', metadata: {} }],
     ['actor without object id', ELECTION_A, { ...invited(1), actor: { tid: ACTOR.tid, name: 'X' } }],
     ['actor without name', ELECTION_A, { ...invited(1), actor: { ...ACTOR, name: '' } }],
@@ -196,5 +196,5 @@ test('the upgrade fixture is a genuine chain, and the stored events read back as
   const sql = await readFile(fixture, 'utf8')
   await withClient(ownerUrl, (client) => client.query(sql))
   const events = await chainOf(db, '0b9e4a52-3c1d-4f7e-9a6b-2d8c5e1f7a30')
-  assert.deepEqual(verifyAuditChain(events), { valid: true, length: 2, head: 'ba962248b19e7ba197012fc1e41358c9473159f1a83428ac3b07ecf7a97474ca' })
+  assert.deepEqual(verifyAuditChain(events), { valid: true, length: 2, head: '7827d380b44d772cbfee0ecf7bb7189ab5d24c5255a70752db1489e0aa166ed6' })
 })
