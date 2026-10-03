@@ -45,8 +45,9 @@ jobs:
       # every workspace) and typecheck.
       - run: npm run lint
 
-  # Everything the Node pipeline cannot see: the Dockerfile and the workflows
-  # themselves. Needs no toolchain, so it runs alongside the rest.
+  # Everything the Node pipeline cannot see: the Dockerfile, the deployment
+  # example and the workflows themselves. Needs no toolchain, so it runs
+  # alongside the rest.
   lint-infra:
     name: Lint infra
     if: github.event_name != 'push'
@@ -65,6 +66,12 @@ jobs:
         with:
           dockerfile: Dockerfile
           config: .hadolint.yaml
+
+      # Parses the deployment example together with its .env example, so a
+      # broken file, or a variable compose.example.yml requires that
+      # .env.example does not set, fails here.
+      - name: Compose example
+        run: docker compose -f deploy/compose.example.yml --env-file deploy/.env.example config --quiet
 
       # online-audits must stay off. With a token present zizmor resolves action
       # tags over the network, and GITHUB_TOKEN is scoped to this repository, so

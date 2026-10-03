@@ -63,3 +63,21 @@ updates:
       # refreshes and in-track tag changes still come through.
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+  # The PostgreSQL image of the deployment example, which scripts/postgres.sh
+  # also starts for development and CI, so CI tests every update. The app
+  # image there is a variable and is left alone.
+  - package-ecosystem: docker-compose
+    directory: /deploy
+    schedule:
+      interval: daily
+      time: "21:49"
+      timezone: UTC
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+      - docker
+    ignore:
+      # A PostgreSQL major version needs a dump and restore of the data
+      # volume, so it is never a routine bump.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
