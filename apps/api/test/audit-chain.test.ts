@@ -124,8 +124,37 @@ test('input that is not an event is reported as malformed, never thrown', () => 
     { ...event, metadata: { when: new Date(0) } },
     { ...event, prevHash: undefined },
     { ...event, hash: null },
+    { ...event, at: 'lone \uD800 surrogate' },
   ]
   for (const value of malformed) {
     assert.deepEqual(verifyAuditChain([value]), { valid: false, length: 1, index: 0, problem: 'malformed' }, JSON.stringify(value))
   }
+})
+
+test('fields that are not hashed are refused, so nothing in a valid chain goes unverified', () => {
+  const [event] = chain(1) as [AuditEvent]
+  const { seq: _seq, ...withoutSeq } = event
+  for (const value of [{ ...event, approved: true }, { ...event, actor: { ...event.actor, token: 'x' } }, withoutSeq]) {
+    assert.deepEqual(verifyAuditChain([value]), { valid: false, length: 1, index: 0, problem: 'malformed' }, JSON.stringify(value))
+  }
+  // Hidden from JSON, but still not part of the hash.
+  const hidden = Object.defineProperty({ ...event }, 'note', { value: 'x', enumerable: false })
+  assert.deepEqual(verifyAuditChain([hidden]), { valid: false, length: 1, index: 0, problem: 'malformed' })
+})
+
+test('an event that throws while being read is malformed, and one that changes between reads is read once', () => {
+  const [first, second] = chain(2) as [AuditEvent, AuditEvent]
+  const fail = (): never => {
+    throw new Error('read refused')
+  }
+  const throwing = { ...first, metadata: Object.defineProperty({}, 'role', { get: fail, enumerable: true }) }
+  const proxy = new Proxy(first, { ownKeys: fail })
+  for (const value of [throwing, proxy]) {
+    assert.deepEqual(verifyAuditChain([value]), { valid: false, length: 1, index: 0, problem: 'malformed' })
+  }
+  // A hash that reads correctly once and differently afterwards is checked,
+  // and linked to, as it was read the first time.
+  let reads = 0
+  const shifty = Object.defineProperty({ ...first }, 'hash', { get: () => (reads++ === 0 ? first.hash : 'f'.repeat(64)), enumerable: true })
+  assert.deepEqual(verifyAuditChain([shifty, second]), { valid: true, length: 2, head: second.hash })
 })

@@ -15,7 +15,7 @@
 // recorded elsewhere, such as in a result or an export, shows that.
 
 import { createHash } from 'node:crypto'
-import { canonicalJson, CanonicalJsonError, type CanonicalValue } from './canonical-json.ts'
+import { canonicalJson, type CanonicalValue } from './canonical-json.ts'
 
 /** Part of every hashed record; a change to what is hashed gets a new version. */
 export const AUDIT_CHAIN_VERSION = 1
@@ -88,36 +88,59 @@ export type AuditChainStatus = ValidAuditChain | BrokenAuditChain
 /**
  * Checks one election's events, in seq order: each names its predecessor and
  * hashes to its stored hash. Reports the first problem by its index. Accepts
- * any input, since an export may have been altered.
+ * any input, since an export may have been altered: whatever is not exactly
+ * an event, or throws while being read, is malformed.
  */
 export function verifyAuditChain(events: readonly unknown[]): AuditChainStatus {
   let previous: AuditEvent | undefined
-  for (const [index, event] of events.entries()) {
-    const problem = checkEvent(event, previous)
+  for (const [index, value] of events.entries()) {
+    const read = readEvent(value)
+    const problem = read ? linkProblem(read, previous) : 'malformed'
     if (problem) return { valid: false, length: events.length, index, problem }
-    previous = event as AuditEvent
+    previous = read?.event
   }
   return { valid: true, length: events.length, head: previous?.hash ?? null }
 }
 
-function checkEvent(event: unknown, previous: AuditEvent | undefined): AuditChainProblem | undefined {
-  if (!isEventShaped(event)) return 'malformed'
+const EVENT_KEYS = ['seq', 'electionId', 'at', 'actor', 'action', 'metadata', 'prevHash', 'hash']
+const ACTOR_KEYS = ['tid', 'oid', 'name']
+
+interface ReadEvent {
+  event: AuditEvent
+  computedHash: string
+}
+
+/**
+ * A plain copy of an event, every field read once, with the hash of its
+ * content; undefined unless the value has exactly the fields of an event,
+ * each of its type. An extra field would pass verification without being
+ * hashed, and a getter or proxy could answer differently on a second read.
+ */
+function readEvent(value: unknown): ReadEvent | undefined {
+  try {
+    if (!hasExactly(value, EVENT_KEYS)) return undefined
+    const { seq, electionId, at, actor, action, metadata, prevHash, hash } = value
+    if (!hasExactly(actor, ACTOR_KEYS)) return undefined
+    const { tid, oid, name } = actor
+    const copy = { seq, electionId, at, actor: { tid, oid, name }, action, metadata: JSON.parse(canonicalJson(metadata)) as unknown, prevHash, hash }
+    return isEvent(copy) ? { event: copy, computedHash: auditEventHash(copy) } : undefined
+  } catch {
+    // A throwing getter or proxy, or a value without a canonical form.
+    return undefined
+  }
+}
+
+function linkProblem({ event, computedHash }: ReadEvent, previous: AuditEvent | undefined): AuditChainProblem | undefined {
   if (previous && event.electionId !== previous.electionId) return 'wrong-election'
   if (previous && event.seq <= previous.seq) return 'out-of-order'
   if (event.prevHash !== (previous?.hash ?? null)) return 'broken-link'
-  let hash: string
-  try {
-    hash = auditEventHash(event)
-  } catch (err) {
-    if (err instanceof CanonicalJsonError) return 'malformed'
-    throw err
-  }
-  return hash === event.hash ? undefined : 'hash-mismatch'
+  return computedHash === event.hash ? undefined : 'hash-mismatch'
 }
 
-function isEventShaped(value: unknown): value is AuditEvent {
-  if (!isRecord(value) || !isRecord(value.actor) || !isRecord(value.metadata)) return false
-  const { actor } = value
+type Unchecked<T> = { [K in keyof T]: unknown }
+
+function isEvent(value: Unchecked<Omit<AuditEvent, 'actor'>> & { actor: Unchecked<AuditActor> }): value is AuditEvent {
+  const { actor, metadata } = value
   return Number.isSafeInteger(value.seq)
     && typeof value.electionId === 'string'
     && typeof value.at === 'string'
@@ -125,10 +148,14 @@ function isEventShaped(value: unknown): value is AuditEvent {
     && typeof actor.oid === 'string'
     && typeof actor.name === 'string'
     && typeof value.action === 'string'
+    && typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata)
     && (value.prevHash === null || typeof value.prevHash === 'string')
     && typeof value.hash === 'string'
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+/** An object whose own keys, enumerable or not, are exactly `keys`. */
+function hasExactly(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const own = Reflect.ownKeys(value)
+  return own.length === keys.length && keys.every((key) => own.includes(key))
 }
