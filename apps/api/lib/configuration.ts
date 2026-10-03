@@ -158,8 +158,23 @@ export interface ContestInput {
   rulesetId: RulesetId
 }
 
+// The longest title or name, in code points, as the database holds them.
+const MAX_TITLE = 200
+const MAX_NAME = 100
+
+/**
+ * A title or name as it is stored (cleanName), refused with 400 too_long
+ * if that made it longer than the database holds: NFC can turn one code
+ * point into two.
+ */
+function cleaned(value: string, max: number): string {
+  const result = cleanName(value)
+  if ([...result].length > max) throw new Refusal(400, 'too_long')
+  return result
+}
+
 export async function createContest(client: pg.ClientBase, access: ElectionAccess, input: ContestInput): Promise<Contest> {
-  const title = cleanName(input.title)
+  const title = cleaned(input.title, MAX_TITLE)
   await refuseTakenLabel(client, 'contest', access.electionId, title, null)
   const { rows: [row] } = await client.query<{ id: string }>(
     'insert into contest (election_id, title, ruleset_id) values ($1, $2, $3) returning id',
@@ -176,7 +191,7 @@ export async function createContest(client: pg.ClientBase, access: ElectionAcces
 
 export async function updateContest(client: pg.ClientBase, access: ElectionAccess, contestId: string, input: Partial<ContestInput>): Promise<Contest> {
   const current = await readContest(client, access.electionId, contestId)
-  const title = input.title === undefined ? current.title : cleanName(input.title)
+  const title = input.title === undefined ? current.title : cleaned(input.title, MAX_TITLE)
   const rulesetId = input.rulesetId ?? current.rulesetId
   if (title === current.title && rulesetId === current.rulesetId) return current
   await refuseTakenLabel(client, 'contest', access.electionId, title, contestId)
@@ -204,7 +219,7 @@ export interface CandidateInput {
 }
 
 function cleanCandidateName(input: CandidateInput): CandidateName {
-  return { surname: cleanName(input.surname), givenName: cleanName(input.givenName) }
+  return { surname: cleaned(input.surname, MAX_NAME), givenName: cleaned(input.givenName, MAX_NAME) }
 }
 
 /** Refuses a name that compares equal to another candidate's in the contest (409 duplicate_candidate). */
@@ -296,7 +311,7 @@ export async function removeCandidatePicture(client: pg.ClientBase, access: Elec
 // --- voter groups -----------------------------------------------------------
 
 export async function createVoterGroup(client: pg.ClientBase, access: ElectionAccess, input: { name: string }): Promise<VoterGroup> {
-  const name = cleanName(input.name)
+  const name = cleaned(input.name, MAX_NAME)
   await refuseTakenLabel(client, 'voterGroup', access.electionId, name, null)
   const { rows: [row] } = await client.query<{ id: string }>(
     'insert into voter_group (election_id, name) values ($1, $2) returning id',
@@ -309,7 +324,7 @@ export async function createVoterGroup(client: pg.ClientBase, access: ElectionAc
 
 export async function renameVoterGroup(client: pg.ClientBase, access: ElectionAccess, groupId: string, input: { name: string }): Promise<VoterGroup> {
   const current = await readVoterGroup(client, access.electionId, groupId)
-  const name = cleanName(input.name)
+  const name = cleaned(input.name, MAX_NAME)
   if (name === current.name) return current
   await refuseTakenLabel(client, 'voterGroup', access.electionId, name, groupId)
   await client.query('update voter_group set name = $2 where id = $1', [groupId, name])

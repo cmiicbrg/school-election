@@ -208,6 +208,10 @@ test('candidates are listed by surname, then given name, in German collation; na
   for (const body of [{ surname: '', givenName: 'Anna' }, { surname: '   ', givenName: '' }, { surname: 'A\nB', givenName: '' }, { surname: 'x'.repeat(101), givenName: '' }, { surname: 'Ok' }]) {
     assert.equal((await anna.request('POST', `${base}/contests/${contest.id}/candidates`, body)).statusCode, 400, JSON.stringify(body))
   }
+  // 100 code points that NFC turns into 200 are too long once stored.
+  const expanding = { surname: 'Huber', givenName: '\u0344'.repeat(100) }
+  assert.deepEqual(refusal(await anna.request('POST', `${base}/contests/${contest.id}/candidates`, expanding)), [400, 'too_long'])
+  assert.deepEqual(refusal(await anna.request('POST', `${base}/voter-groups`, { name: '\u0344'.repeat(100) })), [400, 'too_long'])
 })
 
 test('contest titles and voter group names are unique within an election; references stay within it', DB, async (t) => {
