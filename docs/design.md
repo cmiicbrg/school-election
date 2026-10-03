@@ -73,6 +73,47 @@ An invalid vote is never cast by accident. Before submitting, the voter sees for
 
 Counting arithmetic is integer-only, and per-candidate output follows the contest's candidate order, so it never depends on the order in which ballots arrive.
 
+## Results
+
+Results are computed from the contest configuration and the cast ballots alone (`packages/election-core/src/result.ts`). Every figure comes from `computeStatistics`, so a result is the same for every order of the ballots, and every decision is an explicit comparison of counts. A ballot that was not validated for the contest is a hard error, never skipped.
+
+The **first round** of a ranked contest (`firstRoundResult`) ends in one of four kinds:
+
+- `elected`: a candidate is first on more than half of the valid ballots, checked as `2 × firstPlaces > validBallots`. The result also carries the derived positions as far as the first round decides them.
+- `runoff-required`: nobody has that majority; the result names the two runoff candidates.
+- `lot-required`: runoff entry is tied on first places and on points. The lot request names the tied set, how many of them enter and who entered without the lot.
+- `committee-decision`: zero valid ballots, or a single candidate without "Ja" on more than half of the valid ballots. The software names no winner, no lot and no positions.
+
+Runoff selection fills the two places by first places. When a group of candidates with equal first places no longer fits into the places left, only that group is compared on first-round points, and a group still equal on points goes to the lot. More first places therefore always beat more points.
+
+A **runoff** or an anonymous single-choice poll (`runoffResult`) ends `elected` (more valid votes; in a poll, the most), `tie` (equal votes at the top: no winner and no lot, settled manually) or `committee-decision` (zero valid ballots, or a poll's single option without "Ja" on more than half of the valid ballots). A runoff always has exactly two candidates; a poll with a single option follows the single-candidate rule. A runoff result names the first-round contest it decides, and a poll names none, so neither a poll nor the runoff of another contest with the same two candidates can be applied as a contest's runoff.
+
+### Derived positions
+
+The ruleset's remaining functions, in order, go to the other candidates by first-round points, without the principal: two Schulsprecher deputies and three SGA substitutes, or the one deputy of a class or department representative. Runoff votes never enter; the runoff only decides whose points are left out, so the runoff loser is not automatically a deputy. Candidates with equal points who would hold different positions, or compete for the last one, form one lot request for those positions; a tie below the last position needs none. Positions with no candidate left stay vacant.
+
+### Lots and the final outcome
+
+`resolve(firstRound, runoff, decisions)` combines the stored round results with the recorded lot outcomes. It returns `final` with every position, or the state still open: `lot-required`, `runoff-required`, `tie` or `committee-decision`.
+
+The election officials draw a lot, and an authorised user records its outcome as a decision: the lot's id and the drawn order of exactly its tied set. A decision for a lot that is not required, a second decision for the same lot, or an order that is not exactly the tied set is refused with a typed error. The software never draws and never carries one draw over to another lot: candidates tied for runoff entry and later again for a deputy position face two lots. `resolve` never changes its inputs, so the first-round statistics stay exactly as counted.
+
+### Trace
+
+Every result carries a trace: language-neutral steps with their numbers, which the web app renders in German for witnesses and which goes into the export.
+
+| Step | Content |
+| --- | --- |
+| `count` | Ballots cast, valid ballots, "Nein" votes and invalid votes of one contest; starts each round |
+| `majority` | The first places needed (more than half of the valid ballots) and who reached them, if anyone |
+| `compare` | The places to fill, the candidates with their first places, points or votes, who advances and who is tied at the boundary |
+| `runoff` | The runoff pair |
+| `positions` | Whose points are left out, and the first-round points of everyone else |
+| `lot-required`, `lot-applied` | A lot with its tied set, and the recorded order once it is applied |
+| `committee-decision` | Why the school committee decides |
+
+For the worked example (Alice 41 first places, Bob and Carol 32 each, Bob 287 points, Carol 271) the trace reads: the count; 53 first places needed, nobody has them; two places by first places, Alice advances, Bob and Carol are tied; one place by points, Bob 287 against Carol 271, Bob advances; the runoff Alice against Bob.
+
 ## Audit log
 
 The audit log records what administrators do to an election: who acted (the stable Entra identity, tenant and object id, plus the display name), when, the action, and that action's metadata. It never records voter activity: no ballots or ballot content, no keys, no use of an entitlement, no voter sessions or tokens, no request metadata. Each action has a fixed list of metadata fields with a type each; anything else is refused. The actions and their fields are listed in `apps/api/lib/audit.ts`.
@@ -85,7 +126,7 @@ Changing, inserting, removing or reordering an event breaks verification at that
 
 ## Statutory rulings
 
-How results are decided, read from the regulation on the election of school representatives (RIS Gesetzesnummer 10009897, checked against the consolidated text of 2 October 2026) or decided for this project where the regulation is silent. Paragraph references are to that regulation. Each confirmed row becomes a test fixture once result computation is implemented; until a row is confirmed, the code must produce an explicit unresolved or lot-required result for that case and never fall back to an alphabetical, id-based or random order.
+How results are decided, read from the regulation on the election of school representatives (RIS Gesetzesnummer 10009897, checked against the consolidated text of 2 October 2026) or decided for this project where the regulation is silent. Paragraph references are to that regulation. Each confirmed row is mirrored by fixtures in `packages/election-core/test/fixtures/statutory-cases.ts`, keyed by the row's case text, and a test fails when the table and the fixtures drift apart. A case no confirmed row covers must produce an explicit unresolved or lot-required result and never fall back to an alphabetical, id-based or random order.
 
 Alphabetical order is only the order in which candidates are listed on a ballot, the runoff ballot included. It never decides a place.
 
