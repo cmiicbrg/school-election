@@ -27,7 +27,9 @@ export interface CastInput {
  * Why a ballot was not cast: the key has no entitlement for that box, it
  * used it up before, the box belongs to another contest than the ballot
  * was validated for, or the database refused the vote (the round no
- * longer accepts ballots, or the key's batch is void).
+ * longer accepts ballots, or the key's batch is void; or the vote waited
+ * for the seal, which wrote the entitlement again, unused, under a
+ * closed round).
  */
 export type CastRefusal = 'not-entitled' | 'already-voted' | 'wrong-contest' | 'refused'
 
@@ -77,8 +79,13 @@ export async function castBallot(client: pg.ClientBase, input: CastInput): Promi
   }
 }
 
-/** One read, only once nothing was used up, to tell the voter why. */
-async function whyNot(client: pg.ClientBase, input: CastInput): Promise<Exclude<CastRefusal, 'refused'>> {
+/**
+ * One read, only once nothing was used up, to tell the voter why. An
+ * entitlement that is there, for the right contest, and still unused was
+ * written again by the seal while the vote waited for it: the update
+ * found the old row gone, and the round is closed now.
+ */
+async function whyNot(client: pg.ClientBase, input: CastInput): Promise<CastRefusal> {
   const { rows: [row] } = await client.query<{ consumed: boolean, contest_id: string }>(
     `select e.consumed, rc.contest_id
        from credential_entitlement e join round_contest rc on rc.id = e.round_contest_id
@@ -87,5 +94,5 @@ async function whyNot(client: pg.ClientBase, input: CastInput): Promise<Exclude<
   )
   if (!row) return 'not-entitled'
   if (row.contest_id !== input.contest.id) return 'wrong-contest'
-  return 'already-voted'
+  return row.consumed ? 'already-voted' : 'refused'
 }

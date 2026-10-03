@@ -5,6 +5,8 @@
 
 import { test, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
+import { setTimeout as sleep } from 'node:timers/promises'
+import pg from 'pg'
 import { validateBallot, type CastBallot, type Contest } from '@school-election/election-core'
 import { castBallot, type CastResult } from '../../lib/ballot-box.ts'
 import { createDatabase, type Database } from '../../lib/db.ts'
@@ -133,6 +135,40 @@ test('twenty parallel casts with one key in one contest stage exactly one ballot
   assert.deepEqual(counts, { staged: 1, used: 1 })
 })
 
+test('a vote that waited for the seal is refused, not told that it voted before', DB, async (t) => {
+  const s = await setup(t)
+  // The seal has run but not committed: it holds the entitlements, which
+  // it wrote again, unused, and the round is closed in its transaction.
+  const sealer = new pg.Client({ connectionString: s.runtimeUrl })
+  const voter = new pg.Client({ connectionString: s.runtimeUrl })
+  await Promise.all([sealer.connect(), voter.connect()])
+  try {
+    await sealer.query('begin')
+    await sealer.query('select seal_round($1)', [ROUND])
+    await voter.query('begin')
+    const voterPid = (await voter.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]?.pid
+    const voting = castBallot(voter, { credentialId: s.credential[KEY_A] ?? '', roundContestId: SPEAKER_BOX, contest: SPEAKER_CONTEST, ballot: RANKING })
+    // The vote waits for the row the seal holds; then the seal commits.
+    for (let attempt = 0; ; attempt++) {
+      const { rows } = await withClient(s.ownerUrl, (client) => client.query<{ waiting: boolean }>(
+        `select wait_event_type = 'Lock' as waiting from pg_stat_activity where pid = $1`, [voterPid],
+      ))
+      if (rows[0]?.waiting) break
+      assert.ok(attempt < 100, 'the vote blocks on the seal')
+      await sleep(50)
+    }
+    await sealer.query('commit')
+    assert.deepEqual(await voting, { cast: false, reason: 'refused' })
+    await voter.query('rollback')
+  } finally {
+    await Promise.all([sealer.end(), voter.end()])
+  }
+  const { rows: [counts] } = await withClient(s.ownerUrl, (client) => client.query<{ staged: number, used: number }>(
+    'select (select count(*)::int from ballot_box) as staged, (select count(*)::int from credential_entitlement where consumed) as used',
+  ))
+  assert.deepEqual(counts, { staged: 0, used: 0 })
+})
+
 test('what the database refuses comes back as refused, and the transaction stays usable', DB, async (t) => {
   const s = await setup(t)
   // Class 2B's batch replaced, past the trigger that keeps batches once the round is open.
@@ -149,6 +185,8 @@ test('what the database refuses comes back as refused, and the transaction stays
   assert.deepEqual(await cast(s, KEY_A, SPEAKER_BOX, SPEAKER_CONTEST, RANKING), { cast: true })
   await s.db.query('select seal_round($1)', [ROUND])
   assert.deepEqual(await cast(s, KEY_B, SPEAKER_BOX, SPEAKER_CONTEST, RANKING), { cast: false, reason: 'refused' })
+  // An unused entitlement under a closed round is no vote cast before.
+  assert.deepEqual(await cast(s, KEY_B, POLL_BOX, POLL_CONTEST, NO), { cast: false, reason: 'refused' })
   const { rows: [counts] } = await withClient(s.ownerUrl, (client) => client.query<{ staged: number, sealed: number, used: number }>(
     `select (select count(*)::int from ballot_box) as staged, (select count(*)::int from ballot) as sealed,
             (select count(*)::int from credential_entitlement where consumed) as used`,
