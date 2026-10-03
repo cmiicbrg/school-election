@@ -34,7 +34,9 @@ const pictureBusy = ref<string | null>(null)
 const pictureErrors = reactive<Record<string, string>>({})
 
 // What is being edited, taken from the election and its configuration
-// whenever the page reads them again.
+// when the page reads them again, unless the person has changed it since:
+// a draft that still equals what the server said last keeps following
+// the server, a draft someone typed into stays until they save it.
 const draft = reactive({ title: '', description: '' })
 const contestDrafts = reactive<Record<string, { title: string, rulesetId: RulesetId }>>({})
 const candidateDrafts = reactive<Record<string, { surname: string, givenName: string }>>({})
@@ -44,20 +46,38 @@ const votes = reactive<Record<string, string[]>>({})
 const newContest = reactive<{ title: string, rulesetId: RulesetId }>({ title: '', rulesetId: 'at-representative-v1' })
 const newCandidates = reactive<Record<string, { surname: string, givenName: string }>>({})
 const newGroup = ref('')
+/** What the server said last, to tell an untouched draft from a typed one. */
+const served = {
+  election: { title: '', description: '' },
+  contests: {} as Record<string, { title: string, rulesetId: RulesetId }>,
+  candidates: {} as Record<string, { surname: string, givenName: string }>,
+  groups: {} as Record<string, string>,
+}
+
+const same = (a: Record<string, string> | undefined, b: Record<string, string> | undefined) =>
+  a !== undefined && b !== undefined && Object.keys(a).every((key) => a[key] === b[key])
 
 watch(() => props.election, (election) => {
-  draft.title = election.title
-  draft.description = election.description
+  if (draft.title === served.election.title) draft.title = election.title
+  if (draft.description === served.election.description) draft.description = election.description
+  served.election = { title: election.title, description: election.description }
 }, { immediate: true })
 
 watch(() => props.configuration, (configuration) => {
   for (const contest of configuration.contests) {
-    contestDrafts[contest.id] = { title: contest.title, rulesetId: contest.rulesetId }
+    const next = { title: contest.title, rulesetId: contest.rulesetId }
+    if (same(contestDrafts[contest.id], served.contests[contest.id]) || !contestDrafts[contest.id]) contestDrafts[contest.id] = { ...next }
+    served.contests[contest.id] = next
     newCandidates[contest.id] ??= { surname: '', givenName: '' }
-    for (const candidate of contest.candidates) candidateDrafts[candidate.id] = { surname: candidate.surname, givenName: candidate.givenName }
+    for (const candidate of contest.candidates) {
+      const name = { surname: candidate.surname, givenName: candidate.givenName }
+      if (same(candidateDrafts[candidate.id], served.candidates[candidate.id]) || !candidateDrafts[candidate.id]) candidateDrafts[candidate.id] = { ...name }
+      served.candidates[candidate.id] = name
+    }
   }
   for (const group of configuration.voterGroups) {
-    groupDrafts[group.id] = group.name
+    if (groupDrafts[group.id] === served.groups[group.id] || groupDrafts[group.id] === undefined) groupDrafts[group.id] = group.name
+    served.groups[group.id] = group.name
     votes[group.id] = [...group.contestIds]
   }
 }, { immediate: true })

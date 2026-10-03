@@ -124,10 +124,15 @@ export const StateResponse = StrictObject({
 
 /**
  * Preparing again after a return to draft voids the batches whose keys no
- * longer fit only when the body confirms it. Preparing for the first time
- * needs no body.
+ * longer fit only when the body confirms it: with the ids of exactly the
+ * batches that were shown, which a change in between makes a refusal
+ * again, or with true, for a caller that has seen none. Preparing for
+ * the first time needs no body.
  */
-export const PrepareBody = Type.Union([StrictObject({ confirmVoid: Type.Boolean() }), Type.Null()])
+export const PrepareBody = Type.Union([
+  StrictObject({ confirmVoid: Type.Union([Type.Boolean(), Type.Array(Uuid, { uniqueItems: true, maxItems: 1000 })]) }),
+  Type.Null(),
+])
 
 /**
  * A refusal: the lifecycle's or the guard's code, not_ready with what

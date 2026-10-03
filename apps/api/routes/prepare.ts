@@ -4,7 +4,7 @@
 //   POST /api/elections/:id/prepare       draft → prepared: 200 with the summary and warnings,
 //                                         409 not_ready with the problems, or 409 void_required
 //                                         with the batches whose keys no longer fit, which
-//                                         { confirmVoid: true } voids
+//                                         { confirmVoid: [their ids] } voids (or true: any)
 //   POST /api/elections/:id/unprepare     prepared → draft, before any round has opened
 
 import type { FastifyInstance } from 'fastify'
@@ -25,7 +25,7 @@ export function prepareRoutes(app: FastifyInstance, { db }: { db: Database }, do
     onRequest: requireElectionAccess(db, 'prepare', canTransition('prepare')),
     schema: { body: PrepareBody, response: { '200': Prepared, '4xx': PrepareRefusal } },
   }, async (request, reply) => {
-    const confirmVoid = request.body?.confirmVoid === true
+    const confirmVoid = request.body?.confirmVoid ?? false
     const result = await changeElection(db, request, (client, access) => prepareElection(client, access, { confirmVoid }))
     if (!result.prepared) {
       if ('staleBatches' in result) return reply.code(409).send({ error: 'void_required', batches: result.staleBatches })

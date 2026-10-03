@@ -39,74 +39,29 @@ watch(() => props.configuration, () => {
   stale.value = null
 })
 
-/** Preparing, or the batches it would void, which only a confirmation of exactly that list lets through. */
-type Attempt = { done: true } | { done: false, stale: StaleBatch[] }
-
-async function attempt(confirmVoid: boolean): Promise<Attempt> {
-  try {
-    await apiPost(`/api/elections/${props.electionId}/prepare`, confirmVoid ? { confirmVoid: true } : undefined)
-    return { done: true }
-  } catch (err) {
-    if (err instanceof ApiError && err.code === 'void_required' && Array.isArray(err.body.batches)) {
-      return { done: false, stale: err.body.batches as StaleBatch[] }
-    }
-    throw err
-  }
-}
-
-const sameBatches = (a: readonly StaleBatch[], b: readonly StaleBatch[]) =>
-  a.length === b.length && a.every((batch) => b.some((other) => other.id === batch.id && other.keys === batch.keys))
-
-async function prepare(): Promise<void> {
+/**
+ * Preparing, with or without a confirmation. A confirmation names the
+ * batches the dialog showed, and the API voids only if exactly those are
+ * stale at that moment: a change in between comes back as void_required
+ * with the batches as they are now, which the dialog then shows instead.
+ */
+async function prepare(confirmed?: readonly StaleBatch[]): Promise<void> {
   busy.value = true
   error.value = null
   problems.value = []
   try {
-    const result = await attempt(false)
-    if (result.done) {
-      stale.value = null
-      emit('changed')
-    } else {
-      stale.value = result.stale
-    }
+    await apiPost(`/api/elections/${props.electionId}/prepare`, confirmed ? { confirmVoid: confirmed.map((batch) => batch.id) } : undefined)
+    stale.value = null
+    emit('changed')
   } catch (err) {
-    if (err instanceof ApiError && err.code === 'not_ready' && Array.isArray(err.body.problems)) {
+    if (err instanceof ApiError && err.code === 'void_required' && Array.isArray(err.body.batches)) {
+      stale.value = err.body.batches as StaleBatch[]
+      if (confirmed) error.value = 'Die betroffenen Stimmkarten haben sich geändert; bitte prüfen Sie die Liste noch einmal.'
+    } else if (err instanceof ApiError && err.code === 'not_ready' && Array.isArray(err.body.problems)) {
       problems.value = err.body.problems as Problem[]
     } else {
       error.value = errorMessage(err)
     }
-  } finally {
-    busy.value = false
-  }
-}
-
-/**
- * Confirms what the dialog shows, and nothing else: the batches are
- * checked afresh first, and a list that differs from the shown one is
- * shown instead of confirmed, so nothing is voided unseen.
- */
-async function confirmVoid(): Promise<void> {
-  const shown = stale.value
-  if (!shown) return
-  busy.value = true
-  error.value = null
-  try {
-    const fresh = await attempt(false)
-    if (fresh.done) {
-      stale.value = null
-      emit('changed')
-      return
-    }
-    if (!sameBatches(fresh.stale, shown)) {
-      stale.value = fresh.stale
-      error.value = 'Die betroffenen Stimmkarten haben sich geändert; bitte prüfen Sie die Liste noch einmal.'
-      return
-    }
-    const confirmed = await attempt(true)
-    stale.value = confirmed.done ? null : confirmed.stale
-    if (confirmed.done) emit('changed')
-  } catch (err) {
-    error.value = errorMessage(err)
   } finally {
     busy.value = false
   }
@@ -249,7 +204,7 @@ const staleKeys = computed(() => (stale.value ?? []).reduce((sum, batch) => sum 
           type="button"
           class="danger"
           :disabled="busy"
-          @click="confirmVoid"
+          @click="prepare(stale)"
         >
           Trotzdem vorbereiten ({{ staleKeys }} Stimmkarten werden ungültig)
         </button>
