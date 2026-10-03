@@ -189,8 +189,9 @@ function text(value: unknown, max: number, label: string, min = 0): string {
 }
 
 function lockKey(electionId: string): number {
-  // The first eight hex digits as a signed 32-bit integer, the lock's key type.
-  return Number.parseInt(electionId.slice(0, 8), 16) | 0
+  // The first eight hex digits, as the signed 32-bit integer the lock takes.
+  const unsigned = Number.parseInt(electionId.slice(0, 8), 16)
+  return unsigned >= 2 ** 31 ? unsigned - 2 ** 32 : unsigned
 }
 
 function toSeq(value: string | undefined): number {
