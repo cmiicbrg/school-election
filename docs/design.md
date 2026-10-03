@@ -145,7 +145,7 @@ A closed round never reopens. A state transition and every guard return either a
 
 Whether a result actually requires a runoff or a lot is decided by the result (see above), not by the lifecycle.
 
-The database keeps the same windows (migration `0007`): triggers refuse a change to contests, voter groups or their mapping outside a draft, to candidates, title or description once voting has started, and any change to a final election, and they let an election move only along the arrows above, back to draft only while no round has opened. A trigger reads the election's state with a share lock on its row, so a change of state and a configuration change wait for each other instead of passing each other.
+The database keeps the same windows (migration `0007`): triggers refuse a change to contests, voter groups or their mapping outside a draft, to candidates, title or description once voting has started, the removal of a prepared contest's last candidate, and any change to a final election, and they let an election move only along the arrows above, back to draft only while no round has opened. A trigger reads the election's state with a share lock on its row, so a change of state and a configuration change wait for each other instead of passing each other.
 
 ## Access to an election
 
@@ -179,7 +179,7 @@ Candidates are listed alphabetically by surname, then by given name, in German c
 
 Preparing fixes the structure and shows what will be printed (`apps/api/lib/prepare.ts`). The summary lists each voter group with the contests it votes in, and each contest with its number of candidates and active slots. It is refused, with the reasons, while there is no contest or voter group, a contest has no candidates or no voter group votes in it, or a voter group votes in nothing. It warns, without refusing, when there is no co-admin who has signed in, fewer than two witnesses who have, or an invitation still pending. `GET /api/elections/:id/preparation` shows all three before and after preparing.
 
-Preparing moves the election to prepared and creates its regular round, planned, with one ballot box (`round_contest`) per contest. Unpreparing goes back to draft, only before any round has opened; the round and its ballot boxes stay, a contest removed in the draft takes its own ballot box with it, and preparing again adds the boxes of contests created since. Candidates, title and description can still be corrected while prepared, without going back to draft. Both steps are audited, preparing with the numbers of contests, voter groups and candidates.
+Preparing moves the election to prepared and creates its regular round, planned, with one ballot box (`round_contest`) per contest. Unpreparing goes back to draft, only before any round has opened; the round and its ballot boxes stay, a contest removed in the draft takes its own ballot box with it, and preparing again adds the boxes of contests created since. Candidates, title and description can still be corrected while prepared, without going back to draft; only the last candidate of a contest stays, since a contest without one has no ballot. Both steps are audited, preparing with the numbers of contests, voter groups and candidates.
 
 ### Candidate pictures
 

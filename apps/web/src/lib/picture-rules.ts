@@ -99,7 +99,7 @@ export function uploadMessage(code: string): string {
   switch (code) {
     case 'picture_format':
     case 'picture_unreadable':
-      return PICTURE_MESSAGES['unsupported-format']
+      return 'Dieses Bild konnte nicht gelesen werden. Bitte ein JPEG- oder PNG-Foto verwenden.'
     case 'picture_too_large':
     case 'FST_ERR_CTP_BODY_TOO_LARGE':
       return PICTURE_MESSAGES['too-large']

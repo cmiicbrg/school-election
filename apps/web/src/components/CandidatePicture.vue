@@ -20,7 +20,10 @@ const props = defineProps<{
   disabled?: boolean
   /** The page is uploading or removing the picture. */
   busy?: boolean
-  /** Why the page's last upload failed (see uploadMessage in lib/picture-rules.ts). */
+  /**
+   * Why the page's last upload failed (see uploadMessage in
+   * lib/picture-rules.ts); the page clears it when it starts the next one.
+   */
   error?: string | null
 }>()
 
@@ -37,11 +40,16 @@ const preparing = ref(false)
 const dragging = ref(false)
 const problem = ref<string | null>(null)
 const status = ref('')
-// The picture just prepared, shown until the page passes the stored one.
+// The picture just prepared, shown while the page uploads it. Once the
+// page is done it shows `src`: the new picture's URL, or after a failed
+// upload the stored picture as before, next to the error.
 const preview = ref<string | null>(null)
 
 watch(() => props.src, () => {
   preview.value = null
+})
+watch(() => [props.busy, props.error] as const, ([busy, error], [wasBusy]) => {
+  if ((wasBusy === true && busy !== true) || error) preview.value = null
 })
 
 const shown = computed(() => preview.value ?? props.src ?? null)

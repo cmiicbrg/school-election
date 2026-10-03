@@ -260,8 +260,13 @@ export async function renameCandidate(client: pg.ClientBase, access: ElectionAcc
   return readContest(client, access.electionId, contestId)
 }
 
+/**
+ * Removes a candidate. Once the election is prepared, a contest keeps at
+ * least one (409 last_candidate): without any it would have no ballot.
+ */
 export async function removeCandidate(client: pg.ClientBase, access: ElectionAccess, candidateId: string): Promise<Contest> {
-  const { contestId, current } = await findCandidate(client, access.electionId, candidateId)
+  const { contestId, current, contest } = await findCandidate(client, access.electionId, candidateId)
+  if (access.lifecycle.election !== 'draft' && contest.candidates.length === 1) throw new Refusal(409, 'last_candidate')
   await client.query('delete from candidate where id = $1', [candidateId])
   await appendAudit(client, access.electionId, {
     actor: access.actor,

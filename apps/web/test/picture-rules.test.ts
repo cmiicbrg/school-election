@@ -74,7 +74,7 @@ test('files come from the items of a drop or paste, else from its file list', ()
 test('messages are German and say what to do, including for a format the browser cannot open', () => {
   assert.equal(PICTURE_MESSAGES['unsupported-format'], 'Dieses Bildformat kann der Browser nicht öffnen. Bitte ein JPEG- oder PNG-Foto verwenden.')
   for (const message of Object.values(PICTURE_MESSAGES)) assert.match(message, /Bitte/)
-  assert.equal(uploadMessage('picture_unreadable'), PICTURE_MESSAGES['unsupported-format'])
+  assert.equal(uploadMessage('picture_unreadable'), 'Dieses Bild konnte nicht gelesen werden. Bitte ein JPEG- oder PNG-Foto verwenden.')
   assert.equal(uploadMessage('FST_ERR_CTP_BODY_TOO_LARGE'), PICTURE_MESSAGES['too-large'])
   assert.match(uploadMessage('voting_started'), /begonnen/)
   assert.match(uploadMessage('internal_error'), /nicht gespeichert/)

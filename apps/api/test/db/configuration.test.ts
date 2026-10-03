@@ -78,6 +78,8 @@ test('structure changes only in a draft, candidates until voting starts, and not
     await client.query(`insert into candidate (election_id, contest_id, surname, given_name) values ('${A}', '${CONTEST_A}', 'Huber', 'Lena')`)
     await client.query(`update candidate set given_name = 'Jonas Maria' where surname = 'Berger'`)
     await client.query(`delete from candidate where surname = 'Huber'`)
+    // The last candidate of a prepared contest stays.
+    await refused(client, '55000', [`delete from candidate where surname = 'Berger'`])
     await client.query(`update election set title = 'A 2026/27', description = 'Neu' where id = '${A}'`)
     // Another election's draft is not affected.
     await client.query(`insert into voter_group (election_id, name) values ('${B}', '1A')`)

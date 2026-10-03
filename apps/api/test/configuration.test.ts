@@ -141,6 +141,10 @@ test('a teacher defines and prepares a combined school, department and class ele
   ] as const) {
     assert.deepEqual(refusal(await anna.request(method, `${base}${path}`, body)), [409, 'not_draft'], `${method} ${path}`)
   }
+  // A prepared contest keeps a candidate: without one it has no ballot.
+  const steiner = configuration.contests[1]?.candidates[0]
+  assert.ok(steiner)
+  assert.deepEqual(refusal(await anna.request('DELETE', `${base}/candidates/${steiner.id}`)), [409, 'last_candidate'])
   assert.deepEqual(await auditActions(anna, id), eventsBefore)
 
   // Back to draft, a contest more, and prepared again: the round stays and

@@ -144,6 +144,22 @@ create trigger voter_group_contest_window before insert or update or delete on v
 create trigger candidate_window before insert or update or delete on candidate
   for each row execute function election_change_window('draft', 'prepared');
 
+-- Once prepared, every contest keeps at least one candidate: a contest
+-- without any has no ballot. In a draft, preparing checks it.
+create function candidate_keep_one() returns trigger
+  language plpgsql set search_path = pg_catalog as $$
+begin
+  if exists (select 1 from public.election e where e.id = old.election_id and e.state <> 'draft')
+     and not exists (select 1 from public.candidate c where c.contest_id = old.contest_id) then
+    raise exception 'a contest keeps at least one candidate once its election is prepared' using errcode = 'object_not_in_prerequisite_state';
+  end if;
+  return null;
+end
+$$;
+
+create trigger candidate_keep_one after delete on candidate
+  for each row execute function candidate_keep_one();
+
 -- An election moves only along the lifecycle: draft ⇄ prepared → active →
 -- final, and back to draft only while no round has opened. Title and
 -- description change until voting starts, and a final election not at all.
