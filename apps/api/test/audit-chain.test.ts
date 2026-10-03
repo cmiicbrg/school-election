@@ -176,6 +176,18 @@ test('input that is not an event is reported as malformed, never thrown', () => 
   assert.deepEqual(verifyAuditChain([event, , event]), { valid: false, length: 3, index: 1, problem: 'malformed' })
 })
 
+test('the events are read by index, never through an iterator the input supplies', () => {
+  const genuine = chain(2)
+  const [first, second] = genuine as [AuditEvent, AuditEvent]
+  const tampered = Object.defineProperty([{ ...first, action: 'member.removed' }, second], Symbol.iterator, {
+    value: () => genuine[Symbol.iterator](),
+  })
+  assert.deepEqual(verifyAuditChain(tampered), { valid: false, length: 2, index: 0, problem: 'hash-mismatch' })
+  // A hole is not filled from the prototype either.
+  const inherited: unknown = Object.setPrototypeOf([, second], Object.assign(Object.create(Array.prototype) as object, { 0: first }))
+  assert.deepEqual(verifyAuditChain(inherited), { valid: false, length: 2, index: 0, problem: 'malformed' })
+})
+
 test('fields that are not hashed are refused, so nothing in a valid chain goes unverified', () => {
   const [event] = chain(1) as [AuditEvent]
   const { seq: _seq, ...withoutSeq } = event

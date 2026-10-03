@@ -116,10 +116,18 @@ export function verifyAuditChain(events: unknown): AuditChainStatus {
   return { valid: true, length: list.length, head: previous?.hash ?? null }
 }
 
-/** A copy of the array, its holes as undefined; undefined for anything else. */
+/**
+ * A copy of the array by its length and own elements, holes as undefined;
+ * undefined for anything else. The input's iterator is never called: an array
+ * can override it to yield a genuine chain while its elements hold another.
+ */
 function readList(value: unknown): unknown[] | undefined {
   try {
-    return Array.isArray(value) ? [...(value as unknown[])] : undefined
+    if (!Array.isArray(value)) return undefined
+    const { length } = value
+    const list: unknown[] = []
+    for (let i = 0; i < length; i++) list.push(Object.hasOwn(value, i) ? value[i] : undefined)
+    return list
   } catch {
     // A proxy that refuses to be read.
     return undefined
