@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { CARDS_PER_PAGE, cardsOf, pageCount, pagesOf, ROUND_LABELS, voterAddress } from '../src/lib/sheet.ts'
+import { CARDS_PER_PAGE, cardsOf, pageCount, pagesOf, printable, ROUND_LABELS, voterAddress } from '../src/lib/sheet.ts'
 import { problemOf, signInUrl } from '../src/lib/api-rules.ts'
 
 const KEYS = ['7KM4P9VX2RNCWQ5DH3TB', '0123456789ABCDEFGHJK']
@@ -27,6 +27,19 @@ test('six cards to a page, the last page shorter, and none for no keys', () => {
   assert.equal(pageCount(6), 1)
   assert.equal(pageCount(7), 2)
   assert.throws(() => pagesOf([1], 0), RangeError)
+})
+
+test('a batch prints until its round opens, a runoff batch until the runoff is activated, and nothing once the election is final', () => {
+  assert.equal(printable({ election: 'draft', regular: 'planned', runoff: null }, 'regular'), true)
+  assert.equal(printable({ election: 'prepared', regular: 'planned', runoff: null }, 'regular'), true)
+  assert.equal(printable({ election: 'active', regular: 'open', runoff: null }, 'regular'), false)
+  assert.equal(printable({ election: 'active', regular: 'closed', runoff: null }, 'regular'), false)
+  assert.equal(printable({ election: 'prepared', regular: 'planned', runoff: null }, 'runoff'), true)
+  assert.equal(printable({ election: 'active', regular: 'open', runoff: null }, 'runoff'), true)
+  assert.equal(printable({ election: 'active', regular: 'closed', runoff: null }, 'runoff'), true)
+  assert.equal(printable({ election: 'active', regular: 'closed', runoff: 'open' }, 'runoff'), false)
+  assert.equal(printable({ election: 'active', regular: 'closed', runoff: 'closed' }, 'runoff'), false)
+  assert.equal(printable({ election: 'final', regular: 'closed', runoff: null }, 'runoff'), false)
 })
 
 test('the labels and the typed address', () => {

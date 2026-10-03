@@ -2,7 +2,7 @@
 // node:test can check it: six cards to an A4 page, what a card carries,
 // and what the QR code says. The page (pages/PrintBatch.vue) lays it out.
 
-import { formatKey, keyUrl, type RoundKind } from '@school-election/election-core'
+import { formatKey, keyUrl, type Lifecycle, type RoundKind } from '@school-election/election-core'
 
 /** Two columns by three rows on A4 portrait. */
 export const CARDS_PER_PAGE = 6
@@ -38,4 +38,15 @@ export const ROUND_LABELS: Readonly<Record<RoundKind, string>> = { regular: 'Wah
 /** The address a voter types instead of scanning: the host and the voter page, without a scheme. */
 export function voterAddress(origin: string): string {
   return `${new URL(origin).host}/v`
+}
+
+/**
+ * Whether a batch of the round can still be printed: until its round
+ * opens. Once votes are accepted, a sheet printed then could only raise
+ * the question whose it is; after the close, the codes and their use are
+ * what is shown. A runoff batch prints until the runoff is activated.
+ */
+export function printable(lifecycle: Lifecycle, kind: RoundKind): boolean {
+  if (lifecycle.election === 'final') return false
+  return kind === 'regular' ? lifecycle.regular === 'planned' : lifecycle.runoff === null
 }

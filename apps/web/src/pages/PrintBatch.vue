@@ -2,7 +2,8 @@
 // A batch of voting keys as sheets to print: six cards to an A4 page, each
 // with the election, the round, the class, a QR code and the key. The page
 // shows the stored keys however often it is opened, so a sheet can be
-// printed again at any time; opening it creates nothing. The browser
+// printed again, until the batch's round opens: once votes are accepted,
+// nothing is printed any more. Opening it creates nothing. The browser
 // prints or saves as PDF; the server renders no sheet and never holds one.
 // The owner and co-admins may open it any time; a witness once the batch's
 // round has closed, which the API decides.
@@ -12,10 +13,10 @@ import { computed, onMounted, ref } from 'vue'
 import '@fontsource/dm-sans/400.css'
 import '@fontsource/dm-sans/700.css'
 import '@fontsource/jetbrains-mono/400.css'
-import type { RoundKind } from '@school-election/election-core'
+import type { Lifecycle, RoundKind } from '@school-election/election-core'
 import { apiGet } from '../lib/api.ts'
 import { ApiError } from '../lib/api-rules.ts'
-import { cardsOf, pagesOf, ROUND_LABELS, voterAddress, type Card } from '../lib/sheet.ts'
+import { cardsOf, pagesOf, printable, ROUND_LABELS, voterAddress, type Card } from '../lib/sheet.ts'
 
 const props = defineProps<{
   id: string
@@ -24,6 +25,7 @@ const props = defineProps<{
 
 interface ElectionDetail {
   title: string
+  lifecycle: Lifecycle
 }
 
 interface Configuration {
@@ -52,6 +54,9 @@ const origin = window.location.origin
 const cards = computed(() => batch.value ? cardsOf(batch.value.keys.map((entry) => entry.key), origin) : [])
 const pages = computed(() => pagesOf(cards.value))
 const roundLabel = computed(() => batch.value ? ROUND_LABELS[batch.value.batch.roundKind] : '')
+/** An issued batch whose round has not opened: the only kind with sheets. */
+const prints = computed(() => batch.value !== undefined && election.value !== undefined
+  && batch.value.batch.state === 'issued' && printable(election.value.lifecycle, batch.value.batch.roundKind))
 const address = voterAddress(origin)
 
 async function load(): Promise<void> {
@@ -69,9 +74,10 @@ async function load(): Promise<void> {
     error.value = err instanceof ApiError ? MESSAGES[err.code] ?? 'Die Stimmkarten konnten nicht geladen werden.' : 'Die Stimmkarten konnten nicht geladen werden.'
     return
   }
-  // A replaced batch keeps its keys for comparing, but they never vote:
-  // no cards, and nothing to draw.
-  if (batch.value.batch.state !== 'issued') return
+  // A replaced batch keeps its keys for comparing, but they never vote,
+  // and a batch whose round has opened is not printed any more: no cards
+  // either way, and nothing to draw.
+  if (!prints.value) return
   try {
     // One image per key, drawn here: the policy allows data: images. The
     // sheets appear, and can be printed, only once every image is there.
@@ -105,8 +111,8 @@ onMounted(() => {
       <p v-if="election && batch">
         {{ election.title }} · {{ roundLabel }} · {{ groupName }} · {{ batch.batch.keys }} Karten auf {{ pages.length }} Seiten.
       </p>
-      <p v-if="batch && batch.batch.state === 'issued'">
-        Diese Seite zeigt immer dieselben Codes. Sie kann jederzeit noch einmal gedruckt werden; neue Codes gibt es nur über „Stapel ersetzen“ in der Wahl.
+      <p v-if="prints">
+        Diese Seite zeigt immer dieselben Codes. Sie kann bis zum Beginn der Runde noch einmal gedruckt werden; neue Codes gibt es nur über „Stapel ersetzen“ in der Wahl.
       </p>
       <p
         v-if="error"
@@ -115,7 +121,7 @@ onMounted(() => {
         {{ error }}
       </p>
       <output
-        v-else-if="batch && batch.batch.state === 'issued' && !ready"
+        v-else-if="prints && !ready"
         class="note"
       >
         Die Stimmkarten werden vorbereitet …
@@ -135,8 +141,15 @@ onMounted(() => {
     >
       Dieser Stapel wurde ersetzt. Seine Codes gelten nicht mehr; die neuen Stimmkarten sind der Stapel, der an seine Stelle getreten ist.
     </output>
+    <output
+      v-else-if="batch && election && !prints"
+      class="replaced"
+      data-testid="not-printable"
+    >
+      Die Runde hat begonnen: Die Stimmkarten dieses Stapels werden nicht mehr gedruckt.
+    </output>
 
-    <template v-if="ready && batch && batch.batch.state === 'issued' && election">
+    <template v-if="ready && prints && batch && election">
       <section
         v-for="(page, index) in pages"
         :key="index"
