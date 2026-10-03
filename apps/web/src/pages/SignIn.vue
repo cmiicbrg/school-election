@@ -1,13 +1,21 @@
 <script setup lang="ts">
 // Where a signed-out person lands: one button, to the school's Microsoft
-// sign-in, and back to the page they wanted.
+// sign-in, and back to the page they wanted. Whoever is signed in already
+// is sent there right away.
 
-import { computed } from 'vue'
-import { useRoute } from 'vue-router'
-import { loginUrl } from '../lib/api-rules.ts'
+import { computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { loginUrl, ownPath } from '../lib/api-rules.ts'
+import { session } from '../lib/session.ts'
 
 const route = useRoute()
-const target = computed(() => loginUrl(typeof route.query.returnTo === 'string' ? route.query.returnTo : '/'))
+const router = useRouter()
+const returnTo = computed(() => ownPath(typeof route.query.returnTo === 'string' ? route.query.returnTo : '/'))
+const target = computed(() => loginUrl(returnTo.value))
+
+watch([session, returnTo], ([who, to]) => {
+  if (who) void router.replace(to)
+}, { immediate: true })
 </script>
 
 <template>

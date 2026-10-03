@@ -11,10 +11,10 @@ export interface CallOptions {
   optional?: boolean
 }
 
-let goToSignIn: (url: string) => void = (url) => window.location.assign(url)
+let goToSignIn: () => void = () => window.location.assign(signInUrl(window.location.pathname + window.location.search))
 
 /** How a 401 takes the browser to sign-in: the app registers the router, so it is a navigation within the app. */
-export function onUnauthenticated(handler: (url: string) => void): void {
+export function onUnauthenticated(handler: () => void): void {
   goToSignIn = handler
 }
 
@@ -53,7 +53,7 @@ async function call<T>(method: string, path: string, body?: unknown, options: Ca
   })
   if (response.status === 401) {
     if (options.optional) return null
-    goToSignIn(signInUrl(window.location.pathname + window.location.search))
+    goToSignIn()
     throw new ApiError(401, 'unauthenticated')
   }
   if (!response.ok) {
