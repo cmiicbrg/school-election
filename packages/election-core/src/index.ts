@@ -1,4 +1,4 @@
-// Pure election domain: rulesets, ballot validation, counting.
+// Pure election domain: rulesets, ballot validation, counting and results.
 // No I/O and no framework imports — eslint.config.js enforces that.
 
 /**
@@ -6,7 +6,7 @@
  * the same configuration and ballots produce a different result; stored
  * results record it so they can be reproduced with the matching code.
  */
-export const TALLY_VERSION = 1
+export const TALLY_VERSION = 2
 
 export {
   activeSlots,
@@ -33,3 +33,21 @@ export {
   type CandidateStatistics,
   type ContestStatistics,
 } from './statistics.ts'
+
+export {
+  firstRoundResult,
+  runoffResult,
+  type FirstRoundResult,
+  type RunoffResult,
+} from './result.ts'
+
+export type {
+  CandidateValue,
+  CommitteeReason,
+  LotDecision,
+  LotRequest,
+  Position,
+  PositionsLot,
+  RunoffEntryLot,
+  TraceStep,
+} from './trace.ts'
