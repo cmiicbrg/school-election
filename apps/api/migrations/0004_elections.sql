@@ -17,8 +17,8 @@ create table election (
 -- invited_email holds it as it was entered, and user_id stays null until
 -- that person signs in with a matching address. A pending invitation
 -- grants nothing. Binding sets user_id once and keeps the address, which
--- the audit log names when the member is removed. The owner is never
--- invited.
+-- the audit log names when the member is removed. The owner is the one
+-- member who was not invited, and is always a person.
 
 create table election_member (
   id uuid primary key default gen_random_uuid(),
@@ -26,14 +26,15 @@ create table election_member (
   role text not null check (role in ('owner', 'admin', 'witness')),
   user_id uuid references app_user (id),
   invited_email text check (char_length(invited_email) between 3 and 254),
-  check (case when role = 'owner' then user_id is not null and invited_email is null else invited_email is not null end),
+  check ((role = 'owner') = (invited_email is null)),
+  check (user_id is not null or invited_email is not null),
   -- One membership per person and election; pending invitations have no person yet.
   unique (election_id, user_id)
 );
 
 -- One owner per election, and one invitation per address and election,
 -- whatever its case.
-create unique index election_member_owner on election_member (election_id) where role = 'owner';
+create unique index election_member_owner on election_member (election_id) where invited_email is null;
 create unique index election_member_invitation on election_member (election_id, lower(invited_email));
 -- A person's elections, and the pending invitations a sign-in binds.
 create index election_member_user on election_member (user_id);

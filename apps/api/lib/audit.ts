@@ -114,12 +114,25 @@ export async function appendAudit<A extends AuditAction>(
  * what it reads after the lock is the newest committed state.
  */
 export async function lockElection(client: pg.ClientBase, electionId: string): Promise<void> {
+  await lockElections(client, [electionId])
+}
+
+/**
+ * lockElection for several elections at once, in one statement and in a
+ * fixed order (by lock key), so that two transactions that need some of
+ * the same locks never wait for each other the other way round.
+ */
+export async function lockElections(client: pg.ClientBase, electionIds: readonly string[]): Promise<void> {
   if (client.getTransactionStatus() !== 'T') {
     throw new AuditError('the election lock is only held inside a transaction')
   }
+  const keys = [...new Set(electionIds.map((id) => lockKey(uuid(id, 'electionId'))))].sort((a, b) => a - b)
+  // PostgreSQL evaluates a volatile function in a select list after the
+  // ORDER BY, so the locks are taken in key order.
   const lock = await client.query<{ isolation: string }>(
-    'select current_setting(\'transaction_isolation\') as isolation from pg_advisory_xact_lock($1, $2)',
-    [LOCK_CLASS, lockKey(uuid(electionId, 'electionId'))],
+    `select current_setting('transaction_isolation') as isolation, count(*)
+       from (select pg_advisory_xact_lock($1, k) from unnest($2::int[]) as k order by k) as locked`,
+    [LOCK_CLASS, keys],
   )
   if (lock.rows[0]?.isolation !== 'read committed') {
     throw new AuditError('the election lock needs a READ COMMITTED transaction to see the newest committed state')

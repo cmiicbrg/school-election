@@ -67,7 +67,7 @@ function detail(row: ElectionRow, role: ElectionRole): Static<typeof ElectionDet
   return { id: row.id, title: row.title, description: row.description, state: row.state, role, permissions: permissionsOf(role) }
 }
 
-export async function electionRoutes(app: FastifyInstance, { db }: { db: Database }): Promise<void> {
+export function electionRoutes(app: FastifyInstance, { db }: { db: Database }, done: (err?: Error) => void): void {
   app.post<{ Body: Static<typeof CreateElectionBody> }>('/api/elections', {
     onRequest: requireGlobalRole('teacher'),
     schema: { body: CreateElectionBody, response: { '201': ElectionDetail, '4xx': ErrorResponse } },
@@ -129,4 +129,5 @@ export async function electionRoutes(app: FastifyInstance, { db }: { db: Databas
     const events = await db.tx((client) => readAuditChain(client, electionAccessOf(request).electionId))
     return { events, chain: verifyAuditChain(events) }
   })
+  done()
 }

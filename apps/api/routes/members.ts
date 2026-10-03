@@ -33,7 +33,7 @@ const MemberParams = Type.Object({
   memberId: Uuid,
 })
 
-export async function memberRoutes(app: FastifyInstance, { db }: { db: Database }): Promise<void> {
+export function memberRoutes(app: FastifyInstance, { db }: { db: Database }, done: (err?: Error) => void): void {
   app.get('/api/elections/:id/members', {
     onRequest: requireElectionAccess(db, 'view'),
     schema: { response: { '200': Type.Array(Member), '4xx': ErrorResponse } },
@@ -55,4 +55,5 @@ export async function memberRoutes(app: FastifyInstance, { db }: { db: Database 
     await changeElection(db, request, (client, access) => removeMember(client, access, request.params.memberId))
     return reply.code(204).send()
   })
+  done()
 }

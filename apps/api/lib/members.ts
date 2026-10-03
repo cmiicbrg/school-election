@@ -5,7 +5,7 @@
 import type pg from 'pg'
 import { canManageMembers, type ElectionState } from '@school-election/election-core'
 import type { EntraIdentity } from './app-user.ts'
-import { appendAudit, lockElection } from './audit.ts'
+import { appendAudit, lockElections } from './audit.ts'
 import type { Database } from './db.ts'
 import { lifecycleOf, Refusal, type ElectionAccess } from './election-access.ts'
 import type { ElectionRole, InvitedRole } from './permissions.ts'
@@ -100,32 +100,33 @@ export async function removeMember(client: pg.ClientBase, access: ElectionAccess
  */
 export async function bindInvitations(client: pg.ClientBase, userId: string, person: EntraIdentity, tenantId: string): Promise<void> {
   if (person.email === null || person.tid !== tenantId) return
-  const { rows } = await client.query<{ election_id: string }>(
-    `select distinct election_id from election_member
-      where user_id is null and lower(invited_email) = lower($1)
-      order by election_id`,
+  const pending = await client.query<{ election_id: string }>(
+    'select distinct election_id from election_member where user_id is null and lower(invited_email) = lower($1)',
     [person.email],
   )
-  // One election after another, in a fixed order, each under its lock:
-  // two sign-ins never wait for each other's locks the other way round.
-  for (const { election_id: electionId } of rows) {
-    await lockElection(client, electionId)
-    const election = await client.query<{ state: ElectionState }>('select state from election where id = $1', [electionId])
-    const state = election.rows[0]?.state
-    if (state === undefined || !canManageMembers(lifecycleOf(state)).ok) continue
-    const bound = await client.query<{ invited_email: string, role: InvitedRole }>(
-      `update election_member m set user_id = $3
-        where m.election_id = $1 and m.user_id is null and lower(m.invited_email) = lower($2)
-          and not exists (select 1 from election_member o where o.election_id = $1 and o.user_id = $3)
-        returning m.invited_email, m.role`,
-      [electionId, person.email, userId],
-    )
-    for (const row of bound.rows) {
-      await appendAudit(client, electionId, {
-        actor: { tid: person.tid, oid: person.oid, name: person.displayName },
-        action: 'member.bound',
-        metadata: { email: row.invited_email, role: row.role },
-      })
-    }
+  if (pending.rows.length === 0) return
+  // The elections' locks, all at once in a fixed order, then their states
+  // as they are under the locks.
+  await lockElections(client, pending.rows.map((row) => row.election_id))
+  const elections = await client.query<{ id: string, state: ElectionState }>(
+    'select id, state from election where id = any($1::uuid[])',
+    [pending.rows.map((row) => row.election_id)],
+  )
+  const open = elections.rows.filter((election) => canManageMembers(lifecycleOf(election.state)).ok).map((election) => election.id)
+  const bound = await client.query<{ election_id: string, invited_email: string, role: InvitedRole }>(
+    `update election_member m set user_id = $3
+      where m.election_id = any($1::uuid[]) and m.user_id is null and lower(m.invited_email) = lower($2)
+        and not exists (select 1 from election_member o where o.election_id = m.election_id and o.user_id = $3)
+      returning m.election_id, m.invited_email, m.role`,
+    [open, person.email, userId],
+  )
+  // One event per binding, each in its election's chain, one after
+  // another on this transaction's connection.
+  for (const row of bound.rows) {
+    await appendAudit(client, row.election_id, {
+      actor: { tid: person.tid, oid: person.oid, name: person.displayName },
+      action: 'member.bound',
+      metadata: { email: row.invited_email, role: row.role },
+    })
   }
 }
