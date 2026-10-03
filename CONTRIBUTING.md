@@ -22,6 +22,8 @@ cp apps/api/.env.example apps/api/.env
 mkdir -p apps/api/.secrets
 openssl rand -hex 24 > apps/api/.secrets/db-owner-password
 openssl rand -hex 24 > apps/api/.secrets/db-runtime-password
+openssl rand -hex 32 > apps/api/.secrets/session-key
+printf 'not-a-real-secret' > apps/api/.secrets/entra-client-secret
 scripts/postgres.sh school-election-db 5432 apps/api/.secrets/db-owner-password
 npm run migrate
 
@@ -30,6 +32,10 @@ npm run dev:web     # Vite dev server on http://localhost:5173, /api proxied to 
 ```
 
 The API refuses to start with a missing or unsafe setting and names it. `apps/api/.env.example` lists every setting; secrets are never set inline but read from files named by `*_FILE` variables, kept in the git-ignored `apps/api/.secrets/`. Open the app through the Vite dev server: the API accepts state-changing requests only from `PUBLIC_ORIGIN`.
+
+### Signing in during development
+
+The dummy Entra values in `.env.example` are enough for everything except signing in. To sign in, use a development app registration in the school's tenant, separate from the one production uses, so the production registration lists only the production redirect URI and its client secret never leaves the server. The development registration: single tenant, platform Web, redirect URI `http://localhost:5173/api/auth/callback`, an app role with the value `teacher` assigned to your account, and a client secret. Put the tenant and client ids into `apps/api/.env` and the secret into `apps/api/.secrets/entra-client-secret`, then open <http://localhost:5173/api/auth/login>. The session cookies are `Secure` with the `__Host-` prefix, which Chrome, Edge and Firefox accept from `http://localhost`.
 
 ## Checks
 

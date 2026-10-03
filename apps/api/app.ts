@@ -8,11 +8,15 @@ import type { Database } from './lib/db.ts'
 import { ErrorResponse, HealthResponse } from './lib/schemas/common.ts'
 import { pathOf } from './lib/url.ts'
 import { applyHardening } from './plugins/hardening.ts'
+import { registerSessions } from './plugins/session.ts'
+import { authRoutes } from './routes/auth.ts'
 
 export interface AppOptions {
   db: Database
   /** Where log lines go; tests capture them. Defaults to stdout. */
   logStream?: Writable
+  /** Where Entra ID is reached. Tests point it at a local stand-in; it is not configurable. */
+  entraAuthority?: string
 }
 
 export async function buildApp(config: Config, options: AppOptions): Promise<FastifyInstance> {
@@ -83,7 +87,11 @@ export async function buildApp(config: Config, options: AppOptions): Promise<Fas
   })
 
   const webDist = existsSync(config.webDistDir) ? config.webDistDir : undefined
+  // Hooks before routes: a plugin context inherits only the hooks that
+  // exist when it is registered, and the sign-in routes are one.
   applyHardening(app, config, { webDist })
+  await registerSessions(app, config)
+  await app.register(authRoutes, { config, db, entraAuthority: options.entraAuthority })
 
   app.get('/api/health', { schema: { response: { '200': HealthResponse, '503': HealthResponse, '4xx': ErrorResponse } } }, async (_request, reply) => {
     try {

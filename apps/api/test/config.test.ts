@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ConfigError, loadConfig, loadMigrationConfig, readSecret } from '../config.ts'
-import { DB_ENV, secretFile } from './helpers/env.ts'
+import { AUTH_ENV, DB_ENV, secretFile, SERVER_ENV, TENANT_ID } from './helpers/env.ts'
 
-const base = DB_ENV
+const base = SERVER_ENV
 const valid = { ...base, PUBLIC_ORIGIN: 'https://wahl.example.org' }
 
 function problem(env: Record<string, string>): string {
@@ -150,4 +150,42 @@ test('the migrator reads its owner URL and both passwords from their own variabl
     )
   }
   assert.throws(() => loadMigrationConfig({}), /MIGRATION_DATABASE_URL must be set[\s\S]*DB_RUNTIME_PASSWORD_FILE must be set/)
+})
+
+test('the Entra and session settings are mandatory, and each missing one is named', () => {
+  const config = loadConfig(valid)
+  assert.deepEqual(config.entra, { tenantId: TENANT_ID, clientId: AUTH_ENV.ENTRA_CLIENT_ID, clientSecret: 'test~client.secret_value' })
+  assert.equal(config.sessionSecret.length, 32)
+  const message = problem({ ...DB_ENV, PUBLIC_ORIGIN: valid.PUBLIC_ORIGIN })
+  for (const name of ['ENTRA_TENANT_ID must be set', 'ENTRA_CLIENT_ID must be set', 'ENTRA_CLIENT_SECRET_FILE must be set', 'SESSION_KEY_FILE must be set']) {
+    assert.ok(message.includes(name), name)
+  }
+  assert.match(problem({ ...valid, ENTRA_CLIENT_SECRET: 'inline' }), /ENTRA_CLIENT_SECRET must not be set/)
+  assert.match(problem({ ...valid, SESSION_KEY: 'inline' }), /SESSION_KEY must not be set/)
+})
+
+test('the tenant and client are GUIDs: one tenant, never "common" or a domain', () => {
+  for (const value of ['common', 'organizations', 'consumers', 'schule.example.org', '3f2b8c1d6e4a4b7f9c2d8a1e5f6b7c90']) {
+    assert.match(problem({ ...valid, ENTRA_TENANT_ID: value }), /ENTRA_TENANT_ID must be a GUID/, value)
+    assert.match(problem({ ...valid, ENTRA_CLIENT_ID: value }), /ENTRA_CLIENT_ID must be a GUID/, value)
+  }
+  assert.equal(loadConfig({ ...valid, ENTRA_TENANT_ID: TENANT_ID.toUpperCase() }).entra.tenantId, TENANT_ID)
+})
+
+test('the session key holds at least 32 random bytes in hex', () => {
+  for (const content of ['too short', 'ab'.repeat(31), 'zz'.repeat(32), 'a'.repeat(63)]) {
+    assert.match(problem({ ...valid, SESSION_KEY_FILE: secretFile('bad-session-key', content) }), /SESSION_KEY_FILE must hold at least 32 random bytes/, content)
+  }
+  assert.equal(loadConfig({ ...valid, SESSION_KEY_FILE: secretFile('long-session-key', 'AB'.repeat(48)) }).sessionSecret.length, 48)
+})
+
+test('the client secret must be printable ASCII', () => {
+  assert.match(problem({ ...valid, ENTRA_CLIENT_SECRET_FILE: secretFile('bad-client-secret', 'gehëim') }), /ENTRA_CLIENT_SECRET_FILE must contain printable ASCII/)
+})
+
+test('DEBUG, which makes dependencies print to stderr, is refused outside local development', () => {
+  assert.match(problem({ ...valid, DEBUG: 'simple-oauth2:*' }), /DEBUG is allowed only with a loopback PUBLIC_ORIGIN and HOST/)
+  assert.match(problem({ ...base, PUBLIC_ORIGIN: 'http://localhost:5173', HOST: '0.0.0.0', DEBUG: '*' }), /DEBUG/)
+  assert.doesNotThrow(() => loadConfig({ ...base, PUBLIC_ORIGIN: 'http://localhost:5173', DEBUG: '*' }))
+  assert.doesNotThrow(() => loadConfig({ ...valid, DEBUG: ' ' }))
 })

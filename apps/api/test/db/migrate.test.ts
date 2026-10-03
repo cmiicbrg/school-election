@@ -1,11 +1,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cp, mkdtemp, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { migrate, MigrationError, MIGRATIONS_DIR, scramVerifier } from '../../scripts/migrate.ts'
+import { byName, migrate, MigrationError, MIGRATIONS_DIR, scramVerifier } from '../../scripts/migrate.ts'
 import { sqlState } from '../../lib/pg-errors.ts'
 import { createTestDatabase, DB, TEST_RUNTIME_PASSWORD, withClient } from '../helpers/db.ts'
+
+/** The real migrations. Files these tests add are numbered from 9001, after all of them. */
+const REAL = (await readdir(MIGRATIONS_DIR)).filter((name) => name.endsWith('.sql')).sort(byName)
 
 /** A copy of the real migrations plus extra files, to change freely. */
 async function migrationsWith(extra: Record<string, string>): Promise<string> {
@@ -20,34 +23,34 @@ const run = (databaseUrl: string, migrationsDir?: string) =>
 
 test('migrations apply in filename order, and a second run does nothing', DB, async (t) => {
   const db = await createTestDatabase(t, { migrated: false })
-  const dir = await migrationsWith({ '0002_second.sql': 'create table second (id int);', '0003_third.sql': 'alter table second add column note text;' })
-  assert.deepEqual(await run(db.ownerUrl, dir), ['0001_baseline.sql', '0002_second.sql', '0003_third.sql'])
+  const dir = await migrationsWith({ '9001_second.sql': 'create table second (id int);', '9002_third.sql': 'alter table second add column note text;' })
+  assert.deepEqual(await run(db.ownerUrl, dir), [...REAL, '9001_second.sql', '9002_third.sql'])
   assert.deepEqual(await run(db.ownerUrl, dir), [])
   const recorded = await withClient(db.ownerUrl, (c) => c.query<{ filename: string }>('select filename from schema_migrations order by filename'))
-  assert.deepEqual(recorded.rows.map((r) => r.filename), ['0001_baseline.sql', '0002_second.sql', '0003_third.sql'])
+  assert.deepEqual(recorded.rows.map((r) => r.filename), [...REAL, '9001_second.sql', '9002_third.sql'])
 })
 
 test('an applied migration that was edited or removed stops the run', DB, async (t) => {
   const db = await createTestDatabase(t, { migrated: false })
-  const dir = await migrationsWith({ '0002_second.sql': 'create table second (id int);' })
+  const dir = await migrationsWith({ '9001_second.sql': 'create table second (id int);' })
   await run(db.ownerUrl, dir)
-  await writeFile(path.join(dir, '0002_second.sql'), 'create table second (id bigint);')
-  await assert.rejects(run(db.ownerUrl, dir), (err: Error) => err instanceof MigrationError && /0002_second.sql was edited/.test(err.message))
-  await assert.rejects(run(db.ownerUrl, MIGRATIONS_DIR), (err: Error) => err instanceof MigrationError && /0002_second.sql is missing/.test(err.message))
+  await writeFile(path.join(dir, '9001_second.sql'), 'create table second (id bigint);')
+  await assert.rejects(run(db.ownerUrl, dir), (err: Error) => err instanceof MigrationError && /9001_second.sql was edited/.test(err.message))
+  await assert.rejects(run(db.ownerUrl, MIGRATIONS_DIR), (err: Error) => err instanceof MigrationError && /9001_second.sql is missing/.test(err.message))
 })
 
 test('a new migration that sorts before an applied one is refused', DB, async (t) => {
   const db = await createTestDatabase(t, { migrated: false })
-  const dir = await migrationsWith({ '0003_third.sql': 'create table third (id int);' })
+  const dir = await migrationsWith({ '9002_third.sql': 'create table third (id int);' })
   await run(db.ownerUrl, dir)
-  await writeFile(path.join(dir, '0002_second.sql'), 'create table second (id int);')
-  await assert.rejects(run(db.ownerUrl, dir), /0002_second.sql sorts before the applied 0003_third.sql/)
+  await writeFile(path.join(dir, '9001_second.sql'), 'create table second (id int);')
+  await assert.rejects(run(db.ownerUrl, dir), /9001_second.sql sorts before the applied 9002_third.sql/)
 })
 
 test('two files with the same number are refused', DB, async (t) => {
   const db = await createTestDatabase(t, { migrated: false })
-  const dir = await migrationsWith({ '0002_a.sql': 'select 1;', '0002_b.sql': 'select 2;' })
-  await assert.rejects(run(db.ownerUrl, dir), /migration number 0002 is used more than once/)
+  const dir = await migrationsWith({ '9001_a.sql': 'select 1;', '9001_b.sql': 'select 2;' })
+  await assert.rejects(run(db.ownerUrl, dir), /migration number 9001 is used more than once/)
 })
 
 test('a misnamed file is refused before anything runs', DB, async (t) => {
@@ -58,10 +61,10 @@ test('a misnamed file is refused before anything runs', DB, async (t) => {
 
 test('a failing migration is rolled back and reported by file and SQLSTATE only', DB, async (t) => {
   const db = await createTestDatabase(t, { migrated: false })
-  const dir = await migrationsWith({ '0002_broken.sql': 'create table half (id int); insert into half values (\'SECRETVALUE\');' })
+  const dir = await migrationsWith({ '9001_broken.sql': 'create table half (id int); insert into half values (\'SECRETVALUE\');' })
   await assert.rejects(run(db.ownerUrl, dir), (err: Error) => {
     assert.ok(err instanceof MigrationError)
-    assert.match(err.message, /0002_broken.sql failed with SQLSTATE 22P02/)
+    assert.match(err.message, /9001_broken.sql failed with SQLSTATE 22P02/)
     assert.ok(!err.message.includes('SECRETVALUE'))
     return true
   })
@@ -103,7 +106,7 @@ test('the migrator works in public, whatever search_path the superuser has', DB,
 
 test('a failed run keeps the old runtime password; a successful one rotates it', DB, async (t) => {
   const db = await createTestDatabase(t)
-  const dir = await migrationsWith({ '0002_broken.sql': 'select 1/0;' })
+  const dir = await migrationsWith({ '9001_broken.sql': 'select 1/0;' })
   const runtimeWith = (password: string) => {
     const url = new URL(db.runtimeUrl)
     url.password = encodeURIComponent(password)
@@ -112,7 +115,7 @@ test('a failed run keeps the old runtime password; a successful one rotates it',
   // The role is cluster-wide: whatever happens, leave the test password set.
   t.after(() => migrate({ databaseUrl: db.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD }).then(() => {}, () => {}))
 
-  await assert.rejects(migrate({ databaseUrl: db.ownerUrl, runtimePassword: 'rotated', migrationsDir: dir }), /0002_broken.sql failed/)
+  await assert.rejects(migrate({ databaseUrl: db.ownerUrl, runtimePassword: 'rotated', migrationsDir: dir }), /9001_broken.sql failed/)
   await runtimeWith(TEST_RUNTIME_PASSWORD)
   await assert.rejects(runtimeWith('rotated'))
 
@@ -158,9 +161,9 @@ test('a database restored with default privileges is repaired by the next run', 
 
 test('concurrent runs are serialised', DB, async (t) => {
   const db = await createTestDatabase(t, { migrated: false })
-  const dir = await migrationsWith({ '0002_slow.sql': 'select pg_sleep(0.5); create table slow (id int);' })
+  const dir = await migrationsWith({ '9001_slow.sql': 'select pg_sleep(0.5); create table slow (id int);' })
   const results = await Promise.all([run(db.ownerUrl, dir), run(db.ownerUrl, dir)])
-  assert.deepEqual(results.map((r) => r.length).sort(), [0, 2])
+  assert.deepEqual(results.map((r) => r.length).sort(), [0, REAL.length + 1])
 })
 
 test('a runtime role given more rights by hand is brought back down', DB, async (t) => {
