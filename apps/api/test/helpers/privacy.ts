@@ -15,6 +15,7 @@ import assert from 'node:assert/strict'
 import type { TestContext } from 'node:test'
 import type pg from 'pg'
 import { activeSlots, RULESETS, type BallotKind, type RulesetId } from '@school-election/election-core'
+import { inOrder } from '../../lib/in-order.ts'
 import { createTestDatabase, withClient, type TestDatabase } from './db.ts'
 
 export interface ScenarioContest {
@@ -68,18 +69,19 @@ const fakeKey = (n: number) => String(n).padStart(20, '0')
 
 /**
  * A prepared election with the three contests, one voter group that votes
- * in all of them, `voters` keys entitled to all three boxes, and the
- * regular round open; made as the owner.
+ * in all of them, the tracked key and `others` more entitled to all three
+ * boxes, and the regular round open; made as the owner.
  */
-export async function seedPrivacyScenario(t: TestContext, { voters = 50 } = {}): Promise<PrivacyScenario> {
-  assert.ok(voters >= 50, 'the anonymity set is at least fifty voters')
+export async function seedPrivacyScenario(t: TestContext, { others = 50 } = {}): Promise<PrivacyScenario> {
+  assert.ok(others >= 50, 'the anonymity set is at least fifty other voters')
+  const voters = others + 1
   const db = await createTestDatabase(t)
   return withClient(db.ownerUrl, async (client) => {
     await client.query('insert into election (id, title) values ($1, $2)', [ELECTION, 'Wahl'])
     await client.query('insert into voter_group (id, election_id, name) values ($1, $2, $3)', [GROUP, ELECTION, '3A'])
     await client.query('insert into round (id, election_id, kind) values ($1, $2, $3)', [ROUND, ELECTION, 'regular'])
     const contests: ScenarioContest[] = []
-    for (const contest of CONTESTS) {
+    await inOrder(CONTESTS, async (contest) => {
       await client.query('insert into contest (id, election_id, title, ruleset_id) values ($1, $2, $3, $4)', [contest.id, ELECTION, contest.title, contest.rulesetId])
       const { rows } = await client.query<{ id: string }>(
         `insert into candidate (election_id, contest_id, surname, given_name)
@@ -90,7 +92,7 @@ export async function seedPrivacyScenario(t: TestContext, { voters = 50 } = {}):
       await client.query('insert into round_contest (id, election_id, round_id, contest_id) values ($1, $2, $3, $4)', [contest.boxId, ELECTION, ROUND, contest.id])
       const candidateIds = rows.map((row) => row.id).toSorted()
       contests.push({ contestId: contest.id, boxId: contest.boxId, rulesetId: contest.rulesetId, candidateIds, slots: activeSlots(RULESETS[contest.rulesetId], candidateIds.length).length })
-    }
+    })
     await client.query('update election set state = $2 where id = $1', [ELECTION, 'prepared'])
     await client.query('insert into credential_batch (id, election_id, voter_group_id, round_kind) values ($1, $2, $3, $4)', [BATCH, ELECTION, GROUP, 'regular'])
     const { rows: keys } = await client.query<{ id: string, xmin: string }>(
@@ -165,27 +167,27 @@ export function trackedVotes(scenario: PrivacyScenario): Vote[] {
  */
 export function plannedVotes(scenario: PrivacyScenario, seed = 2026): Vote[] {
   const random = seeded(seed)
-  const votes: Vote[] = [...trackedVotes(scenario)]
-  for (const credentialId of scenario.credentialIds.slice(1)) {
-    for (const contest of scenario.contests) {
-      if (contest.candidateIds.length === 1) {
-        const choice = Math.floor(random() * 3)
-        const kind: BallotKind = choice === 0 ? 'no' : choice === 1 ? 'invalid' : 'ranking'
-        votes.push({ credentialId, boxId: contest.boxId, kind, ranking: kind === 'ranking' ? [...contest.candidateIds] : [] })
-      } else {
-        votes.push({ credentialId, boxId: contest.boxId, kind: 'ranking', ranking: shuffled(contest.candidateIds, random).slice(0, contest.slots) })
-      }
-    }
+  const others = scenario.credentialIds.slice(1).flatMap((credentialId) =>
+    scenario.contests.map((contest) => randomVote(credentialId, contest, random)))
+  return shuffled([...trackedVotes(scenario), ...others], random)
+}
+
+/** With one candidate: "Ja", "Nein" or an invalid vote; otherwise a random complete ranking. */
+function randomVote(credentialId: string, contest: ScenarioContest, random: () => number): Vote {
+  if (contest.candidateIds.length > 1) {
+    return { credentialId, boxId: contest.boxId, kind: 'ranking', ranking: shuffled(contest.candidateIds, random).slice(0, contest.slots) }
   }
-  return shuffled(votes, random)
+  const kinds: readonly BallotKind[] = ['no', 'invalid', 'ranking']
+  const kind = kinds[Math.floor(random() * kinds.length)] ?? 'ranking'
+  return { credentialId, boxId: contest.boxId, kind, ranking: kind === 'ranking' ? [...contest.candidateIds] : [] }
 }
 
 /** Casts every planned vote through `cast`, one after the other. */
 export async function voteInterleaved(scenario: PrivacyScenario, cast: Caster, seed = 2026): Promise<void> {
-  for (const vote of plannedVotes(scenario, seed)) {
+  await inOrder(plannedVotes(scenario, seed), async (vote) => {
     await cast(vote)
     scenario.castOrder.push(vote)
-  }
+  })
 }
 
 /**
@@ -245,7 +247,13 @@ export async function assertPrivacySchema(client: pg.Client): Promise<void> {
       where contype = 'f' and (conrelid in ('ballot'::regclass, 'ballot_box'::regclass) or confrelid in ('ballot'::regclass, 'ballot_box'::regclass))
       order by 1, 2`,
   )
-  assert.deepEqual(links, [{ source: 'ballot', target: 'round_contest' }, { source: 'ballot_box', target: 'round_contest' }])
+  // A ballot joins its box and the list of kinds, nothing else.
+  assert.deepEqual(links, [
+    { source: 'ballot', target: 'ballot_kind' },
+    { source: 'ballot', target: 'round_contest' },
+    { source: 'ballot_box', target: 'ballot_kind' },
+    { source: 'ballot_box', target: 'round_contest' },
+  ])
 
   const { rows: ordering } = await client.query<{ column: string }>(
     `select table_name || '.' || column_name as column from information_schema.columns
@@ -264,18 +272,16 @@ interface Placed {
   rank: number
 }
 
-/** Within every page, the rows lie in the order the seal wrote them. */
+/** Within every page, the rows (given in ctid order) lie in the order the seal wrote them. */
 function assertOrderedWithinPages(rows: readonly Placed[]): void {
-  let page = ''
-  let last = 0
+  const pages = new Map<string, number[]>()
   for (const row of rows) {
     const [block = ''] = row.tid.replace(/[()]/g, '').split(',')
-    if (block !== page) {
-      page = block
-      last = 0
-    }
-    assert.ok(row.rank > last, `row ${row.rank} lies after row ${last} in page ${block}`)
-    last = row.rank
+    pages.set(block, [...(pages.get(block) ?? []), row.rank])
+  }
+  for (const [block, ranks] of pages) {
+    const ascending = ranks.every((rank, index) => index === 0 || rank > (ranks[index - 1] ?? Infinity))
+    assert.ok(ascending, `page ${block} holds rows out of the order they were written: ${ranks.join(', ')}`)
   }
 }
 
@@ -301,7 +307,8 @@ export async function assertUnlinkable(scenario: PrivacyScenario): Promise<void>
     const ballots = await client.query<Placed>(
       'select b.ctid::text as tid, row_number() over (order by b.id)::int as rank from ballot b where b.round_contest_id = any($1) order by b.ctid', [boxes],
     )
-    assert.ok(ballots.rows.length >= 150)
+    const expected = scenario.credentialIds.length * boxes.length
+    assert.equal(ballots.rows.length, expected, 'every voter cast a ballot in every contest')
     assertOrderedWithinPages(ballots.rows)
     // The entitlements were written again in credential order into the
     // space the votes left behind, among the dead versions written at
@@ -313,8 +320,8 @@ export async function assertUnlinkable(scenario: PrivacyScenario): Promise<void>
     const entitlements = await client.query<{ credential_id: string, round_contest_id: string }>(
       'select credential_id, round_contest_id from credential_entitlement where round_contest_id = any($1) order by ctid', [boxes],
     )
-    assert.equal(entitlements.rows.length, scenario.credentialIds.length * boxes.length)
-    assert.ok(scenario.castOrder.length >= 150, 'the votes were cast through voteInterleaved')
+    assert.equal(entitlements.rows.length, expected)
+    assert.equal(scenario.castOrder.length, expected, 'the votes were cast through voteInterleaved')
     const castAt = new Map(scenario.castOrder.map((vote, index) => [`${vote.credentialId}/${vote.boxId}`, index]))
     const positions = entitlements.rows.map((row) => castAt.get(`${row.credential_id}/${row.round_contest_id}`) ?? -1)
     const consecutive = positions.filter((position, index) => index > 0 && position === (positions[index - 1] ?? -2) + 1).length
@@ -326,7 +333,7 @@ export async function assertUnlinkable(scenario: PrivacyScenario): Promise<void>
     const { rows: entitlementXids } = await client.query<{ xid: string }>('select distinct xmin::text as xid from credential_entitlement where round_contest_id = any($1)', [boxes])
     assert.equal(ballotXids.length, 1)
     assert.deepEqual(entitlementXids, ballotXids)
-    assert.ok(scenario.voteXids.size >= 150, 'the caster recorded every vote')
+    assert.equal(scenario.voteXids.size, expected, 'the caster recorded every vote')
     assert.equal(scenario.voteXids.has(ballotXids[0]?.xid ?? ''), false)
     const { rows: credentials } = await client.query<{ id: string, xmin: string }>('select id, xmin::text from credential where election_id = $1', [scenario.electionId])
     assert.deepEqual(new Map(credentials.map((row) => [row.id, row.xmin])), scenario.credentialXmins)
@@ -340,9 +347,9 @@ export async function assertUnlinkable(scenario: PrivacyScenario): Promise<void>
       [boxes],
     )
     for (const row of counts) assert.equal(row.ballots, row.used, row.box)
-    for (const vote of trackedVotes(scenario)) {
+    await inOrder(trackedVotes(scenario), async (vote) => {
       const { rowCount } = await client.query('select 1 from ballot where round_contest_id = $1 and kind = $2 and ranking = $3::uuid[]', [vote.boxId, vote.kind, vote.ranking])
       assert.ok((rowCount ?? 0) >= 1, `the tracked ${vote.kind} ballot is in its box`)
-    }
+    })
   })
 }

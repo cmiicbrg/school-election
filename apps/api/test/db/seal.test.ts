@@ -52,6 +52,24 @@ async function open(ownerUrl: string): Promise<void> {
   await withClient(ownerUrl, (client) => client.query(`update election set state = 'active' where id = '${ELECTION}'; update round set state = 'open' where id = '${ROUND}'`))
 }
 
+async function backendPid(client: pg.Client): Promise<number> {
+  return (await client.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]?.pid ?? assert.fail('no backend pid')
+}
+
+/** Waits until every one of the sessions is blocked on a lock, as the owner sees it; fails after a few seconds. */
+async function untilBlocked(ownerUrl: string, pids: number[]): Promise<void> {
+  await withClient(ownerUrl, async (client) => {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const { rows } = await client.query<{ n: number }>(
+        `select count(*)::int as n from pg_stat_activity where pid = any($1) and wait_event_type = 'Lock'`, [pids],
+      )
+      if (rows[0]?.n === pids.length) return
+      await sleep(50)
+    }
+    assert.fail(`sessions ${pids.join(', ')} did not all block on a lock`)
+  })
+}
+
 test('the seal closes an open round, moves its ballots under fresh ids and rewrites its entitlements, once', DB, async (t) => {
   const { ownerUrl, runtimeUrl } = await setup(t)
   await withClient(runtimeUrl, (client) => assert.rejects(client.query('select seal_round($1)', [ROUND]), refusedWith('55000')))
@@ -103,16 +121,13 @@ async function race(voter: pg.Client, sealer: pg.Client, ownerUrl: string): Prom
   await voter.query('begin')
   await voter.query(`update credential_entitlement set consumed = true where credential_id = (select id from credential where key = $1)`, [KEYS[0]])
   let sealed = false
+  const sealerPid = await backendPid(sealer)
   const sealing = sealer.query<{ n: number }>('select seal_round($1) as n', [ROUND]).then((result) => {
     sealed = true
     return result
   })
-  await sleep(300)
+  await untilBlocked(ownerUrl, [sealerPid])
   assert.equal(sealed, false, 'the seal waits for the vote to commit')
-  const { rows: [waiting] } = await withClient(ownerUrl, (client) => client.query<{ wait_event_type: string }>(
-    `select wait_event_type from pg_stat_activity where usename = 'school_election_app' and query like 'select seal_round%'`,
-  ))
-  assert.equal(waiting?.wait_event_type, 'Lock')
 
   await voter.query('insert into ballot_box (election_id, round_contest_id, kind, ranking) values ($1, $2, $3, $4::uuid[])', [ELECTION, BOX, 'ranking', [PAULA, QUIRIN]])
   await voter.query('commit')
@@ -141,18 +156,21 @@ test('a vote that arrives while the seal is under way waits for it instead of de
     // the entitlements and the election's row, before it closes the round.
     await pauser.query('begin')
     await pauser.query('select 1 from round where id = $1 for share', [ROUND])
+    const sealerPid = await backendPid(sealer)
     const sealing = sealer.query<{ n: number }>('select seal_round($1) as n', [ROUND])
-    await sleep(200)
+    await untilBlocked(ownerUrl, [sealerPid])
     // The vote now locks the entitlement it uses up, and its trigger would
     // take the election's row the seal holds: it waits for the seal
     // instead, because the seal already holds the entitlement.
     await voter.query('begin')
+    const voterPid = await backendPid(voter)
     const voting = voter.query(`update credential_entitlement set consumed = true where credential_id = (select id from credential where key = $1)`, [KEYS[0]])
     let settled = 0
     const both = Promise.allSettled([sealing, voting]).then((results) => {
       settled = results.length
       return results
     })
+    await untilBlocked(ownerUrl, [sealerPid, voterPid])
     // Longer than deadlock_timeout: a deadlock would have aborted one of them.
     await sleep(1500)
     assert.equal(settled, 0, 'both are still waiting, neither was aborted')
@@ -189,6 +207,7 @@ test('a ballot or a second seal that waits for a seal in progress finds the roun
     assert.equal((await sealer.query<{ n: number }>('select seal_round($1) as n', [ROUND])).rows[0]?.n, 0)
     // A ballot and another seal start now, while the round still reads as
     // open to them, and wait for the seal to commit.
+    const [latePid, secondPid] = await Promise.all([backendPid(late), backendPid(second)])
     const staging = late.query('insert into ballot_box (election_id, round_contest_id, kind, ranking) values ($1, $2, $3, $4::uuid[])', [ELECTION, BOX, 'ranking', [PAULA, QUIRIN]])
     const sealing = second.query('select seal_round($1)', [ROUND])
     let settled = 0
@@ -196,7 +215,7 @@ test('a ballot or a second seal that waits for a seal in progress finds the roun
       settled = results.length
       return results
     })
-    await sleep(300)
+    await untilBlocked(ownerUrl, [latePid, secondPid])
     assert.equal(settled, 0, 'both wait for the seal in progress')
     await sealer.query('commit')
     const [stagingResult, sealingResult] = await counting

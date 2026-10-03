@@ -35,22 +35,32 @@
 -- does both in one transaction. Random (version 4) ids and no timestamps,
 -- as everywhere, and no sequence: the ballots of a box are a set.
 
--- A ballot's kind mirrors BallotKind in packages/election-core, and a test
--- keeps the two equal: a complete ranking, "Nein" where a contest has a
--- single candidate, or an invalid vote, which keeps no content. A ranking
--- lists candidates from the highest slot down; no ruleset has more than
--- six slots. Which slots a contest has, and that a ranking fills them, is
--- the application's to check (election-core); the database keeps the
--- shape, and that a ranking names each candidate of its contest once
--- (ballot_staged below).
+-- A ballot's kind is a row here, mirroring BallotKind in
+-- packages/election-core (a test keeps the two equal): a complete ranking,
+-- "Nein" where a contest has a single candidate, or an invalid vote, which
+-- keeps no content. ranked says whether a ballot of that kind carries a
+-- ranking; the staging trigger reads it, as the lifecycle triggers read
+-- the state tables.
+create table ballot_kind (
+  kind text primary key,
+  ranked boolean not null
+);
+insert into ballot_kind (kind, ranked) values ('ranking', true), ('no', false), ('invalid', false);
+
+-- A ranking lists candidates from the highest slot down; no ruleset has
+-- more than six slots. Which slots a contest has, and that a ranking fills
+-- them, is the application's to check (election-core); the database keeps
+-- the shape: one dimension and no null entry here, and in ballot_staged
+-- below one to six entries for a ranked kind and none for the others,
+-- each a candidate of the box's contest, named once. Sealed ballots come
+-- from the staging table alone (ballot_kept), so the same holds for them.
 create table ballot_box (
   election_id uuid not null,
   round_contest_id uuid not null,
-  kind text not null check (kind in ('ranking', 'no', 'invalid')),
+  kind text not null references ballot_kind (kind),
   ranking uuid[] not null,
   check (coalesce(array_ndims(ranking), 1) = 1),
   check (array_position(ranking, null) is null),
-  check (case when kind = 'ranking' then cardinality(ranking) between 1 and 6 else cardinality(ranking) = 0 end),
   foreign key (election_id, round_contest_id) references round_contest (election_id, id) on delete cascade
 );
 
@@ -58,11 +68,10 @@ create table ballot (
   id uuid primary key default gen_random_uuid(),
   election_id uuid not null,
   round_contest_id uuid not null,
-  kind text not null check (kind in ('ranking', 'no', 'invalid')),
+  kind text not null references ballot_kind (kind),
   ranking uuid[] not null,
   check (coalesce(array_ndims(ranking), 1) = 1),
   check (array_position(ranking, null) is null),
-  check (case when kind = 'ranking' then cardinality(ranking) between 1 and 6 else cardinality(ranking) = 0 end),
   foreign key (election_id, round_contest_id) references round_contest (election_id, id) on delete cascade
 );
 -- Reading a box's ballots for the count. A B-tree over this column orders
@@ -86,6 +95,7 @@ create function ballot_staged() returns trigger
 declare
   accepting boolean;
   box_contest uuid;
+  ranked boolean;
 begin
   perform 1 from public.election e where e.id = new.election_id for share of e;
   select rs.accepts_ballots, rc.contest_id into accepting, box_contest
@@ -95,6 +105,11 @@ begin
    where rc.id = new.round_contest_id and rc.election_id = new.election_id;
   if accepting is not true then
     perform public.refuse('a ballot is cast only while its round is open');
+  end if;
+  -- An unknown kind is left to the foreign key.
+  select k.ranked into ranked from public.ballot_kind k where k.kind = new.kind;
+  if ranked is not null and ((ranked and cardinality(new.ranking) not between 1 and 6) or (not ranked and cardinality(new.ranking) <> 0)) then
+    perform public.refuse('a ranked ballot names one to six candidates, any other none');
   end if;
   if (select count(*) from unnest(new.ranking) as r (id)) <> (select count(distinct r.id) from unnest(new.ranking) as r (id)) then
     perform public.refuse('a ranking names each candidate once');

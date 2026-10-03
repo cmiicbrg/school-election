@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import type pg from 'pg'
 import { BALLOT_KINDS } from '@school-election/election-core'
 import { sqlState } from '../../lib/pg-errors.ts'
-import { checkedValues, createTestDatabase, DB, withClient } from '../helpers/db.ts'
+import { createTestDatabase, DB, withClient } from '../helpers/db.ts'
 
 const ELECTION = '3f2b8c1e-5a4d-4e6f-9b7a-0c1d2e3f4a5b'
 const SPEAKER = '5b4dae30-7c6f-4081-9d9c-2e3f4a5b6c7d'
@@ -70,10 +70,16 @@ async function forceOn(ownerUrl: string, election: string, round: string): Promi
   ))
 }
 
-test('a ballot\'s kind is one the code knows, staged and sealed alike', DB, async (t) => {
+test('a ballot\'s kinds are the ones the code knows, only a ranking carries one, and staged and sealed ballots share them', DB, async (t) => {
   const { ownerUrl } = await setup(t)
-  assert.deepEqual(await checkedValues(ownerUrl, 'ballot_box', 'kind'), [...BALLOT_KINDS])
-  assert.deepEqual(await checkedValues(ownerUrl, 'ballot', 'kind'), [...BALLOT_KINDS])
+  await withClient(ownerUrl, async (client) => {
+    const { rows } = await client.query<{ kind: string, ranked: boolean }>('select kind, ranked from ballot_kind order by kind')
+    assert.deepEqual(rows, [...BALLOT_KINDS].sort().map((kind) => ({ kind, ranked: kind === 'ranking' })))
+    const { rows: referrers } = await client.query<{ source: string }>(
+      `select conrelid::regclass::text as source from pg_constraint where contype = 'f' and confrelid = 'ballot_kind'::regclass order by 1`,
+    )
+    assert.deepEqual(referrers.map((row) => row.source), ['ballot', 'ballot_box'])
+  })
 })
 
 test('the runtime role stages ballots and nothing else: it neither reads, changes nor removes them, and writes no sealed one', DB, async (t) => {
@@ -103,22 +109,25 @@ test('a ballot is staged only while its round is open, and only one that fits it
     await client.query(stage(SPEAKER_BOX, 'invalid', []))
     await client.query(stage(POLL_BOX, 'ranking', [JA]))
     await client.query(stage(POLL_BOX, 'no', []))
-    // The shape: a ranking has one to six entries, the other kinds none.
-    await refused(client, '23514', [stage(SPEAKER_BOX, 'ranking', []), stage(POLL_BOX, 'no', [JA]), stage(SPEAKER_BOX, 'invalid', [PAULA])])
-    // What a ranking names: each candidate once, of its own contest, and "Nein" only against a single candidate.
+    // The shape: a ranking has one to six entries, the other kinds none;
+    // and what a ranking names: each candidate once, of its own contest,
+    // and "Nein" only against a single candidate.
     await refused(client, '55000', [
+      stage(SPEAKER_BOX, 'ranking', []),
+      stage(POLL_BOX, 'no', [JA]),
+      stage(SPEAKER_BOX, 'invalid', [PAULA]),
       stage(SPEAKER_BOX, 'ranking', [PAULA, PAULA]),
       stage(SPEAKER_BOX, 'ranking', [PAULA, JA]),
       stage(POLL_BOX, 'ranking', [PAULA]),
       stage(SPEAKER_BOX, 'no', []),
     ])
+    await refused(client, '23503', [stage(SPEAKER_BOX, 'yes', [PAULA])])
   })
-  // The checks hold where no trigger runs, and a null entry is no candidate.
+  // The checks hold where no trigger runs: one dimension, and a null entry is no candidate.
   await withClient(ownerUrl, async (client) => {
     await client.query('set session_replication_role = replica')
     await refused(client, '23514', [
       stage(SPEAKER_BOX, 'ranking', [PAULA, 'NULL']),
-      stage(SPEAKER_BOX, 'ranking', []),
       `insert into ballot_box (election_id, round_contest_id, kind, ranking) values ('${ELECTION}', '${SPEAKER_BOX}', 'ranking', '{{${PAULA}},{${QUIRIN}}}')`,
     ])
   })

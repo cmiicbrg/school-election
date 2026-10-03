@@ -55,8 +55,10 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   credential: { table: ['SELECT', 'INSERT'] },
   // A vote uses an entitlement up, and nothing else changes it.
   credential_entitlement: { table: ['SELECT', 'INSERT'], updateColumns: ['consumed'] },
-  // A vote stages its ballot (migration 0009). Nobody reads, changes or
-  // removes a staged ballot: the seal moves them, as the owner.
+  // The kinds of ballot, which the staging trigger reads (migration 0009).
+  ballot_kind: { table: ['SELECT'] },
+  // A vote stages its ballot. Nobody reads, changes or removes a staged
+  // ballot: the seal moves them, as the owner.
   ballot_box: { table: ['INSERT'] },
   // Sealed ballots are read for the count; the seal alone writes them.
   ballot: { table: ['SELECT'] },
