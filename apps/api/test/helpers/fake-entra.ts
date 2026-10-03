@@ -26,6 +26,8 @@ export interface FakeEntra {
   authority: string
   /** Every request it answered, as "METHOD path". */
   requests: string[]
+  /** Every token it handed out, ID and access tokens alike. */
+  issued: string[]
   /**
    * Plays the user signing in at `authorizationUrl` (the Location of
    * /api/auth/login) and returns the callback path Entra would send the
@@ -49,6 +51,7 @@ export async function startFakeEntra(): Promise<FakeEntra> {
   const jwks = { keys: [{ ...await exportJWK(tenantKey.publicKey), kid, alg: 'RS256', use: 'sig' }] }
   const codes = new Map<string, PendingCode>()
   const requests: string[] = []
+  const issued: string[] = []
 
   async function sign(code: PendingCode): Promise<string> {
     if (code.signWith === 'hs256') {
@@ -69,7 +72,9 @@ export async function startFakeEntra(): Promise<FakeEntra> {
       && body.get('redirect_uri') === code.redirectUri
       && createHash('sha256').update(verifier).digest('base64url') === code.challenge
     if (!valid) return json(response, 400, { error: 'invalid_grant' })
-    json(response, 200, { token_type: 'Bearer', access_token: 'fake-access-token', expires_in: 3600, id_token: await sign(code) })
+    const tokens = { access_token: `access-${randomBytes(24).toString('base64url')}`, id_token: await sign(code) }
+    issued.push(tokens.access_token, tokens.id_token)
+    json(response, 200, { token_type: 'Bearer', expires_in: 3600, ...tokens })
   }
 
   const server = createServer((request, response) => {
@@ -87,6 +92,7 @@ export async function startFakeEntra(): Promise<FakeEntra> {
   return {
     authority,
     requests,
+    issued,
     authorize(authorizationUrl, { claims = {}, signWith = 'tenant' } = {}) {
       const url = new URL(authorizationUrl)
       const param = (name: string) => url.searchParams.get(name) ?? ''

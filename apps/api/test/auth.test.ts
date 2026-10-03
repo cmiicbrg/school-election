@@ -111,10 +111,13 @@ test('a teacher signs in: sealed session, return path, app_user row, no token in
   assert.equal(ADMIN_SESSION_SECONDS, 8 * 3600)
   // The state and verifier are used up.
   assert.ok(!jar.values.has(STATE_COOKIE) && !jar.values.has(VERIFIER_COOKIE))
-  for (const cookie of res.cookies) assert.ok(!cookie.value.includes('eyJ'), `${cookie.name} carries no token`)
-
   const who = await me(s.app, jar)
   assert.equal(who.statusCode, 200)
+  assert.equal(s.entra.issued.length, 2)
+  const seenByBrowser: string[] = [JSON.stringify(res.headers), res.body, who.body]
+  for (const token of s.entra.issued) {
+    for (const part of seenByBrowser) assert.ok(!part.includes(token), 'a token reached the browser')
+  }
   const body = who.json<{ id: string, displayName: string, roles: string[] }>()
   assert.match(body.id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
   assert.deepEqual([body.displayName, body.roles], ['Maria Muster', ['teacher']])
@@ -183,7 +186,8 @@ test('every failed check ends without a session and without an app_user row', DB
   // pending sign-in never reach the token endpoint.
   assert.equal(s.entra.requests.filter((request) => request.startsWith('POST')).length, 14)
   const log = s.logs()
-  for (const secret of ['eyJ', 'fake-access-token', 'Maria Muster', 'maria.muster', 'c0ffee00', 'access_denied']) {
+  assert.ok(s.entra.issued.length > 0)
+  for (const secret of [...s.entra.issued, 'Maria Muster', 'maria.muster', 'c0ffee00', 'access_denied']) {
     assert.ok(!log.includes(secret), `log contains ${secret}`)
   }
 })
