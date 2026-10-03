@@ -168,6 +168,7 @@ test('object privileges granted by hand are caught at startup, and the next migr
   await withClient(testDb.ownerUrl, (c) => c.query(`
     grant update on audit_event to school_election_app;
     grant update (title) on election to school_election_app;
+    grant references (title) on election to public;
     grant delete on app_user to public;
     grant usage on sequence audit_event_seq_seq to school_election_app;
     create function leak() returns int language sql as 'select 1';
@@ -176,10 +177,13 @@ test('object privileges granted by hand are caught at startup, and the next migr
   const db = createDatabase(testDb.runtimeUrl, () => {})
   t.after(() => db.close())
   assert.deepEqual(await checkDatabaseSettings(db), [
-    'the runtime role has DELETE on table app_user, EXECUTE on function election_member_bind_once(), EXECUTE on function leak(), UPDATE on column election.title, UPDATE on table audit_event, USAGE on sequence audit_event_seq_seq, beyond what lib/runtime-privileges.ts grants; run the migrations, which reset its privileges',
+    'the runtime role has DELETE on table app_user, EXECUTE on function election_member_bind_once(), EXECUTE on function leak(), REFERENCES on column election.title, UPDATE on column election.title, UPDATE on table audit_event, USAGE on sequence audit_event_seq_seq, beyond what lib/runtime-privileges.ts grants; run the migrations, which reset its privileges',
   ])
   await migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD })
   assert.deepEqual(await checkDatabaseSettings(db), [])
+  // Revoking a table privilege revokes it on every column, to the role and to PUBLIC alike.
+  const { rows } = await withClient(testDb.ownerUrl, (c) => c.query<{ n: number }>('select count(*)::int as n from pg_attribute where attrelid = \'election\'::regclass and attacl is not null'))
+  assert.equal(rows[0]?.n, 0)
   // A function created after the run is not executable by PUBLIC either.
   await withClient(testDb.ownerUrl, (c) => c.query('create function later() returns int language sql as \'select 2\''))
   assert.deepEqual(await checkDatabaseSettings(db), [])
