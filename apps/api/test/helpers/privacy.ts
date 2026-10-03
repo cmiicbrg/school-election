@@ -96,7 +96,7 @@ export async function seedPrivacyScenario(t: TestContext, { others = 50 } = {}):
     const contests: ScenarioContest[] = []
     await inOrder(CONTESTS.entries(), async ([index, contest]) => {
       await client.query('insert into contest (id, election_id, title, ruleset_id) values ($1, $2, $3, $4)', [contest.id, ELECTION, contest.title, contest.rulesetId])
-      const candidateIds = Array.from({ length: contest.candidates }, (_, n) => canaryCandidateId(index, n)).toSorted()
+      const candidateIds = Array.from({ length: contest.candidates }, (_, n) => canaryCandidateId(index, n)).toSorted((a, b) => a.localeCompare(b, 'en'))
       await client.query(
         `insert into candidate (id, election_id, contest_id, surname, given_name)
          select c.id, $1, $2, 'Kandidat ' || c.n, '' from unnest($3::uuid[]) with ordinality as c (id, n)`,
