@@ -1,19 +1,30 @@
 // The app's pages by URL (history mode, which the API serves by sending
-// index.html for every page path). The print page is the first page with
-// an address of its own; the setup screens that lead to it come next, and
-// the voter page at /v, which every card points to, says so until the
-// voter flow arrives.
+// index.html for every page path). The pages people see have German
+// paths; the print page keeps its address, which cards and links carry,
+// and the voter page at /v, which every card points to, says so until
+// the voter flow arrives.
 
 import { createRouter, createWebHistory } from 'vue-router'
+import ElectionList from './pages/ElectionList.vue'
+import ElectionPage from './pages/ElectionPage.vue'
+import NewElection from './pages/NewElection.vue'
 import PrintBatch from './pages/PrintBatch.vue'
-import Start from './pages/Start.vue'
+import SignIn from './pages/SignIn.vue'
 import VoterPlaceholder from './pages/VoterPlaceholder.vue'
 
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', component: Start },
+    { path: '/', component: ElectionList },
+    { path: '/anmelden', component: SignIn },
+    { path: '/wahlen/neu', component: NewElection },
+    { path: '/wahlen/:id', component: ElectionPage, props: true },
     { path: '/v', component: VoterPlaceholder },
     { path: '/elections/:id/batches/:batchId/print', component: PrintBatch, props: true },
   ],
 })
+
+/** Pages without the shell: the voter page and the print page. */
+export function isBarePath(path: string): boolean {
+  return path === '/v' || path.endsWith('/print')
+}

@@ -1,0 +1,251 @@
+/* One sheet for the whole app: variables, the shell, forms, lists and
+   messages, usable at phone width. Pages add what is theirs in their
+   own scoped styles. */
+
+:root {
+  --ink: #1b1b1b;
+  --muted: #5a5f66;
+  --line: #d6d9de;
+  --paper: #fff;
+  --field: #f6f7f9;
+  --accent: #1f5fa8;
+  --accent-ink: #fff;
+  --danger: #a4272b;
+  --danger-bg: #fbeaea;
+  --warn: #7a5a00;
+  --warn-bg: #fff6d6;
+  --ok: #1e6b3a;
+  --ok-bg: #e6f4ea;
+  --radius: 6px;
+}
+
+html {
+  color: var(--ink);
+  background: var(--paper);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 17px;
+  line-height: 1.45;
+}
+
+body {
+  margin: 0;
+}
+
+.shell-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.shell-header .brand {
+  font-weight: 700;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.shell-header nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.shell-header .who {
+  color: var(--muted);
+}
+
+.shell-main {
+  max-width: 56rem;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+h1 {
+  font-size: 1.6rem;
+  margin: 0 0 12px;
+}
+
+h2 {
+  font-size: 1.25rem;
+  margin: 28px 0 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+h3 {
+  font-size: 1.05rem;
+  margin: 16px 0 6px;
+}
+
+p {
+  margin: 0 0 10px;
+}
+
+a {
+  color: var(--accent);
+}
+
+ul.plain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+ul.plain > li {
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+
+ul.plain > li:first-child {
+  border-top: 0;
+}
+
+label {
+  display: block;
+  font-weight: 600;
+  margin: 10px 0 4px;
+}
+
+input[type='text'],
+input[type='email'],
+input[type='number'],
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+  width: 100%;
+  max-width: 32rem;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--field);
+}
+
+input[type='number'] {
+  max-width: 7rem;
+}
+
+textarea {
+  min-height: 5rem;
+}
+
+button,
+a.button {
+  font: inherit;
+  display: inline-block;
+  padding: 7px 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-ink);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+button.secondary,
+a.button.secondary {
+  background: var(--paper);
+  color: var(--accent);
+}
+
+button.danger {
+  background: var(--paper);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+button.link {
+  background: none;
+  border: 0;
+  color: var(--accent);
+  padding: 0;
+  text-decoration: underline;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.row > * {
+  margin-top: 0;
+}
+
+.row label {
+  margin-top: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.message {
+  display: block;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  margin: 8px 0;
+}
+
+.message.error {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.message.warning {
+  color: var(--warn);
+  background: var(--warn-bg);
+}
+
+.message.ok {
+  color: var(--ok);
+  background: var(--ok-bg);
+}
+
+.card-box {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin: 10px 0;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+@media (width <= 600px) {
+  html {
+    font-size: 16px;
+  }
+
+  th,
+  td {
+    padding: 6px 4px;
+  }
+}
