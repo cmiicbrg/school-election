@@ -85,32 +85,6 @@ export async function checkDatabaseSettings(db: Pick<Database, 'query'>): Promis
     ...REQUIRED_SETTINGS.map((s) => s.name),
     ...ALLOWED_SETTINGS.map((s) => s.name),
   ])
-  // All three must come back. Run as anyone but the migrating superuser,
-  // for instance because the runtime role was made its owner (reported
-  // above), pg_settings leaves the hidden two out instead of failing, and
-  // an absent setting must never read as "nothing preloaded".
-  // Its answer alone proves nothing about who stands behind it: any member
-  // of pg_read_all_settings would get all three, and as the owner could
-  // redefine it. So its owner must be a superuser, or it is not called.
-  const { rows: [definer] } = await db.query<{ owner: string, superuser: boolean }>(
-    `select r.rolname::text as owner, r.rolsuper as superuser from pg_proc f join pg_roles r on r.oid = f.proowner
-      where f.oid = to_regprocedure('preload_settings()')`,
-  )
-  let preload: { name: string, setting: string }[] = []
-  if (definer?.superuser === true) {
-    try {
-      preload = (await db.query<{ name: string, setting: string }>('select name, setting from preload_settings()')).rows
-    } catch (err) {
-      if (sqlState(err) !== SQLSTATE.insufficientPrivilege) throw err
-    }
-  } else {
-    problems.push(`preload_settings() belongs to ${definer?.owner ?? 'nobody'}, not a superuser; it must belong to the superuser that runs the migrations`)
-  }
-  for (const { name, setting } of preload) values.set(name, setting)
-  const unread = PRELOAD_SETTINGS.filter((name) => !preload.some((row) => row.name === name))
-  if (definer?.superuser === true && unread.length > 0) {
-    problems.push(`preload_settings() did not return ${unread.join(', ')}; it must return every preload setting`)
-  }
   for (const { name, expected, why } of REQUIRED_SETTINGS) {
     const actual = values.get(name) ?? ''
     if (actual !== expected) problems.push(`${name} is ${actual}, must be ${expected}: any other value ${why}`)
@@ -122,18 +96,44 @@ export async function checkDatabaseSettings(db: Pick<Database, 'query'>): Promis
       problems.push(`${name} is ${actual}, must be one of ${allowed.join(', ')}: ${why}`)
     }
   }
-  for (const name of PRELOAD_SETTINGS) {
+  problems.push(...await checkPreload(db))
+  return problems
+}
+
+// The preload settings, read through preload_settings() (migration 0006).
+// Its answer alone proves nothing about who stands behind it: any member of
+// pg_read_all_settings would get all three, and as the owner could redefine
+// it. So its owner must be a superuser, or it is not called. And all three
+// must come back: run as anyone else, pg_settings leaves the hidden two out
+// instead of failing, and an absent setting must never read as "nothing
+// preloaded".
+async function checkPreload(db: Pick<Database, 'query'>): Promise<string[]> {
+  const { rows: [definer] } = await db.query<{ owner: string, superuser: boolean }>(
+    `select r.rolname::text as owner, r.rolsuper as superuser from pg_proc f join pg_roles r on r.oid = f.proowner
+      where f.oid = to_regprocedure('preload_settings()')`,
+  )
+  if (definer?.superuser !== true) {
+    return [`preload_settings() belongs to ${definer?.owner ?? 'nobody'}, not a superuser; it must belong to the superuser that runs the migrations`]
+  }
+  let rows: { name: string, setting: string }[] = []
+  try {
+    rows = (await db.query<{ name: string, setting: string }>('select name, setting from preload_settings()')).rows
+  } catch (err) {
+    if (sqlState(err) !== SQLSTATE.insufficientPrivilege) throw err
+  }
+  const values = new Map(rows.map((row) => [row.name, row.setting]))
+  const unread = PRELOAD_SETTINGS.filter((name) => !values.has(name))
+  if (unread.length > 0) return [`preload_settings() did not return ${unread.join(', ')}; it must return every preload setting`]
+  return PRELOAD_SETTINGS.flatMap((name) => {
     const unexpected = (values.get(name) ?? '').split(',')
       .map((entry) => entry.trim().replace(/^"|"$/g, ''))
       .filter((entry) => entry !== '')
       .map((entry) => entry.replace(/^.*\//, '').replace(/\.so$/, ''))
       .filter((library) => !ALLOWED_PRELOAD.has(library))
-    if (unexpected.length > 0) {
-      problems.push(`${name} loads ${unexpected.join(', ')}; only ${[...ALLOWED_PRELOAD].join(', ')} may be preloaded, since other modules such as auto_explain or pgaudit can log statements with their parameters`)
-    }
-  }
-
-  return problems
+    return unexpected.length > 0
+      ? [`${name} loads ${unexpected.join(', ')}; only ${[...ALLOWED_PRELOAD].join(', ')} may be preloaded, since other modules such as auto_explain or pgaudit can log statements with their parameters`]
+      : []
+  })
 }
 
 // The server must connect as the unprivileged runtime role. A superuser,
