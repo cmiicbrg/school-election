@@ -26,7 +26,7 @@ docker build -t school-election:local .
 docker run --rm -p 127.0.0.1:3000:3000 school-election:local
 ```
 
-Release images are published to `ghcr.io/cmiicbrg/school-election` when a `v*` tag is pushed. The workflow summary prints the digest to pin in the deployment.
+Release images are published to `ghcr.io/cmiicbrg/school-election` when a `v*` tag is pushed. The workflow summary prints the `IMAGE` value, tag and digest, to pin in the deployment's `.env`.
 
 ## Deployment
 

@@ -28,7 +28,7 @@ The host needs rootless podman with `podman compose` (which runs docker-compose 
 sudo loginctl enable-linger election
 ```
 
-Every other step runs as `election`, in a real login session (ssh, or `sudo machinectl shell election@`); `sudo -u` does not provide the user session that `systemctl --user` and rootless podman need.
+Every other command in this guide except the nginx and certbot ones runs as `election`, in its directory `~/school-election` and in a real login session (ssh, or `sudo machinectl shell election@`); `sudo -u` does not provide the user session that `systemctl --user` and rootless podman need.
 
 ```bash
 systemctl --user enable podman-restart.service
@@ -87,7 +87,14 @@ The health check answers `{"status":"ok","db":"up","version":"v1.0.0","gitSha":"
 
 ## nginx and TLS
 
-Replace `wahl.example.org` in `nginx.example.conf`, copy it to `/etc/nginx/sites-available/school-election` and link it into `sites-enabled`. The example expects the certificate under `/etc/letsencrypt/live/wahl.example.org/` and answers ACME challenges from `/var/www/certbot`, so `sudo certbot certonly --webroot -w /var/www/certbot -d wahl.example.org` issues and renews it. For the first certificate, enable the site with only the port 80 server, run certbot, then enable the whole file.
+Replace `wahl.example.org` in `nginx.example.conf`, copy it to `/etc/nginx/sites-available/school-election` and link it into `sites-enabled`. The example expects the certificate under `/etc/letsencrypt/live/wahl.example.org/` and answers ACME challenges from `/var/www/certbot`, so certbot's webroot mode issues and renews it. For the first certificate, enable the site with only the port 80 server, then:
+
+```bash
+sudo mkdir -p /var/www/certbot   # certbot refuses a webroot that does not exist
+sudo certbot certonly --webroot -w /var/www/certbot -d wahl.example.org
+```
+
+Then enable the whole file. On an SELinux host, nginx may not connect to the app's port until `sudo setsebool -P httpd_can_network_connect 1` allows it.
 
 ```bash
 sudo nginx -t && sudo systemctl reload nginx

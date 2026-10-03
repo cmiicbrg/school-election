@@ -89,10 +89,10 @@ jobs:
           {
             echo "### school-election"
             echo
-            echo 'Pin in the deployment compose file:'
+            echo 'Pin in the deployment .env (see deploy/README.md):'
             echo
             echo '```'
-            echo "image: ghcr.io/${OWNER}/school-election@${DIGEST}"
+            echo "IMAGE=ghcr.io/${OWNER}/school-election:${GITHUB_REF_NAME}@${DIGEST}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 

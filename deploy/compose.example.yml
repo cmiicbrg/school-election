@@ -8,6 +8,10 @@
 # Two networks: the database sits only on `internal`, which has no route off
 # the host. The app also joins `egress`, for Entra sign-in and because a port
 # cannot be published from a container that is only on an internal network.
+#
+# Secret files are mounted read-only with `z`: on an SELinux host they are
+# relabelled so containers may read them, with the shared label because
+# several services mount the same file. Elsewhere `z` changes nothing.
 
 name: school-election
 
@@ -51,7 +55,7 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/db-owner-password
     volumes:
       - postgres-data:/var/lib/postgresql
-      - ./secrets/db-owner-password:/run/secrets/db-owner-password:ro
+      - ./secrets/db-owner-password:/run/secrets/db-owner-password:ro,z
     networks:
       - internal
     # No published port: only the app and the migrator reach the database.
@@ -78,8 +82,8 @@ services:
       MIGRATION_DATABASE_PASSWORD_FILE: /run/secrets/db-owner-password
       DB_RUNTIME_PASSWORD_FILE: /run/secrets/db-runtime-password
     volumes:
-      - ./secrets/db-owner-password:/run/secrets/db-owner-password:ro
-      - ./secrets/db-runtime-password:/run/secrets/db-runtime-password:ro
+      - ./secrets/db-owner-password:/run/secrets/db-owner-password:ro,z
+      - ./secrets/db-runtime-password:/run/secrets/db-runtime-password:ro,z
     read_only: true
     cap_drop:
       - ALL
@@ -110,9 +114,9 @@ services:
       ENTRA_CLIENT_SECRET_FILE: /run/secrets/entra-client-secret
       SESSION_KEY_FILE: /run/secrets/session-key
     volumes:
-      - ./secrets/db-runtime-password:/run/secrets/db-runtime-password:ro
-      - ./secrets/entra-client-secret:/run/secrets/entra-client-secret:ro
-      - ./secrets/session-key:/run/secrets/session-key:ro
+      - ./secrets/db-runtime-password:/run/secrets/db-runtime-password:ro,z
+      - ./secrets/entra-client-secret:/run/secrets/entra-client-secret:ro,z
+      - ./secrets/session-key:/run/secrets/session-key:ro,z
     read_only: true
     tmpfs:
       - /tmp:mode=1777,size=16m
