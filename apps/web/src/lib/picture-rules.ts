@@ -111,11 +111,11 @@ export function uploadMessage(code: string): string {
   }
 }
 
-/** The bytes as base64, as the upload route takes them, in slices small enough for String.fromCharCode. */
+/** The bytes as base64, as the upload route takes them, in slices small enough to spread into one call. */
 export function toBase64(bytes: Uint8Array): string {
   let binary = ''
   for (let start = 0; start < bytes.length; start += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(start, start + 0x8000))
+    binary += String.fromCodePoint(...bytes.subarray(start, start + 0x8000))
   }
   return btoa(binary)
 }

@@ -32,7 +32,7 @@ const emit = defineEmits<{
   remove: []
 }>()
 
-const ids = { label: useId(), hint: useId() }
+const ids = { hint: useId(), input: useId() }
 const zone = ref<HTMLElement>()
 const input = ref<HTMLInputElement>()
 const chooser = ref<HTMLButtonElement>()
@@ -142,15 +142,10 @@ watch(locked, (now) => {
 </script>
 
 <template>
-  <div
-    class="candidate-picture"
-    role="group"
-    :aria-labelledby="ids.label"
-  >
-    <span
-      :id="ids.label"
-      class="visually-hidden"
-    >Bild von {{ name }}</span>
+  <fieldset class="candidate-picture">
+    <legend class="visually-hidden">
+      Bild von {{ name }}
+    </legend>
     <div
       ref="zone"
       class="drop-zone"
@@ -201,7 +196,14 @@ watch(locked, (now) => {
           </button>
         </div>
       </div>
+      <!-- Reached through "Bild auswählen"; the button is what keyboards and screen readers use. -->
+      <label
+        :for="ids.input"
+        class="visually-hidden"
+        aria-hidden="true"
+      >Foto für {{ name }}</label>
       <input
+        :id="ids.input"
         ref="input"
         class="visually-hidden"
         type="file"
@@ -211,12 +213,12 @@ watch(locked, (now) => {
         @change="onChosen"
       >
     </div>
-    <p
+    <output
       class="status"
-      role="status"
+      aria-live="polite"
     >
       {{ preparing ? 'Bild wird vorbereitet …' : status }}
-    </p>
+    </output>
     <p
       v-if="message"
       class="problem"
@@ -224,7 +226,7 @@ watch(locked, (now) => {
     >
       {{ message }}
     </p>
-  </div>
+  </fieldset>
 </template>
 
 <style scoped>
@@ -232,6 +234,10 @@ watch(locked, (now) => {
   display: grid;
   gap: 0.5rem;
   max-width: 32rem;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
 .drop-zone {
@@ -310,6 +316,7 @@ watch(locked, (now) => {
 }
 
 .status {
+  display: block;
   margin: 0;
   min-height: 1.25em;
   font-size: 0.9rem;
