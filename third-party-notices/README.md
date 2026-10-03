@@ -1,6 +1,6 @@
 # Third-party notices
 
-The container image contains the npm packages that `package-lock.json` lists for production. They are under permissive licenses, except one native library, which this notice is about. The image carries this directory as `/app/third-party-notices`.
+The container image contains the npm packages that `package-lock.json` lists for production. They are under permissive licenses, except one native library, which the first notice is about; the web app's built files carry two fonts under a font license, which the second is about. The image carries this directory as `/app/third-party-notices`.
 
 ## libvips
 
@@ -47,3 +47,7 @@ The shared library contains these libraries, under the licenses the package list
 ### Replacing the library
 
 sharp loads the shared library from the file named above when the API starts. To run the image with a modified libvips, build a compatible shared library, for example with the sharp-libvips build scripts at the version above, and put it in place of that file, in a derived image or through a volume mount. A test of this repository (`apps/api/test/third-party-notices.test.ts`) keeps the versions in this notice equal to the ones installed.
+
+## Fonts
+
+The printable sheets of the web app use two fonts, which Vite bundles into the app's static files from the npm packages `@fontsource/dm-sans` 5.3.0 and `@fontsource/jetbrains-mono` 5.3.0 (the packages are MIT; the fonts are not): [DM Sans](https://github.com/googlefonts/dm-fonts) and [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono), both under the SIL Open Font License, version 1.1, whose text each font carries with its copyright and reserved font name: [OFL-1.1-DM-Sans.txt](OFL-1.1-DM-Sans.txt) and [OFL-1.1-JetBrains-Mono.txt](OFL-1.1-JetBrains-Mono.txt). The font files are served as the packages ship them; nothing of them is modified, and the fonts are not sold by themselves.
