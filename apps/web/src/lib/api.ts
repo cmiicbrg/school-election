@@ -14,10 +14,14 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  // A request without a body carries no content type: the API would refuse
+  // an empty JSON body, and some routes (replacing a batch, preparing) take none.
+  const headers: Record<string, string> = { accept: 'application/json' }
+  if (body !== undefined) headers['content-type'] = 'application/json'
   const response = await fetch(path, {
     method,
     credentials: 'same-origin',
-    headers: { 'accept': 'application/json', 'content-type': 'application/json' },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   if (response.status === 401) {

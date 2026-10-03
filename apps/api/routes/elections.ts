@@ -77,8 +77,10 @@ interface ElectionRow {
   state: ElectionState
 }
 
+// The state is the lifecycle's, not the row's: the row is read after the
+// guard, and a transition in between would otherwise make the two disagree.
 function detail(row: ElectionRow, role: ElectionRole, lifecycle: Lifecycle): Static<typeof ElectionDetail> {
-  return { id: row.id, title: row.title, description: row.description, state: row.state, role, permissions: permissionsOf(role), lifecycle }
+  return { id: row.id, title: row.title, description: row.description, state: lifecycle.election, role, permissions: permissionsOf(role), lifecycle }
 }
 
 export function electionRoutes(app: FastifyInstance, { db }: { db: Database }, done: (err?: Error) => void): void {
