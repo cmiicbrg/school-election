@@ -41,6 +41,13 @@ export {
   type RunoffResult,
 } from './result.ts'
 
+export {
+  resolve,
+  type LotDecisionError,
+  type Outcome,
+  type Resolution,
+} from './resolve.ts'
+
 export type {
   CandidateValue,
   CommitteeReason,
