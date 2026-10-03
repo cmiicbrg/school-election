@@ -2,7 +2,8 @@
 # Starts a PostgreSQL container with the server settings the application
 # requires at startup (apps/api/lib/db-settings.ts). CI and development use
 # this one script, so the settings cannot drift apart; a test checks that
-# every required setting appears below.
+# the settings below are exactly the required ones, and the same as in
+# deploy/compose.example.yml.
 #
 # Usage: scripts/postgres.sh <container-name> <host-port> <owner-password-file>
 # Uses docker unless CONTAINER_ENGINE is set (e.g. CONTAINER_ENGINE=podman).
@@ -27,7 +28,16 @@ mkdir -p "$secret_dir"
 chmod 700 "$secret_dir"
 password_file="$secret_dir/owner-password"
 install -m 0644 "$3" "$password_file"
-image='docker.io/library/postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873'
+
+# The image the deployment example pins, so development and CI run the
+# PostgreSQL that is deployed, and a Dependabot update of the example
+# reaches all three.
+compose_file="$(dirname "${BASH_SOURCE[0]}")/../deploy/compose.example.yml"
+image="$(sed -n 's/^ *image: \(docker\.io\/library\/postgres:[^ ]*@sha256:[0-9a-f]\{64\}\)$/\1/p' "$compose_file")"
+if [[ -z "$image" || "$image" == *$'\n'* ]]; then
+  echo "expected exactly one digest-pinned postgres image in $compose_file" >&2
+  exit 1
+fi
 
 settings=(
   -c track_commit_timestamp=off

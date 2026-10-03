@@ -45,8 +45,9 @@ jobs:
       # every workspace) and typecheck.
       - run: npm run lint
 
-  # Everything the Node pipeline cannot see: the Dockerfile and the workflows
-  # themselves. Needs no toolchain, so it runs alongside the rest.
+  # Everything the Node pipeline cannot see: the Dockerfile, the deployment
+  # example and the workflows themselves. Needs no toolchain, so it runs
+  # alongside the rest.
   lint-infra:
     name: Lint infra
     if: github.event_name != 'push'
@@ -65,6 +66,12 @@ jobs:
         with:
           dockerfile: Dockerfile
           config: .hadolint.yaml
+
+      # Parses the deployment example together with its .env example, so a
+      # broken file, or a variable compose.example.yml requires that
+      # .env.example does not set, fails here.
+      - name: Compose example
+        run: docker compose -f deploy/compose.example.yml --env-file deploy/.env.example config --quiet
 
       # online-audits must stay off. With a token present zizmor resolves action
       # tags over the network, and GITHUB_TOKEN is scoped to this repository, so
@@ -134,6 +141,10 @@ jobs:
           push: false
           load: true
           tags: school-election:ci
+          # The smoke test below checks that both reach the running app.
+          build-args: |
+            APP_VERSION=ci
+            GIT_SHA=${{ github.sha }}
           cache-from: type=gha,scope=school-election
           # Only main exports. A pull request writing its own mode=max layers
           # fills the shared 10 GB budget with blobs no other ref can restore.
@@ -224,9 +235,12 @@ jobs:
           wait_healthy
           docker logs school-election-ci
 
+          # The health check also reports what the image was built from,
+          # which proves that the build arguments reach the running app.
           body="$(curl -fsS http://127.0.0.1:3000/api/health)"
-          if [ "$body" != '{"status":"ok","db":"up"}' ]; then
-            echo "Expected the image to reach the database as the runtime role, got: $body" >&2
+          expected="{\"status\":\"ok\",\"db\":\"up\",\"version\":\"ci\",\"gitSha\":\"${GITHUB_SHA}\"}"
+          if [ "$body" != "$expected" ]; then
+            echo "Expected the image to reach the database as the runtime role and report its build, $expected, got: $body" >&2
             exit 1
           fi
 

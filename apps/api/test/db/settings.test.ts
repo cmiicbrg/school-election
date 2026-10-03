@@ -1,10 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { createDatabase } from '../../lib/db.ts'
-import { ALLOWED_SETTINGS, checkDatabaseSettings, REQUIRED_SETTINGS } from '../../lib/db-settings.ts'
+import { checkDatabaseSettings, REQUIRED_SETTINGS } from '../../lib/db-settings.ts'
 import { migrate } from '../../scripts/migrate.ts'
 import { createTestDatabase, DB, TEST_RUNTIME_PASSWORD, withClient } from '../helpers/db.ts'
 
@@ -107,17 +104,6 @@ test('a privileged connected role is refused', async () => {
   assert.deepEqual(await checkDatabaseSettings(serverWith({}, { creates: ['objects in schema public', 'temporary tables'] })), [
     'the server connects as school_election_app, which can create objects in schema public, temporary tables; the runtime role may only use what migrations grant',
   ])
-})
-
-test('the development and CI launcher sets every required setting', async () => {
-  const script = await readFile(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../scripts/postgres.sh'), 'utf8')
-  for (const { name, expected } of REQUIRED_SETTINGS) {
-    assert.match(script, new RegExp(`-c ${name}=${expected.replace('-', '\\-')}\\n`), name)
-  }
-  for (const { name, allowed } of ALLOWED_SETTINGS) {
-    const value = new RegExp(`-c ${name}=([a-z,]+)\\n`).exec(script)?.[1]
-    assert.ok(value?.split(',').every((entry) => allowed.includes(entry)), name)
-  }
 })
 
 test('a per-role override on the server is caught, because the check runs as the runtime role', DB, async (t) => {

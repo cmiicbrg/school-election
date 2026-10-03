@@ -6,7 +6,8 @@
 #   web       — `vite build` → apps/web/dist.
 #   prod-deps — production-only tree for the runtime.
 #   runtime   — node + raw TypeScript (Node 26 strips types natively; no
-#               build step for the API), non-root.
+#               build step for the API), non-root. Build arguments
+#               APP_VERSION and GIT_SHA record what was built.
 #
 # Every workspace's package.json is copied before `npm ci`: the lockfile
 # covers all of them, and npm ci refuses a workspace it cannot find.
@@ -53,6 +54,13 @@ COPY packages/election-core/package.json packages/election-core/
 COPY packages/election-core/src packages/election-core/src
 COPY apps/api apps/api
 COPY --from=web /app/apps/web/dist apps/web/dist
+
+# What was built, reported by /api/health. Set by the CI and release
+# workflows; a plain local build reports "dev" and "unknown". Declared after
+# the COPY steps, so a new commit invalidates no layer that does real work.
+ARG APP_VERSION=""
+ARG GIT_SHA=""
+ENV APP_VERSION=${APP_VERSION} GIT_SHA=${GIT_SHA}
 
 USER 10001:10001
 

@@ -26,7 +26,11 @@ docker build -t school-election:local .
 docker run --rm -p 127.0.0.1:3000:3000 school-election:local
 ```
 
-Release images are published to `ghcr.io/cmiicbrg/school-election` when a `v*` tag is pushed. The workflow summary prints the digest to pin in the deployment.
+Release images are published to `ghcr.io/cmiicbrg/school-election` when a `v*` tag is pushed. The workflow summary prints the `IMAGE` value, tag and digest, to pin in the deployment's `.env`.
+
+## Deployment
+
+[deploy/README.md](deploy/README.md) is the operator guide: the Entra ID app registration, secret files, a rootless podman compose stack with PostgreSQL, nginx in front, updates, reboots and backups. The examples it uses live next to it.
 
 ## Contributing
 

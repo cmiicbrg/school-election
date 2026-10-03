@@ -17,4 +17,7 @@ export const ErrorResponse = StrictObject({
 export const HealthResponse = StrictObject({
   status: Type.Union([Type.Literal('ok'), Type.Literal('degraded')]),
   db: Type.Union([Type.Literal('up'), Type.Literal('down')]),
+  /** The running release and commit, so an operator can confirm what a deploy started. */
+  version: Type.String(),
+  gitSha: Type.String(),
 })
