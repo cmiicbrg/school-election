@@ -1,5 +1,5 @@
-// Pure election domain: rulesets, ballot validation, counting, results and
-// the election lifecycle.
+// Pure election domain: rulesets, ballot validation, counting, results,
+// the election lifecycle and the voting key format.
 // No I/O and no framework imports — eslint.config.js enforces that.
 
 /**
@@ -77,6 +77,20 @@ export {
   type Transition,
   type Verdict,
 } from './lifecycle.ts'
+
+export {
+  formatKey,
+  generateKey,
+  KEY_ALPHABET,
+  KEY_LENGTH,
+  KEY_RANDOM_BYTES,
+  KEY_RANDOM_SYMBOLS,
+  keyUrl,
+  normalizeKey,
+  parseKey,
+  type KeyProblem,
+  type ParsedKey,
+} from './credential-key.ts'
 
 export type {
   CandidateValue,
