@@ -53,21 +53,32 @@ function encodeString(value: string, path: string): string {
   return JSON.stringify(value)
 }
 
+// Arrays and objects are encoded only when nothing of them would be left
+// out: no inherited items, no extra or hidden properties. Otherwise two
+// different values could share one text, and so one hash.
+
 function encodeArray(value: readonly unknown[], path: string, depth: number): string {
+  if (Object.getPrototypeOf(value) !== Array.prototype) throw new CanonicalJsonError(`${path} must be a plain array`)
   const items: string[] = []
   for (let i = 0; i < value.length; i++) {
-    if (!(i in value)) throw new CanonicalJsonError(`${path}[${i}] is a hole`)
+    if (!Object.hasOwn(value, i)) throw new CanonicalJsonError(`${path}[${i}] is a hole`)
     items.push(encode(value[i], `${path}[${i}]`, depth + 1))
   }
+  // Its own keys are its items and length, and nothing else.
+  if (Reflect.ownKeys(value).length !== value.length + 1) throw new CanonicalJsonError(`${path} has properties besides its items`)
   return `[${items.join(',')}]`
 }
 
 function encodeObject(value: object, path: string, depth: number): string {
   const proto: unknown = Object.getPrototypeOf(value)
   if (proto !== Object.prototype && proto !== null) throw new CanonicalJsonError(`${path} must be a plain object`)
-  if (Object.getOwnPropertySymbols(value).length > 0) throw new CanonicalJsonError(`${path} has a symbol key`)
+  const keys = Reflect.ownKeys(value)
+  if (keys.some((key) => typeof key === 'symbol')) throw new CanonicalJsonError(`${path} has a symbol key`)
+  if (keys.some((key) => !Object.prototype.propertyIsEnumerable.call(value, key))) {
+    throw new CanonicalJsonError(`${path} has a non-enumerable property`)
+  }
   const record = value as Record<string, unknown>
-  const members = Object.keys(record).sort(byCodeUnit).map((key) => {
+  const members = (keys as string[]).sort(byCodeUnit).map((key) => {
     const child = `${path}.${key}`
     return `${encodeString(key, child)}:${encode(record[key], child, depth + 1)}`
   })

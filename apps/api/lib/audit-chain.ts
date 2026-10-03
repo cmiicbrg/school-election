@@ -25,6 +25,12 @@ import { canonicalJson, type CanonicalValue } from './canonical-json.ts'
 /** Part of every hashed record; a change to what is hashed gets a new version. */
 export const AUDIT_CHAIN_VERSION = 1
 
+/** An action name: lowercase words joined by dots, at most MAX_ACTION long, as audit_event requires. */
+export const AUDIT_ACTION = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*$/
+export const MAX_ACTION = 64
+/** The longest actor name, in UTF-16 code units. */
+export const MAX_ACTOR_NAME = 256
+
 /** Who acted: the stable Entra identity (tenant and object id) and the name shown for it. */
 export interface AuditActor {
   tid: string
@@ -157,19 +163,39 @@ function linkProblem({ event, computedHash }: ReadEvent, previous: AuditEvent | 
 
 type Unchecked<T> = { [K in keyof T]: unknown }
 
+/**
+ * Only what appendAudit and the audit_event table can produce: a seq from an
+ * identity column (from 1), lowercase UUIDs, the time as toISOString writes
+ * it, a named actor, a well-formed action, an object of metadata and
+ * lowercase hex hashes. A record outside that was not written by the server.
+ */
 function isEvent(value: Unchecked<Omit<AuditEvent, 'actor'>> & { actor: Unchecked<AuditActor> }): value is AuditEvent {
-  const { actor, metadata, seq } = value
-  // seq comes from an identity column, which starts at 1.
+  const { seq, actor, action, metadata } = value
   return typeof seq === 'number' && Number.isSafeInteger(seq) && seq >= 1
-    && typeof value.electionId === 'string'
-    && typeof value.at === 'string'
-    && typeof actor.tid === 'string'
-    && typeof actor.oid === 'string'
-    && typeof actor.name === 'string'
-    && typeof value.action === 'string'
+    && matches(UUID, value.electionId)
+    && isTimestamp(value.at)
+    && matches(UUID, actor.tid)
+    && matches(UUID, actor.oid)
+    && typeof actor.name === 'string' && actor.name.length >= 1 && actor.name.length <= MAX_ACTOR_NAME
+    && typeof action === 'string' && action.length <= MAX_ACTION && AUDIT_ACTION.test(action)
     && typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata)
-    && (value.prevHash === null || typeof value.prevHash === 'string')
-    && typeof value.hash === 'string'
+    && (value.prevHash === null || matches(HASH, value.prevHash))
+    && matches(HASH, value.hash)
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const HASH = /^[0-9a-f]{64}$/
+const TIMESTAMP = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/
+
+function matches(pattern: RegExp, value: unknown): boolean {
+  return typeof value === 'string' && pattern.test(value)
+}
+
+function isTimestamp(value: unknown): boolean {
+  if (typeof value !== 'string' || !TIMESTAMP.test(value)) return false
+  // A real date in exactly this form: no 30 February, no 24:00.
+  const ms = Date.parse(value)
+  return Number.isFinite(ms) && new Date(ms).toISOString() === value
 }
 
 /** An object whose own keys, enumerable or not, are exactly `keys`. */

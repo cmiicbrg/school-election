@@ -163,6 +163,17 @@ test('the database keeps every chain linear: one first event, no forks, no forei
   })
 })
 
+test('the database holds only finite times in whole milliseconds, which the hashed text can express', DB, async (t) => {
+  const { runtimeUrl } = await setup(t)
+  const insert = `insert into audit_event (election_id, at, actor_tid, actor_oid, actor_name, action, metadata, prev_hash, hash)
+    values ($1, $2, $3, $4, 'X', 'member.invited', '{}', null, $5)`
+  await withClient(runtimeUrl, async (client) => {
+    for (const at of ['infinity', '-infinity', '2026-10-05T08:00:00.000001Z']) {
+      await assert.rejects(client.query(insert, [ELECTION_A, at, ACTOR.tid, ACTOR.oid, 'd'.repeat(64)]), (err) => sqlState(err) === '23514', at)
+    }
+  })
+})
+
 test('the runtime role can add and read events but never change or remove them', DB, async (t) => {
   const { db, runtimeUrl } = await setup(t)
   await db.tx((client) => appendAudit(client, ELECTION_A, invited(1)))

@@ -10,7 +10,7 @@
 // adds the actions it writes, with their fields, to AUDIT_ACTIONS.
 
 import type pg from 'pg'
-import { auditEventHash, type AuditActor, type AuditEvent, type AuditMetadata } from './audit-chain.ts'
+import { auditEventHash, MAX_ACTOR_NAME, type AuditActor, type AuditEvent, type AuditMetadata } from './audit-chain.ts'
 
 /**
  * A metadata field: free text of at most 1000 UTF-16 code units, or one of a
@@ -55,7 +55,6 @@ export class AuditError extends Error {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MAX_TEXT = 1000
-const MAX_NAME = 256
 
 // Two-key advisory locks (a key space of their own, apart from one-key
 // locks such as the migrator's): a fixed class for the audit log and the
@@ -171,7 +170,7 @@ function fieldValue(field: AuditField, value: unknown, label: string): string {
 function auditActor(actor: unknown): AuditActor {
   if (typeof actor !== 'object' || actor === null) throw new AuditError('actor must be an object')
   const { tid, oid, name } = actor as Record<string, unknown>
-  return { tid: uuid(tid, 'actor tid'), oid: uuid(oid, 'actor oid'), name: text(name, MAX_NAME, 'actor name', 1) }
+  return { tid: uuid(tid, 'actor tid'), oid: uuid(oid, 'actor oid'), name: text(name, MAX_ACTOR_NAME, 'actor name', 1) }
 }
 
 function uuid(value: unknown, label: string): string {

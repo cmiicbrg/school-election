@@ -16,8 +16,9 @@
 create table audit_event (
   seq bigint generated always as identity primary key,
   election_id uuid not null,
-  -- Milliseconds, which the hashed ISO 8601 text and a JavaScript Date hold exactly.
-  at timestamptz not null check (at = date_trunc('milliseconds', at)),
+  -- A finite time in whole milliseconds, which the hashed ISO 8601 text and
+  -- a JavaScript Date hold exactly.
+  at timestamptz not null check (isfinite(at) and at = date_trunc('milliseconds', at)),
   -- The stable Entra identity of the actor, and the name shown for it.
   actor_tid uuid not null,
   actor_oid uuid not null,

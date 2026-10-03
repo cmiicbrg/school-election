@@ -130,6 +130,27 @@ test('input that is not an event is reported as malformed, never thrown', () => 
     { ...event, seq: 1.5 },
     { ...event, seq: 0 },
     { ...event, seq: -1 },
+    // Values the server never writes, even with a hash recomputed to match.
+    ...[
+      { electionId: 'election-1' },
+      { electionId: event.electionId.toUpperCase() },
+      { at: 'yesterday' },
+      { at: '2026-10-05T08:00:00Z' },
+      { at: '2026-02-30T08:00:00.000Z' },
+      { at: '2026-10-05T24:00:00.000Z' },
+      { actor: { ...event.actor, tid: '' } },
+      { actor: { ...event.actor, oid: 'not-an-oid' } },
+      { actor: { ...event.actor, name: '' } },
+      { actor: { ...event.actor, name: 'x'.repeat(257) } },
+      { action: 'Member.Invited' },
+      { action: 'member..invited' },
+      { action: `member.${'x'.repeat(64)}` },
+      { prevHash: 'abc' },
+    ].map((change) => {
+      const content = { ...event, ...change }
+      return { ...content, hash: auditEventHash(content) }
+    }),
+    { ...event, hash: event.hash.toUpperCase() },
     { ...event, at: Date.parse(event.at) },
     { ...event, actor: null },
     { ...event, actor: { ...event.actor, name: undefined } },

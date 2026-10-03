@@ -59,6 +59,23 @@ test('objects other than plain ones, and arrays with holes, are refused', () => 
   refused([1, , 3], /^\$\[1\] is a hole$/)
 })
 
+test('nothing of an array or object is left out: no inherited items, no extra or hidden properties', () => {
+  // A hole filled from a prototype would otherwise encode like [1,2].
+  const inherited = Object.setPrototypeOf([1, ,], Object.assign(Object.create(Array.prototype) as object, { 1: 2 })) as unknown[]
+  refused(inherited, /^\$ must be a plain array$/)
+  Object.defineProperty(Array.prototype, 1, { value: 2, configurable: true })
+  try {
+    refused([1, ,], /^\$\[1\] is a hole$/)
+  } finally {
+    delete (Array.prototype as unknown as Record<number, unknown>)[1]
+  }
+  class Items extends Array<number> {}
+  refused(Items.from([1]), /^\$ must be a plain array$/)
+  refused(Object.assign([1, 2], { note: 'x' }), /^\$ has properties besides its items$/)
+  refused(Object.assign([1], { [Symbol('s')]: 1 }), /^\$ has properties besides its items$/)
+  refused(Object.defineProperty({ a: 1 }, 'hidden', { value: 2, enumerable: false }), /^\$ has a non-enumerable property$/)
+})
+
 test('strings that PostgreSQL could not store unchanged are refused, as values and as keys', () => {
   refused('lone \uD800 surrogate', /^\$ must be well-formed Unicode without U\+0000$/)
   refused('nul \0 character', /^\$ must be well-formed Unicode without U\+0000$/)
