@@ -11,6 +11,7 @@ import type pg from 'pg'
 import { lockElection } from '../lib/audit.ts'
 import { issueBatch, listBatches, readBatchKeys, replaceBatch, type BatchKeys } from '../lib/credentials.ts'
 import { lifecycleOf, Refusal, type ElectionAccess } from '../lib/election-access.ts'
+import { prepareElection, type PrepareResult } from '../lib/prepare.ts'
 import type { ElectionRole } from '../lib/permissions.ts'
 import { DB, withClient } from './helpers/db.ts'
 import { ANNA, CARLA, createElection, electionApp, forceElectionState, signIn, WANDA, type Browser, type ElectionApp, type Person } from './helpers/elections.ts'
@@ -28,6 +29,7 @@ interface Setup {
   issue: (person: Person, voterGroupId: string, roundKind: RoundKind, count: number) => Promise<BatchKeys>
   replace: (person: Person, batchId: string) => Promise<BatchKeys>
   read: (person: Person, batchId: string) => Promise<BatchKeys>
+  prepare: (person: Person) => Promise<PrepareResult>
 }
 
 const ok = <T>(res: LightMyRequestResponse, status = 200): T => {
@@ -74,6 +76,7 @@ async function prepared(t: TestContext): Promise<Setup> {
     issue: (person, voterGroupId, roundKind, count) => as(person, (client, access) => issueBatch(client, access, { voterGroupId, roundKind, count })),
     replace: (person, batchId) => as(person, (client, access) => replaceBatch(client, access, batchId)),
     read: (person, batchId) => as(person, (client, access) => readBatchKeys(client, access, batchId)),
+    prepare: (person) => as(person, (client, access) => prepareElection(client, access)),
   }
 }
 
@@ -287,4 +290,26 @@ test('preparing again voids only the unused batches of groups whose contests cha
   ok(await anna.request('POST', `${base}/prepare`))
   assert.deepEqual([...(await entitlements(s, batch1a.batch.id)).values()], [[`regular:${school}`], [`regular:${school}`], [`regular:${school}`]])
   assert.equal((await listBatches(s.db, id)).find((b) => b.id === batch1a.batch.id)?.state, 'issued')
+})
+
+test('preparing waits for a structure change that has not committed yet, and sees it', DB, async (t) => {
+  const { s, anna, id, klasse, g2b, issue, prepare } = await prepared(t)
+  const batch = await issue(ANNA, g2b, 'regular', 2)
+  ok(await anna.request('POST', `/api/elections/${id}/unprepare`))
+  // 2B gains the class contest in a transaction that is still open while
+  // preparing starts; one that did not come through the API's lock.
+  let preparing: Promise<PrepareResult> | undefined
+  await s.db.tx(async (client) => {
+    await client.query('insert into voter_group_contest (election_id, voter_group_id, contest_id) values ($1, $2, $3)', [id, g2b, klasse])
+    preparing = prepare(ANNA)
+    await withClient(s.ownerUrl, async (owner) => {
+      for (let waited = 0; ; waited += 20) {
+        const { rows } = await owner.query(`select 1 from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`)
+        if (rows.length > 0) return
+        if (waited > 5000) throw new Error('preparing never waited for the open change')
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+    })
+  })
+  assert.deepEqual(await preparing, { prepared: false, problems: [], staleBatches: [{ id: batch.batch.id, voterGroupId: g2b, keys: 2 }] })
 })

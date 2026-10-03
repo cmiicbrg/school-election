@@ -117,6 +117,11 @@ async function warnings(db: Pick<Database, 'query'>, electionId: string): Promis
  * set; without it, preparing stops and names them.
  */
 export async function prepareElection(client: pg.ClientBase, access: ElectionAccess, { confirmVoid = false } = {}): Promise<PrepareResult> {
+  // The configuration triggers hold a share lock on the election's row
+  // until their change commits. Taking the row first waits for those and
+  // keeps new ones out, so what is read here is what gets prepared, even
+  // for a change that did not come through changeElection.
+  await client.query('select 1 from election where id = $1 for no key update', [access.electionId])
   const { problems, warnings, summary } = await readPreparation(client, access.electionId)
   if (problems.length > 0) return { prepared: false, problems }
   const stale = await staleBatches(client, access.electionId)
