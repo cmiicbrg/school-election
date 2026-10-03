@@ -21,6 +21,18 @@ export interface Config {
   webDistDir: string
   /** Runtime connection, as the unprivileged role, password included. */
   databaseUrl: string
+  entra: EntraConfig
+  /** Key material the session cookie keys are derived from; at least 32 bytes. */
+  sessionSecret: Buffer
+}
+
+/** The school's own Entra ID app registration; single tenant, confidential client. */
+export interface EntraConfig {
+  /** Directory (tenant) id, lower-case GUID. */
+  tenantId: string
+  /** Application (client) id, lower-case GUID. */
+  clientId: string
+  clientSecret: string
 }
 
 export interface MigrationConfig {
@@ -64,7 +76,17 @@ export function loadConfig(env: Env): Config {
     logLevel: check(() => parseLogLevel(env.LOG_LEVEL, local), 'info'),
     webDistDir: env.WEB_DIST_DIR?.trim() || path.resolve(here, '..', 'web', 'dist'),
     databaseUrl: check(() => databaseUrl(env, 'DATABASE_URL', 'DATABASE_PASSWORD'), ''),
+    entra: {
+      tenantId: check(() => guid(env, 'ENTRA_TENANT_ID'), ''),
+      clientId: check(() => guid(env, 'ENTRA_CLIENT_ID'), ''),
+      // Printable ASCII is also all the token request accepts; checked here
+      // so a bad file stops startup with this message, not with a library
+      // error that quotes the secret.
+      clientSecret: check(() => printableAscii(readSecret(env, 'ENTRA_CLIENT_SECRET'), 'ENTRA_CLIENT_SECRET_FILE'), ''),
+    },
+    sessionSecret: check(() => sessionSecret(env), Buffer.alloc(0)),
   }
+  check(() => refuseDebugNamespaces(env.DEBUG, local), undefined)
 
   throwIfAny(problems)
   return config
@@ -238,4 +260,34 @@ function parseLogLevel(raw: string | undefined, local: boolean): LogLevel {
     throw new ConfigError(`LOG_LEVEL=${value} is allowed only with a loopback PUBLIC_ORIGIN and HOST`)
   }
   throw new ConfigError(`LOG_LEVEL must be info, warn or error, got ${value}`)
+}
+
+// DEBUG switches on the `debug` package that some dependencies log through,
+// to stderr and past every serializer here. The OAuth client prints its
+// token request with it, client secret included, so the same rule as for
+// LOG_LEVEL applies.
+function refuseDebugNamespaces(raw: string | undefined, local: boolean): void {
+  if (raw?.trim() && !local) {
+    throw new ConfigError('DEBUG is allowed only with a loopback PUBLIC_ORIGIN and HOST; unset it')
+  }
+}
+
+export const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+// Single tenant: the directory is named by its id. "common",
+// "organizations" or a domain name are refused, because the issuer and
+// tenant checks of every sign-in compare against exactly this value.
+function guid(env: Env, name: string): string {
+  const value = env[name]?.trim().toLowerCase()
+  if (!value) throw new ConfigError(`${name} must be set to the GUID from the Entra app registration`)
+  if (!GUID.test(value)) throw new ConfigError(`${name} must be a GUID such as 00000000-0000-0000-0000-000000000000, got ${value}`)
+  return value
+}
+
+function sessionSecret(env: Env): Buffer {
+  const value = readSecret(env, 'SESSION_KEY')
+  if (!/^(?:[0-9a-fA-F]{2}){32,}$/.test(value)) {
+    throw new ConfigError('SESSION_KEY_FILE must hold at least 32 random bytes in hex, e.g. the output of openssl rand -hex 32')
+  }
+  return Buffer.from(value, 'hex')
 }

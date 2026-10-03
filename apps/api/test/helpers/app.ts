@@ -3,10 +3,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Writable } from 'node:stream'
 import type { FastifyInstance } from 'fastify'
-import { buildApp } from '../../app.ts'
+import { buildApp, type AppOptions } from '../../app.ts'
 import { loadConfig } from '../../config.ts'
 import type { Database } from '../../lib/db.ts'
-import { DB_ENV } from './env.ts'
+import { SERVER_ENV } from './env.ts'
 
 export const ORIGIN = 'https://wahl.example.org'
 
@@ -25,7 +25,7 @@ export function stubDatabase(query: Database['query'] = () => Promise.resolve({ 
  * The app as production builds it, from an environment, with log output
  * captured. Routes can still be added before the first inject().
  */
-export async function buildTestApp(env: Record<string, string> = {}, db: Database = stubDatabase()): Promise<TestApp> {
+export async function buildTestApp(env: Record<string, string> = {}, db: Database = stubDatabase(), options: Pick<AppOptions, 'entraAuthority'> = {}): Promise<TestApp> {
   let captured = ''
   const logStream = new Writable({
     write(chunk: Buffer, _encoding, done) {
@@ -33,8 +33,8 @@ export async function buildTestApp(env: Record<string, string> = {}, db: Databas
       done()
     },
   })
-  const config = loadConfig({ ...DB_ENV, PUBLIC_ORIGIN: ORIGIN, WEB_DIST_DIR: path.join(tmpdir(), 'no-web-build-here'), ...env })
-  const app = await buildApp(config, { db, logStream })
+  const config = loadConfig({ ...SERVER_ENV, PUBLIC_ORIGIN: ORIGIN, WEB_DIST_DIR: path.join(tmpdir(), 'no-web-build-here'), ...env })
+  const app = await buildApp(config, { db, logStream, ...options })
   return { app, logs: () => captured }
 }
 
