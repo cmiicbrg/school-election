@@ -129,6 +129,53 @@ async function race(voter: pg.Client, sealer: pg.Client, ownerUrl: string): Prom
   )
 }
 
+test('a vote that arrives while the seal is under way waits for it instead of deadlocking with it', DB, async (t) => {
+  const { ownerUrl, runtimeUrl } = await setup(t)
+  await open(ownerUrl)
+  const pauser = new pg.Client({ connectionString: runtimeUrl })
+  const sealer = new pg.Client({ connectionString: runtimeUrl })
+  const voter = new pg.Client({ connectionString: runtimeUrl })
+  await Promise.all([pauser.connect(), sealer.connect(), voter.connect()])
+  try {
+    // A share lock on the round's row holds the seal once it has locked
+    // the entitlements and the election's row, before it closes the round.
+    await pauser.query('begin')
+    await pauser.query('select 1 from round where id = $1 for share', [ROUND])
+    const sealing = sealer.query<{ n: number }>('select seal_round($1) as n', [ROUND])
+    await sleep(200)
+    // The vote now locks the entitlement it uses up, and its trigger would
+    // take the election's row the seal holds: it waits for the seal
+    // instead, because the seal already holds the entitlement.
+    await voter.query('begin')
+    const voting = voter.query(`update credential_entitlement set consumed = true where credential_id = (select id from credential where key = $1)`, [KEYS[0]])
+    let settled = 0
+    const both = Promise.allSettled([sealing, voting]).then((results) => {
+      settled = results.length
+      return results
+    })
+    // Longer than deadlock_timeout: a deadlock would have aborted one of them.
+    await sleep(1500)
+    assert.equal(settled, 0, 'both are still waiting, neither was aborted')
+    await pauser.query('commit')
+    const [sealed, voted] = await both
+    assert.equal(sealed.status, 'fulfilled')
+    assert.equal(sealed.status === 'fulfilled' ? sealed.value.rows[0]?.n : -1, 0)
+    assert.equal(voted.status, 'fulfilled')
+    assert.equal(voted.status === 'fulfilled' ? voted.value.rowCount : -1, 0, 'the entitlement the vote wanted is the rewritten one, which it never saw')
+    await voter.query('rollback')
+  } finally {
+    await Promise.all([pauser.end(), sealer.end(), voter.end()])
+  }
+  await withClient(ownerUrl, async (client) => {
+    const { rows } = await client.query<{ state: string, entitlements: number, used: number }>(
+      `select state, (select count(*)::int from credential_entitlement) as entitlements,
+              (select count(*)::int from credential_entitlement where consumed) as used from round where id = $1`,
+      [ROUND],
+    )
+    assert.deepEqual(rows, [{ state: 'closed', entitlements: 3, used: 0 }])
+  })
+})
+
 test('a ballot or a second seal that waits for a seal in progress finds the round closed afterwards', DB, async (t) => {
   const { ownerUrl, runtimeUrl } = await setup(t)
   await open(ownerUrl)

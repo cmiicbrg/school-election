@@ -191,13 +191,15 @@ create trigger round_lifecycle before update on round
 -- it refuses anything but an open round, so a second call refuses too.
 -- Returns the number of ballots sealed.
 --
--- It locks the election's row as a change of the election would: every
--- vote holds that row for share until it commits (the entitlement
--- triggers of 0008 and ballot_staged above), so the seal waits for the
--- votes in flight, and a vote that arrives afterwards waits there and then
--- finds the round closed. A second seal waits for the first the same way,
--- and then reads the round, by a statement of its own with a snapshot of
--- its own, as closed.
+-- It locks the round's entitlements first and then the election's row,
+-- in the order a vote takes its locks: a vote locks the entitlement it
+-- uses up before its trigger takes the election's row for share (0008),
+-- and holds both until it commits. So the seal waits for the votes in
+-- flight, a vote that arrives while the seal holds the rows waits for it
+-- and then finds its entitlement gone and the round closed, and neither
+-- ever waits for the other while holding what the other needs. A second
+-- seal waits the same way, and then reads the round, by a statement of
+-- its own with a snapshot of its own, as closed.
 create function seal_round(target uuid) returns integer
   language plpgsql security definer set search_path = pg_catalog as $$
 declare
@@ -209,6 +211,8 @@ declare
   sealed integer;
   kept public.credential_entitlement[];
 begin
+  boxes := array(select rc.id from public.round_contest rc where rc.round_id = target);
+  perform 1 from public.credential_entitlement e where e.round_contest_id = any (boxes) for update;
   select e.id into election
     from public.round r join public.election e on e.id = r.election_id
    where r.id = target
@@ -225,8 +229,6 @@ begin
     from public.round_transition t join public.round_state rs on rs.state = t.to_state
    where t.from_state = the_round.state and rs.opened and not rs.accepts_ballots;
   update public.round set state = closed_state where id = target;
-
-  boxes := array(select rc.id from public.round_contest rc where rc.round_id = target);
 
   -- Fresh ids, drawn once, and the rows written in their order.
   with staged as materialized (
