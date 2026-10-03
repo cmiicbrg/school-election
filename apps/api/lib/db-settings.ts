@@ -12,15 +12,20 @@ interface Requirement {
 }
 
 const NO_ORDERING = 'would record when each transaction committed, which orders ballots'
-const NO_WAL_RESIDUE = 'would keep write-ahead log that still links ballots to entitlements'
+// PostgreSQL writes every change to the write-ahead log for crash recovery,
+// votes included, whatever these settings say. They only stop that log from
+// being archived, kept beyond what recovery needs, reused under another file
+// name or summarised, so that the clean-up after an election can remove what
+// is left.
+const KEEPS_WAL = 'would keep or copy write-ahead log beyond what crash recovery needs, and that log can link ballots to entitlements'
 const NO_STATEMENT_LOGS = 'would let the server log statements or their parameters'
 
 export const REQUIRED_SETTINGS: readonly Requirement[] = [
   { name: 'track_commit_timestamp', expected: 'off', why: NO_ORDERING },
-  { name: 'archive_mode', expected: 'off', why: NO_WAL_RESIDUE },
-  { name: 'wal_recycle', expected: 'off', why: NO_WAL_RESIDUE },
-  { name: 'wal_keep_size', expected: '0', why: NO_WAL_RESIDUE },
-  { name: 'summarize_wal', expected: 'off', why: NO_WAL_RESIDUE },
+  { name: 'archive_mode', expected: 'off', why: KEEPS_WAL },
+  { name: 'wal_recycle', expected: 'off', why: KEEPS_WAL },
+  { name: 'wal_keep_size', expected: '0', why: KEEPS_WAL },
+  { name: 'summarize_wal', expected: 'off', why: KEEPS_WAL },
   { name: 'log_statement', expected: 'none', why: NO_STATEMENT_LOGS },
   // terse applies to the text formats only; log_destination is checked below.
   { name: 'log_error_verbosity', expected: 'terse', why: 'would log error detail, which can quote values' },
@@ -57,21 +62,36 @@ export const ALLOWED_SETTINGS: readonly { name: string, allowed: readonly string
 
 // Deny by default: modules such as auto_explain and pgaudit log statements
 // with their parameters, and any other module could. pg_stat_statements keeps
-// aggregated query texts with constants replaced, never parameters.
+// aggregated query texts with constants replaced, never parameters. Two of
+// these settings are hidden from unprivileged roles, so all three are read
+// through preload_settings() (migration 0006), which returns exactly them.
 const PRELOAD_SETTINGS = ['shared_preload_libraries', 'session_preload_libraries', 'local_preload_libraries']
 const ALLOWED_PRELOAD = new Set(['pg_stat_statements'])
 
 /**
- * Every setting that differs from what the privacy model needs, and every
- * privilege the connected role should not have, as a message naming it.
+ * Every setting that differs from what the privacy model needs, as a message
+ * naming it; or the reason the server connects as the wrong role.
+ *
+ * These guard against mistakes: PostgreSQL started without the documented
+ * flags, a module preloaded for debugging, a connection string naming the
+ * superuser or the database owner. What the runtime role may do is reset by
+ * every migration run (scripts/migrate.ts). A superuser who changes it again
+ * by hand works around the deployment, and no check here could stop them.
  */
 export async function checkDatabaseSettings(db: Pick<Database, 'query'>): Promise<string[]> {
-  const problems: string[] = await checkConnectedRole(db)
+  const { rows: [role] } = await db.query<{ name: string }>('select current_user::text as name')
+  // Any other role could hold rights the runtime role never gets, and
+  // switch the settings below off for its own sessions.
+  if (role?.name !== RUNTIME_ROLE) return [`the server connects as ${role?.name ?? 'an unknown role'}; it must connect as ${RUNTIME_ROLE}`]
+
+  const problems: string[] = []
   const values = await currentSettings(db, [
     ...REQUIRED_SETTINGS.map((s) => s.name),
     ...ALLOWED_SETTINGS.map((s) => s.name),
-    ...PRELOAD_SETTINGS,
   ])
+  const { rows: preload } = await db.query<{ name: string, setting: string }>('select name, setting from preload_settings()')
+  for (const { name, setting } of preload) values.set(name, setting)
+
   for (const { name, expected, why } of REQUIRED_SETTINGS) {
     const actual = values.get(name) ?? ''
     if (actual !== expected) problems.push(`${name} is ${actual}, must be ${expected}: any other value ${why}`)
@@ -83,60 +103,18 @@ export async function checkDatabaseSettings(db: Pick<Database, 'query'>): Promis
       problems.push(`${name} is ${actual}, must be one of ${allowed.join(', ')}: ${why}`)
     }
   }
-  for (const name of PRELOAD_SETTINGS) {
-    const unexpected = (values.get(name) ?? '').split(',')
-      .map((entry) => entry.trim().replace(/^"|"$/g, ''))
-      .filter((entry) => entry !== '')
-      .map((entry) => entry.replace(/^.*\//, '').replace(/\.so$/, ''))
-      .filter((library) => !ALLOWED_PRELOAD.has(library))
-    if (unexpected.length > 0) {
-      problems.push(`${name} loads ${unexpected.join(', ')}; only ${[...ALLOWED_PRELOAD].join(', ')} may be preloaded, since other modules such as auto_explain or pgaudit can log statements with their parameters`)
-    }
-  }
-
+  problems.push(...PRELOAD_SETTINGS.flatMap((name) => preloadProblem(name, values.get(name) ?? '')))
   return problems
 }
 
-// The server must connect as the unprivileged runtime role. A superuser,
-// the database owner or a role with extra rights or memberships could read
-// or change everything, and some of them could switch the settings above
-// off for their own sessions.
-async function checkConnectedRole(db: Pick<Database, 'query'>): Promise<string[]> {
-  const { rows } = await db.query<{ name: string, attributes: string[], owner: boolean, memberships: string[], creates: string[] }>(
-    `select r.rolname as name,
-            array_remove(array[
-              case when r.rolsuper then 'superuser' end,
-              case when r.rolcreaterole then 'createrole' end,
-              case when r.rolcreatedb then 'createdb' end,
-              case when r.rolreplication then 'replication' end,
-              case when r.rolbypassrls then 'bypassrls' end
-            ], null) as attributes,
-            (select d.datdba = r.oid from pg_database d where d.datname = current_database()) as owner,
-            -- Effective membership, including roles granted to an allowed
-            -- role; a superuser is reported as such instead. text[], not
-            -- name[]: the driver parses only the former into an array.
-            case when r.rolsuper then '{}'::text[] else coalesce((
-              select array_agg(g.rolname::text order by g.rolname) from pg_roles g
-               where g.oid <> r.oid and pg_has_role(r.oid, g.oid, 'MEMBER') and g.rolname <> 'pg_read_all_settings'
-            ), '{}'::text[]) end as memberships,
-            array_remove(array[
-              case when has_schema_privilege('public', 'CREATE') then 'objects in schema public' end,
-              case when has_database_privilege(current_database(), 'CREATE') then 'schemas' end,
-              case when has_database_privilege(current_database(), 'TEMPORARY') then 'temporary tables' end
-            ], null) as creates
-       from pg_roles r where r.rolname = current_user`,
-  )
-  const role = rows[0]
-  if (!role) return ['cannot identify the connected role']
-  const problems: string[] = []
-  const who = `the server connects as ${role.name}`
-  // Any other role could own tables or hold grants this check cannot see.
-  if (role.name !== RUNTIME_ROLE) problems.push(`${who}; it must connect as ${RUNTIME_ROLE}`)
-  if (role.attributes.length > 0) problems.push(`${who}, which has ${role.attributes.join(', ')}; it must use the unprivileged runtime role`)
-  if (role.owner) problems.push(`${who}, which owns the database; it must use the unprivileged runtime role`)
-  if (role.memberships.length > 0) problems.push(`${who}, which is a member of ${role.memberships.join(', ')}; the runtime role must hold nothing else`)
-  if (role.creates.length > 0) problems.push(`${who}, which can create ${role.creates.join(', ')}; the runtime role may only use what migrations grant`)
-  return problems
+function preloadProblem(name: string, value: string): string[] {
+  const unexpected = value.split(',')
+    .map((entry) => entry.trim().replace(/^"|"$/g, ''))
+    .filter((entry) => entry !== '')
+    .map((entry) => entry.replace(/^.*\//, '').replace(/\.so$/, ''))
+    .filter((library) => !ALLOWED_PRELOAD.has(library))
+  if (unexpected.length === 0) return []
+  return [`${name} loads ${unexpected.join(', ')}; only ${[...ALLOWED_PRELOAD].join(', ')} may be preloaded, since other modules such as auto_explain or pgaudit can log statements with their parameters`]
 }
 
 async function currentSettings(db: Pick<Database, 'query'>, names: string[]): Promise<Map<string, string>> {

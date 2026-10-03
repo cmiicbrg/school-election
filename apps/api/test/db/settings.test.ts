@@ -1,8 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { cp, mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { createDatabase } from '../../lib/db.ts'
 import { checkDatabaseSettings, REQUIRED_SETTINGS } from '../../lib/db-settings.ts'
-import { migrate } from '../../scripts/migrate.ts'
+import { sqlState } from '../../lib/pg-errors.ts'
+import { migrate, MIGRATIONS_DIR } from '../../scripts/migrate.ts'
 import { createTestDatabase, DB, TEST_RUNTIME_PASSWORD, withClient } from '../helpers/db.ts'
 
 const safe: Record<string, string> = {
@@ -14,15 +18,16 @@ const safe: Record<string, string> = {
   local_preload_libraries: '',
 }
 
-const runtimeRole = { name: 'school_election_app', attributes: [] as string[], owner: false, memberships: [] as string[], creates: [] as string[] }
-
-function serverWith(overrides: Record<string, string>, role: Partial<typeof runtimeRole> = {}) {
+function serverWith(overrides: Record<string, string>, role = 'school_election_app') {
   const values = { ...safe, ...overrides }
-  return {
-    query: (text: string, params?: unknown[]) => Promise.resolve(text.includes('from pg_roles r where r.rolname = current_user')
-      ? { rows: [{ ...runtimeRole, ...role }] }
-      : { rows: (params?.[0] as string[]).map((name) => ({ name, value: values[name] ?? '' })) }),
-  } as never
+  const answer = (text: string, params?: unknown[]) => {
+    if (text.includes('current_user')) return { rows: [{ name: role }] }
+    if (text.includes('preload_settings()')) {
+      return { rows: ['shared_preload_libraries', 'session_preload_libraries', 'local_preload_libraries'].map((name) => ({ name, setting: values[name] ?? '' })) }
+    }
+    return { rows: (params?.[0] as string[]).map((name) => ({ name, value: values[name] ?? '' })) }
+  }
+  return { query: (text: string, params?: unknown[]) => Promise.resolve(answer(text, params)) } as never
 }
 
 test('safe settings pass', async () => {
@@ -85,25 +90,13 @@ test('only pg_stat_statements may be preloaded', async () => {
   }
 })
 
-test('a privileged connected role is refused', async () => {
-  assert.deepEqual(await checkDatabaseSettings(serverWith({}, { name: 'postgres', attributes: ['superuser', 'createrole'] })), [
-    'the server connects as postgres; it must connect as school_election_app',
-    'the server connects as postgres, which has superuser, createrole; it must use the unprivileged runtime role',
-  ])
-  assert.deepEqual(await checkDatabaseSettings(serverWith({}, { name: 'school_election', owner: true })), [
-    'the server connects as school_election; it must connect as school_election_app',
-    'the server connects as school_election, which owns the database; it must use the unprivileged runtime role',
-  ])
-  // A plain role with no attributes or memberships is still the wrong role.
-  assert.deepEqual(await checkDatabaseSettings(serverWith({}, { name: 'reporting' })), [
-    'the server connects as reporting; it must connect as school_election_app',
-  ])
-  assert.deepEqual(await checkDatabaseSettings(serverWith({}, { memberships: ['pg_monitor'] })), [
-    'the server connects as school_election_app, which is a member of pg_monitor; the runtime role must hold nothing else',
-  ])
-  assert.deepEqual(await checkDatabaseSettings(serverWith({}, { creates: ['objects in schema public', 'temporary tables'] })), [
-    'the server connects as school_election_app, which can create objects in schema public, temporary tables; the runtime role may only use what migrations grant',
-  ])
+test('any role but the runtime role is refused, before anything else is read', async () => {
+  // The superuser, the database owner, or any other role a connection string may name by mistake.
+  for (const role of ['postgres', 'school_election', 'reporting']) {
+    assert.deepEqual(await checkDatabaseSettings(serverWith({ log_statement: 'all' }, role)), [
+      `the server connects as ${role}; it must connect as school_election_app`,
+    ], role)
+  }
 })
 
 test('a per-role override on the server is caught, because the check runs as the runtime role', DB, async (t) => {
@@ -121,46 +114,40 @@ test('connecting as the owner superuser is refused', DB, async (t) => {
   const testDb = await createTestDatabase(t)
   const db = createDatabase(testDb.ownerUrl, () => {})
   t.after(() => db.close())
-  const problems = await checkDatabaseSettings(db)
-  assert.ok(problems.some((p) => /connects as postgres, which has superuser/.test(p)), problems.join('\n'))
-  assert.ok(problems.some((p) => /which owns the database/.test(p)), problems.join('\n'))
+  assert.deepEqual(await checkDatabaseSettings(db), ['the server connects as postgres; it must connect as school_election_app'])
 })
 
-test('direct schema privileges on the runtime role are caught, and the next migration removes them', DB, async (t) => {
-  const testDb = await createTestDatabase(t)
-  // Schema and database privileges are per database, so no other test sees these.
-  await withClient(testDb.ownerUrl, (client) => client.query(`grant create on schema public to school_election_app; grant create, temporary on database ${testDb.name} to school_election_app`))
-  const db = createDatabase(testDb.runtimeUrl, () => {})
-  t.after(() => db.close())
-  assert.deepEqual(await checkDatabaseSettings(db), [
-    'the server connects as school_election_app, which can create objects in schema public, schemas, temporary tables; the runtime role may only use what migrations grant',
-  ])
-  await migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD })
-  assert.deepEqual(await checkDatabaseSettings(db), [])
-})
-
-test('a role inherited through pg_read_all_settings is refused by the migrator and the startup check', DB, async (t) => {
+test('pg_read_all_settings, granted by earlier versions, is taken back once a run succeeds', DB, async (t) => {
   const testDb = await createTestDatabase(t)
   const admin = process.env.TEST_DATABASE_URL ?? ''
-  // Cluster-wide: make pg_read_all_settings a member of another role, which
-  // the runtime role then inherits. Undone on the server connection.
-  await withClient(admin, async (c) => {
-    await c.query('create role se_inherited nologin')
-    await c.query('grant se_inherited to pg_read_all_settings')
+  // Cluster-wide; the run below takes it back, and so does the clean-up if it fails first.
+  await withClient(admin, (c) => c.query('grant pg_read_all_settings to school_election_app'))
+  t.after(() => withClient(admin, (c) => c.query('revoke pg_read_all_settings from school_election_app')).catch(() => {}))
+  const member = async () => (await withClient(admin, (c) => c.query<{ member: boolean }>(
+    'select pg_has_role(\'school_election_app\', \'pg_read_all_settings\', \'MEMBER\') as member',
+  ))).rows[0]?.member
+  // A run whose migration fails keeps it: the server still deployed may need it to restart.
+  const failing = await mkdtemp(path.join(tmpdir(), 'school-election-migrations-'))
+  await cp(MIGRATIONS_DIR, failing, { recursive: true })
+  await writeFile(path.join(failing, '9001_broken.sql'), 'select 1/0;')
+  await assert.rejects(migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD, migrationsDir: failing }), /9001_broken.sql failed/)
+  assert.equal(await member(), true)
+  await migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD })
+  assert.equal(await member(), false)
+})
+
+test('the runtime role reads the hidden preload settings only through preload_settings()', DB, async (t) => {
+  const testDb = await createTestDatabase(t)
+  await withClient(testDb.runtimeUrl, async (c) => {
+    await assert.rejects(c.query('select current_setting(\'shared_preload_libraries\')'), (err) => sqlState(err) === '42501')
+    const { rows } = await c.query<{ name: string }>('select name from preload_settings() order by name')
+    assert.deepEqual(rows.map((row) => row.name), ['local_preload_libraries', 'session_preload_libraries', 'shared_preload_libraries'])
   })
-  t.after(() => withClient(admin, async (c) => {
-    await c.query('revoke se_inherited from pg_read_all_settings')
-    await c.query('drop role se_inherited')
-  }))
-  const db = createDatabase(testDb.runtimeUrl, () => {})
-  t.after(() => db.close())
-  assert.deepEqual(await checkDatabaseSettings(db), [
-    'the server connects as school_election_app, which is a member of se_inherited; the runtime role must hold nothing else',
-  ])
-  await assert.rejects(
-    migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD }),
-    /school_election_app is a member of se_inherited; revoke that first/,
-  )
+  // Nobody else may call it.
+  await withClient(testDb.ownerUrl, (c) => c.query('create role se_probe nologin'))
+  t.after(() => withClient(process.env.TEST_DATABASE_URL ?? '', (c) => c.query('drop role if exists se_probe')))
+  const { rows } = await withClient(testDb.ownerUrl, (c) => c.query<{ allowed: boolean }>('select has_function_privilege(\'se_probe\', \'preload_settings()\', \'EXECUTE\') as allowed'))
+  assert.equal(rows[0]?.allowed, false)
 })
 
 test('the server pins search_path to public, whatever the role or database sets', DB, async (t) => {

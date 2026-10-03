@@ -7,7 +7,7 @@ Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT
 ## Before you start
 
 - For anything beyond a small fix, open an issue first and describe what you want to change. That avoids work on something that conflicts with the election model.
-- The invariants in [`AGENTS.md`](AGENTS.md) (ballot unlinkability, no raw credentials in the database, logs or URLs, fixed statutory points, no hidden tiebreaks) are not open to trade-offs for convenience.
+- The invariants in [`AGENTS.md`](AGENTS.md) (ballot unlinkability, no voting keys in logs, URLs, exports or the audit log, fixed statutory points, no hidden tiebreaks) are not open to trade-offs for convenience.
 - Code, comments and documentation are in English. The user interface is in German.
 
 ## Setup

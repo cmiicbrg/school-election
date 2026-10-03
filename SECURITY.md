@@ -25,7 +25,7 @@ Until the first release, only the `main` branch is supported. After that, securi
 In scope, among others:
 
 - anything that links a ballot to the credential that cast it, or links ballots in different contests to each other, through the database, exports, backups or logs;
-- raw voting credentials reaching the database, logs or a server-visible URL;
+- voting keys reaching logs, a server-visible URL, an export or the audit log, or a batch's keys reaching anyone but the election's owner and co-admins (witnesses only once the batch's round has closed). A voter holding the key on the card they drew is how voting works, and keys are stored as generated so that sheets can be printed again; neither is a vulnerability;
 - voting without a valid credential, voting twice in one contest, or voting outside the open phase of a round;
 - results or candidate totals visible before a round is closed;
 - bypassing authentication or authorization for administrators and witnesses, including access to another teacher's election;
