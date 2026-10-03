@@ -9,10 +9,15 @@
 //   { version: 1, electionId, at, actor: { tid, oid, name }, action, metadata, prevHash }
 //
 // where prevHash is the hash of the election's previous event, and null for
-// its first. Changing, inserting, removing or reordering an event therefore
-// breaks verification at that event or the one after it. Removing events
-// from the end leaves a shorter chain that still verifies; only a head hash
-// recorded elsewhere, such as in a result or an export, shows that.
+// its first. Changing, inserting, removing or reordering an event breaks
+// verification at that event or the one after it, unless every later hash
+// is recomputed as well. The hashes are not signed: whoever can change the
+// table (the database owner; the application's role can only add events)
+// can rewrite the history from any event on, or drop the newest events, and
+// the chain still verifies, only with a different head. Verification
+// therefore vouches for the history up to a head hash recorded outside the
+// database and compared with it, such as in a result, an export or the
+// witnesses' notes.
 
 import { createHash } from 'node:crypto'
 import { canonicalJson, type CanonicalValue } from './canonical-json.ts'
@@ -71,7 +76,7 @@ export type AuditChainProblem = 'malformed' | 'wrong-election' | 'out-of-order' 
 export interface ValidAuditChain {
   valid: true
   length: number
-  /** The newest event's hash: record it elsewhere to detect removal from the end. */
+  /** The newest event's hash: compare it with one recorded elsewhere to detect a rewritten or shortened history. */
   head: string | null
 }
 
@@ -89,17 +94,30 @@ export type AuditChainStatus = ValidAuditChain | BrokenAuditChain
  * Checks one election's events, in seq order: each names its predecessor and
  * hashes to its stored hash. Reports the first problem by its index. Accepts
  * any input, since an export may have been altered: whatever is not exactly
- * an event, or throws while being read, is malformed.
+ * an event, or throws while being read, is malformed, and so is anything but
+ * an array of events (reported at index 0).
  */
-export function verifyAuditChain(events: readonly unknown[]): AuditChainStatus {
+export function verifyAuditChain(events: unknown): AuditChainStatus {
+  const list = readList(events)
+  if (!list) return { valid: false, length: 0, index: 0, problem: 'malformed' }
   let previous: AuditEvent | undefined
-  for (const [index, value] of events.entries()) {
+  for (const [index, value] of list.entries()) {
     const read = readEvent(value)
     const problem = read ? linkProblem(read, previous) : 'malformed'
-    if (problem) return { valid: false, length: events.length, index, problem }
+    if (problem) return { valid: false, length: list.length, index, problem }
     previous = read?.event
   }
-  return { valid: true, length: events.length, head: previous?.hash ?? null }
+  return { valid: true, length: list.length, head: previous?.hash ?? null }
+}
+
+/** A copy of the array, its holes as undefined; undefined for anything else. */
+function readList(value: unknown): unknown[] | undefined {
+  try {
+    return Array.isArray(value) ? [...(value as unknown[])] : undefined
+  } catch {
+    // A proxy that refuses to be read.
+    return undefined
+  }
 }
 
 const EVENT_KEYS = ['seq', 'electionId', 'at', 'actor', 'action', 'metadata', 'prevHash', 'hash']
@@ -140,8 +158,9 @@ function linkProblem({ event, computedHash }: ReadEvent, previous: AuditEvent | 
 type Unchecked<T> = { [K in keyof T]: unknown }
 
 function isEvent(value: Unchecked<Omit<AuditEvent, 'actor'>> & { actor: Unchecked<AuditActor> }): value is AuditEvent {
-  const { actor, metadata } = value
-  return Number.isSafeInteger(value.seq)
+  const { actor, metadata, seq } = value
+  // seq comes from an identity column, which starts at 1.
+  return typeof seq === 'number' && Number.isSafeInteger(seq) && seq >= 1
     && typeof value.electionId === 'string'
     && typeof value.at === 'string'
     && typeof actor.tid === 'string'

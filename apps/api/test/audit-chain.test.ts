@@ -101,11 +101,23 @@ test('events of two elections are two chains, never one', () => {
   assert.deepEqual(verifyAuditChain([...a, ...b]), { valid: false, length: 4, index: 2, problem: 'wrong-election' })
 })
 
-test('removing events from the end leaves a valid but shorter chain: only a recorded head shows it', () => {
+test('a shortened chain, or one rewritten with every later hash recomputed, verifies: only a recorded head shows it', () => {
   const events = chain(3)
+  const recordedHead = events[2]?.hash
   const shorter = verifyAuditChain(events.slice(0, 2))
   assert.equal(shorter.valid, true)
-  assert.notEqual(shorter.valid && shorter.head, events[2]?.hash)
+  assert.notEqual(shorter.valid && shorter.head, recordedHead)
+
+  // The hashes are not signed: rewrite the middle event and rehash onwards.
+  const rewritten: AuditEvent[] = [events[0] as AuditEvent]
+  for (const event of events.slice(1)) {
+    const content = { ...event, prevHash: rewritten.at(-1)?.hash ?? null }
+    if (event === events[1]) content.metadata = { upn: 'someone@school.example', role: 'admin' }
+    rewritten.push({ ...content, hash: auditEventHash(content) })
+  }
+  const status = verifyAuditChain(rewritten)
+  assert.equal(status.valid, true)
+  assert.notEqual(status.valid && status.head, recordedHead)
 })
 
 test('input that is not an event is reported as malformed, never thrown', () => {
@@ -116,6 +128,8 @@ test('input that is not an event is reported as malformed, never thrown', () => 
     [],
     { ...event, seq: '1' },
     { ...event, seq: 1.5 },
+    { ...event, seq: 0 },
+    { ...event, seq: -1 },
     { ...event, at: Date.parse(event.at) },
     { ...event, actor: null },
     { ...event, actor: { ...event.actor, name: undefined } },
@@ -129,6 +143,16 @@ test('input that is not an event is reported as malformed, never thrown', () => 
   for (const value of malformed) {
     assert.deepEqual(verifyAuditChain([value]), { valid: false, length: 1, index: 0, problem: 'malformed' }, JSON.stringify(value))
   }
+  // The root of an export may be anything, too.
+  const unreadable = new Proxy([event], {
+    get: () => {
+      throw new Error('read refused')
+    },
+  })
+  for (const root of [null, undefined, {}, 'events', 1, { 0: event, length: 1 }, unreadable]) {
+    assert.deepEqual(verifyAuditChain(root), { valid: false, length: 0, index: 0, problem: 'malformed' }, typeof root)
+  }
+  assert.deepEqual(verifyAuditChain([event, , event]), { valid: false, length: 3, index: 1, problem: 'malformed' })
 })
 
 test('fields that are not hashed are refused, so nothing in a valid chain goes unverified', () => {

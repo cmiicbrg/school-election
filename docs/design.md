@@ -81,7 +81,7 @@ An event is written in the same transaction as the change it records, so a chang
 
 Each event carries the SHA-256 hash of its content and of the previous event's hash, so anyone holding the events can check them without the server. The hash is taken over the canonical JSON of `{ version: 1, electionId, at, actor: { tid, oid, name }, action, metadata, prevHash }`, with `prevHash` null for an election's first event and `at` in ISO 8601 UTC with milliseconds. Canonical JSON sorts object keys by UTF-16 code unit, has no whitespace, and allows only objects, arrays, strings, safe integers, booleans and null. `apps/api/lib/audit-chain.ts` computes and verifies the chain, and imports nothing but `node:crypto` and canonical JSON, so an offline verifier can use it as is.
 
-Changing, inserting, removing or reordering an event breaks verification at that event or the next. Removing the newest events leaves a shorter chain that still verifies; only a head hash recorded elsewhere, for example with a result or in an export, reveals that.
+Changing, inserting, removing or reordering an event breaks verification at that event or the next, unless every later hash is recomputed as well. The hashes are not signed: whoever can change the table directly (the database owner; the application's role can only add events) can rewrite the history from any event on, or drop the newest events, and the chain still verifies, only with a different head. Verification therefore vouches for the history up to a head hash that was recorded outside the database and is compared with it, for example with a result, in an export or in the witnesses' notes.
 
 ## Statutory rulings
 
