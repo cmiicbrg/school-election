@@ -3,6 +3,7 @@
 // tut.
 
 import { expect, test, type Page } from '@playwright/test'
+import { assignContest } from '../support/classes.ts'
 import { electionId } from '../support/journey.ts'
 import { ANNA } from '../support/personas.ts'
 import { shot } from '../support/screenshot.ts'
@@ -24,9 +25,7 @@ test.afterAll(async () => {
 test('die 2B wählt nun auch die Klassensprecher:in: ihre Stimmkarten passen nicht mehr', async () => {
   await page.getByRole('button', { name: 'Zurück zum Entwurf' }).click()
   await expect(page.getByText(/^Entwurf · Ihre Rolle/)).toBeVisible()
-  const in2B = page.getByRole('article', { name: '2B', exact: true })
-  await in2B.getByRole('checkbox', { name: 'Klassensprecher/in 1A' }).check()
-  await expect(in2B.getByRole('checkbox', { name: 'Klassensprecher/in 1A' })).toBeChecked()
+  await assignContest(page, '2B', 'Klassensprecher/in 1A')
 
   await page.getByRole('button', { name: 'Vorbereiten', exact: true }).click()
   const dialog = page.getByRole('alertdialog', { name: 'Stimmkarten werden ungültig' })

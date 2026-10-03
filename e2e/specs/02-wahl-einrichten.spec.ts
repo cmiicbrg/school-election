@@ -4,6 +4,7 @@
 
 import { expect, test, type Page } from '@playwright/test'
 import { apiGet } from '../support/api.ts'
+import { assignContest } from '../support/classes.ts'
 import { electionId, remember } from '../support/journey.ts'
 import { ANNA } from '../support/personas.ts'
 import { photo } from '../support/picture.ts'
@@ -102,15 +103,10 @@ test('die Klassen und was sie wählen', async () => {
     await form.getByRole('button', { name: 'Klasse oder Gruppe hinzufügen' }).click()
     await expect(page.getByRole('article', { name, exact: true })).toBeVisible()
   }
-  const in1A = page.getByRole('article', { name: '1A', exact: true })
-  await in1A.getByRole('checkbox', { name: SCHOOL }).check()
-  await expect(in1A.getByRole('checkbox', { name: SCHOOL })).toBeChecked()
-  await in1A.getByRole('checkbox', { name: CLASS_1A }).check()
-  await expect(in1A.getByRole('checkbox', { name: CLASS_1A })).toBeChecked()
-  const in2B = page.getByRole('article', { name: '2B', exact: true })
-  await in2B.getByRole('checkbox', { name: SCHOOL }).check()
-  await expect(in2B.getByRole('checkbox', { name: SCHOOL })).toBeChecked()
-  await expect(in2B.getByRole('checkbox', { name: CLASS_1A })).not.toBeChecked()
+  await assignContest(page, '1A', SCHOOL)
+  await assignContest(page, '1A', CLASS_1A)
+  await assignContest(page, '2B', SCHOOL)
+  await expect(page.getByRole('article', { name: '2B', exact: true }).getByRole('checkbox', { name: CLASS_1A })).not.toBeChecked()
   await shot(page, '05-klassen')
 
   const { body: configuration } = await apiGet<{ voterGroups: { name: string, contestIds: string[] }[] }>(page, `/api/elections/${electionId()}/configuration`)

@@ -35,10 +35,14 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } },
     },
   ],
+  // Never a server that is already there: the journeys need the fresh
+  // database the harness creates, and whatever answers on the port before
+  // the run is a harness left behind or another process altogether. A
+  // busy port fails the run instead.
   webServer: {
     command: 'npm run build && node e2e/harness/server.ts',
     url: `${baseURL}/api/health`,
-    reuseExistingServer: !ci,
+    reuseExistingServer: false,
     timeout: 120_000,
     stdout: 'ignore',
     stderr: 'pipe',
