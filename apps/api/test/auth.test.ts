@@ -290,6 +290,9 @@ test('a sealed session is accepted only as issued, by this key, within its lifet
 
   const expiredAt = Date.now() - ADMIN_SESSION_SECONDS * 1000 - 1000
   assert.equal((await get(sealed(app, { user: user(expiredAt) }))).statusCode, 401, 'signed in more than 8 hours ago')
+  for (const issuedAt of [undefined, null, 'now', Number.NaN]) {
+    assert.equal((await get(sealed(app, { user: { ...user(), issuedAt } }))).statusCode, 401, `issuedAt ${String(issuedAt)}`)
+  }
   assert.equal((await get(sealed(app, { __ts: Math.floor(expiredAt / 1000), user: user() }))).statusCode, 401, 'cookie sealed more than 8 hours ago')
   assert.equal((await get(sealed(app, { signIn: { nonce: 'n', returnTo: '/', startedAt: Date.now() } }))).statusCode, 401, 'a pending sign-in is no session')
 })

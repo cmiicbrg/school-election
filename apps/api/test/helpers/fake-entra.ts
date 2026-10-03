@@ -53,7 +53,7 @@ export async function startFakeEntra(): Promise<FakeEntra> {
   const requests: string[] = []
   const issued: string[] = []
 
-  async function sign(code: PendingCode): Promise<string> {
+  function sign(code: PendingCode): Promise<string> {
     if (code.signWith === 'hs256') {
       return new SignJWT(code.claims).setProtectedHeader({ alg: 'HS256', kid }).sign(new TextEncoder().encode(CLIENT_SECRET))
     }
@@ -129,9 +129,11 @@ export async function startFakeEntra(): Promise<FakeEntra> {
   }
 }
 
+/** The Authorization header of a client using client_secret_basic (RFC 6749, appendix B encoding). */
 function basic(id: string, secret: string): string {
-  const encode = (value: string) => encodeURIComponent(value).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
-  return `Basic ${Buffer.from(`${encode(id)}:${encode(secret)}`).toString('base64')}`
+  const encode = (value: string) => encodeURIComponent(value).replace(/[!'()*]/g, (c) => '%' + (c.codePointAt(0) ?? 0).toString(16).toUpperCase())
+  const credentials = Buffer.from(encode(id) + ':' + encode(secret)).toString('base64')
+  return `Basic ${credentials}`
 }
 
 async function readBody(request: IncomingMessage): Promise<string> {

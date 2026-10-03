@@ -11,7 +11,7 @@
 //        guessing ids reveals nothing (election routes);
 //   409  allowed, but not in the election's current state.
 
-import type { FastifyReply, FastifyRequest } from 'fastify'
+import type { FastifyReply, FastifyRequest, HookHandlerDoneFunction } from 'fastify'
 import { ADMIN_SESSION_SECONDS, type SessionUser } from '../plugins/session.ts'
 
 /**
@@ -28,11 +28,17 @@ export function isGlobalRole(value: unknown): value is GlobalRole {
   return GLOBAL_ROLES.includes(value as GlobalRole)
 }
 
-/** The signed-in caller, or undefined. A session past its lifetime counts as none. */
+/** The signed-in caller, or undefined. A session past its lifetime, or without a sign-in time, counts as none. */
 export function currentUser(request: FastifyRequest, now = Date.now()): SessionUser | undefined {
   const user = request.adminSession.get('user')
-  if (!user || !(now - user.issuedAt < ADMIN_SESSION_SECONDS * 1000)) return undefined
+  if (!user || !withinSeconds(user.issuedAt, ADMIN_SESSION_SECONDS, now)) return undefined
   return user
+}
+
+/** Whether `since` (a Date.now() value) lies less than `seconds` back; false for anything that is not a time. */
+export function withinSeconds(since: unknown, seconds: number, now = Date.now()): boolean {
+  if (typeof since !== 'number' || !Number.isFinite(since)) return false
+  return now - since < seconds * 1000
 }
 
 /** For handlers behind requireSession: the caller, who is known to exist. */
@@ -42,18 +48,27 @@ export function callerOf(request: FastifyRequest): SessionUser {
   return user
 }
 
-// A guard that replies returns the reply, so Fastify stops before the handler.
+// A guard that replies does not call done(), so Fastify stops before the handler.
 
-export async function requireSession(request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply | undefined> {
-  if (!currentUser(request)) return reply.code(401).send({ error: 'unauthenticated' })
-  return undefined
+export function requireSession(request: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction): void {
+  if (!currentUser(request)) {
+    void reply.code(401).send({ error: 'unauthenticated' })
+    return
+  }
+  done()
 }
 
 export function requireGlobalRole(role: GlobalRole) {
-  return async (request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply | undefined> => {
+  return (request: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction): void => {
     const user = currentUser(request)
-    if (!user) return reply.code(401).send({ error: 'unauthenticated' })
-    if (!user.roles.includes(role)) return reply.code(403).send({ error: 'forbidden' })
-    return undefined
+    if (!user) {
+      void reply.code(401).send({ error: 'unauthenticated' })
+      return
+    }
+    if (!user.roles.includes(role)) {
+      void reply.code(403).send({ error: 'forbidden' })
+      return
+    }
+    done()
   }
 }

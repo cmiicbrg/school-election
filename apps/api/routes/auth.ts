@@ -20,7 +20,7 @@ import rateLimit from '@fastify/rate-limit'
 import { Type, type Static } from 'typebox'
 import type { Config } from '../config.ts'
 import { upsertAppUser } from '../lib/app-user.ts'
-import { callerOf, GLOBAL_ROLES, requireSession } from '../lib/auth.ts'
+import { callerOf, GLOBAL_ROLES, requireSession, withinSeconds } from '../lib/auth.ts'
 import type { Database } from '../lib/db.ts'
 import { registerEntra, SIGN_IN_SECONDS, SignInError } from '../lib/entra.ts'
 import { safeReturnTo } from '../lib/return-to.ts'
@@ -82,7 +82,7 @@ export async function authRoutes(app: FastifyInstance, { config, db, entraAuthor
     const session = request.adminSession
     const pending = session.get('signIn')
     if (pending) session.set('signIn', undefined)
-    if (!pending || !(Date.now() - pending.startedAt < SIGN_IN_SECONDS * 1000)) {
+    if (!pending || !withinSeconds(pending.startedAt, SIGN_IN_SECONDS)) {
       return refuse(request, reply, new SignInError('no_pending_sign_in'))
     }
     let signIn
@@ -99,15 +99,15 @@ export async function authRoutes(app: FastifyInstance, { config, db, entraAuthor
     return reply.redirect(safeReturnTo(pending.returnTo), 303)
   })
 
-  app.post('/api/auth/logout', async (request, reply) => {
+  app.post('/api/auth/logout', (request, reply) => {
     request.adminSession.delete()
-    return reply.code(204).send()
+    void reply.code(204).send()
   })
 
   app.get('/api/auth/me', {
     preHandler: requireSession,
     schema: { response: { '200': MeResponse, '4xx': ErrorResponse } },
-  }, async (request) => {
+  }, (request) => {
     const { id, displayName, roles } = callerOf(request)
     return { id, displayName, roles }
   })
