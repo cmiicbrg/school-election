@@ -195,15 +195,14 @@ async function ensureRuntimeRole(client: pg.Client, password: string): Promise<b
 
 // An owner keeps the right to alter, drop and grant on its objects, which no
 // revoke takes away; like a membership, ownership is refused, not changed.
+// pg_shdepend records the owner of every kind of object, in this database
+// and cluster-wide.
 async function refuseOwnership(client: pg.Client): Promise<void> {
   const owned = await client.query<{ name: string }>(
-    `select owned.name from (
-       select c.oid::regclass::text as name, c.relowner as owner from pg_class c
-       union all select f.oid::regprocedure::text, f.proowner from pg_proc f
-       union all select 'schema ' || n.nspname, n.nspowner from pg_namespace n
-       union all select t.oid::regtype::text, t.typowner from pg_type t where t.typtype in ('d', 'e', 'r')
-     ) as owned
-     where owned.owner = (select oid from pg_roles where rolname = $1)`,
+    `select pg_describe_object(d.classid, d.objid, d.objsubid) as name from pg_shdepend d
+      where d.refclassid = 'pg_authid'::regclass and d.deptype = 'o'
+        and d.refobjid = (select oid from pg_roles where rolname = $1)
+        and d.dbid in (0, (select oid from pg_database where datname = current_database()))`,
     [RUNTIME_ROLE],
   )
   if (owned.rows.length > 0) {
@@ -293,6 +292,22 @@ async function resetRuntimePrivileges(client: pg.Client, { complete }: { complet
     // list goes as one multi-statement query, inside this transaction.
     await client.query(['tables', 'sequences', 'routines']
       .map((kind) => `revoke all on all ${kind} in schema public from public, ${RUNTIME_ROLE}`).join(';\n'))
+    // Default privileges of every role, globally and per schema: none may
+    // give PUBLIC or the runtime role anything on objects created later.
+    await client.query(`do $$
+      declare d record; k text;
+      begin
+        for d in select distinct pg_get_userbyid(a.defaclrole) as owner, n.nspname as schema
+                   from pg_default_acl a left join pg_namespace n on n.oid = a.defaclnamespace loop
+          foreach k in array array['tables', 'sequences', 'routines'] loop
+            if d.schema is null then
+              execute format('alter default privileges for role %I revoke all on %s from public, ${RUNTIME_ROLE}', d.owner, k);
+            else
+              execute format('alter default privileges for role %I in schema %I revoke all on %s from public, ${RUNTIME_ROLE}', d.owner, d.schema, k);
+            end if;
+          end loop;
+        end loop;
+      end $$`)
     await client.query('alter default privileges revoke execute on routines from public')
     const grants = grantStatements(RUNTIME_ROLE, { tables, functions })
     if (grants.length > 0) await client.query(grants.join(';\n'))

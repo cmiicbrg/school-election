@@ -89,16 +89,27 @@ export async function checkDatabaseSettings(db: Pick<Database, 'query'>): Promis
   // for instance because the runtime role was made its owner (reported
   // above), pg_settings leaves the hidden two out instead of failing, and
   // an absent setting must never read as "nothing preloaded".
+  // Its answer alone proves nothing about who stands behind it: any member
+  // of pg_read_all_settings would get all three, and as the owner could
+  // redefine it. So its owner must be a superuser, or it is not called.
+  const { rows: [definer] } = await db.query<{ owner: string, superuser: boolean }>(
+    `select r.rolname::text as owner, r.rolsuper as superuser from pg_proc f join pg_roles r on r.oid = f.proowner
+      where f.oid = to_regprocedure('preload_settings()')`,
+  )
   let preload: { name: string, setting: string }[] = []
-  try {
-    preload = (await db.query<{ name: string, setting: string }>('select name, setting from preload_settings()')).rows
-  } catch (err) {
-    if (sqlState(err) !== SQLSTATE.insufficientPrivilege) throw err
+  if (definer?.superuser === true) {
+    try {
+      preload = (await db.query<{ name: string, setting: string }>('select name, setting from preload_settings()')).rows
+    } catch (err) {
+      if (sqlState(err) !== SQLSTATE.insufficientPrivilege) throw err
+    }
+  } else {
+    problems.push(`preload_settings() belongs to ${definer?.owner ?? 'nobody'}, not a superuser; it must belong to the superuser that runs the migrations`)
   }
   for (const { name, setting } of preload) values.set(name, setting)
   const unread = PRELOAD_SETTINGS.filter((name) => !preload.some((row) => row.name === name))
-  if (unread.length > 0) {
-    problems.push(`preload_settings() did not return ${unread.join(', ')}; it must belong to the superuser that runs the migrations`)
+  if (definer?.superuser === true && unread.length > 0) {
+    problems.push(`preload_settings() did not return ${unread.join(', ')}; it must return every preload setting`)
   }
   for (const { name, expected, why } of REQUIRED_SETTINGS) {
     const actual = values.get(name) ?? ''
@@ -153,13 +164,14 @@ async function checkConnectedRole(db: Pick<Database, 'query'>): Promise<{ proble
               case when has_database_privilege(current_database(), 'TEMPORARY') then 'temporary tables' end
             ], null) as creates,
             -- An owner can alter, drop and grant on its objects whatever
-            -- has been revoked from it; a superuser is reported as such.
+            -- has been revoked from it. pg_shdepend records the owner of
+            -- every kind of object, in this database and cluster-wide; a
+            -- superuser is reported as such instead.
             case when r.rolsuper then '{}'::text[] else coalesce((
               select array_agg(owned.name order by owned.name) from (
-                select c.oid::regclass::text as name from pg_class c where c.relowner = r.oid
-                union all select f.oid::regprocedure::text from pg_proc f where f.proowner = r.oid
-                union all select 'schema ' || n.nspname from pg_namespace n where n.nspowner = r.oid
-                union all select t.oid::regtype::text from pg_type t where t.typowner = r.oid and t.typtype in ('d', 'e', 'r')
+                select pg_describe_object(d.classid, d.objid, d.objsubid) as name from pg_shdepend d
+                 where d.refclassid = 'pg_authid'::regclass and d.refobjid = r.oid and d.deptype = 'o'
+                   and d.dbid in (0, (select oid from pg_database where datname = current_database()))
               ) as owned
             ), '{}'::text[]) end as owns
        from pg_roles r where r.rolname = current_user`,
@@ -223,7 +235,7 @@ const BASELINE: readonly Privilege[] = [
 // Anything beyond lib/runtime-privileges.ts, granted by hand or left over,
 // stops the server: the next migration run takes it away again.
 async function checkObjectPrivileges(db: Pick<Database, 'query'>): Promise<string[]> {
-  const key = (p: Privilege) => `${p.privilege} on ${p.kind}${p.object === '' ? '' : ` ${p.object}`}`
+  const key = (p: Privilege) => [p.privilege, 'on', p.kind, p.object].filter((part) => part !== '').join(' ')
   const allowed = new Set([...BASELINE, ...expectedPrivileges()].map(key))
   const { rows } = await db.query<Privilege>(PRIVILEGES_QUERY, [
     withGrantOption(TABLE_PRIVILEGES),
