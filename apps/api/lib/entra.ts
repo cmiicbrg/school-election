@@ -19,6 +19,8 @@ import type { EntraIdentity } from './app-user.ts'
 import { isGlobalRole, type GlobalRole } from './auth.ts'
 
 export const ENTRA_AUTHORITY = 'https://login.microsoftonline.com'
+/** Holds the state of a started sign-in until its callback. */
+export const STATE_COOKIE = '__Host-oauth2-redirect-state'
 /** How long a started sign-in may take. */
 export const SIGN_IN_SECONDS = 10 * 60
 
@@ -32,6 +34,8 @@ export interface EntraClient {
    * `interactive` asks Entra for the sign-in page instead of single sign-on.
    */
   authorizationUrl: (request: FastifyRequest, reply: FastifyReply, nonce: string, interactive: boolean) => Promise<string>
+  /** Whether a callback carries the state of the sign-in this browser started. */
+  stateMatches: (request: FastifyRequest, state: string | undefined) => boolean
   /** Checks the state, redeems the code, clears the state cookie; returns the ID token. */
   exchangeCode: (request: FastifyRequest, reply: FastifyReply) => Promise<string>
   verifyIdToken: (idToken: string, nonce: string) => Promise<VerifiedSignIn>
@@ -72,6 +76,7 @@ export async function registerEntra(app: FastifyInstance, config: EntraConfig, r
       http: { timeout: 10_000 },
     },
     callbackUri: redirectUri,
+    redirectStateCookieName: STATE_COOKIE,
     hostPrefixedCookies: true,
     cookie: { httpOnly: true, sameSite: 'lax', maxAge: SIGN_IN_SECONDS },
   })
@@ -85,6 +90,12 @@ export async function registerEntra(app: FastifyInstance, config: EntraConfig, r
       url.searchParams.set('nonce', nonce)
       if (interactive) url.searchParams.set('prompt', 'login')
       return url.toString()
+    },
+    // The comparison the code exchange makes again: the cookie as the login
+    // set it, against the state Entra sent back.
+    stateMatches(request, state) {
+      const expected = request.cookies[STATE_COOKIE]
+      return expected !== undefined && expected !== '' && state === expected
     },
     async exchangeCode(request, reply) {
       let idToken: unknown

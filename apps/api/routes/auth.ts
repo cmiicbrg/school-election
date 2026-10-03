@@ -87,6 +87,13 @@ export async function authRoutes(app: FastifyInstance, { config, db, entraAuthor
     config: { rateLimit: SIGN_IN_RATE_LIMIT },
     schema: { querystring: CallbackQuery, response: { '4xx': ErrorResponse } },
   }, async (request, reply) => {
+    // Only the callback of this browser's own sign-in may use it up. The
+    // session cookie is Lax, so another site can send the browser here, and
+    // that must not cancel a sign-in in progress. Entra returns the state
+    // with an error too, so only a callback without it is turned away here.
+    if (!entra.stateMatches(request, request.query.state)) {
+      return refuse(request, reply, new SignInError('state_mismatch'))
+    }
     const session = request.adminSession
     const pending = session.get('signIn')
     if (pending) session.set('signIn', undefined)

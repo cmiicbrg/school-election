@@ -8,10 +8,10 @@ import { ADMIN_SESSION_COOKIE, ADMIN_SESSION_SECONDS, type SessionUser } from '.
 import { buildTestApp, ORIGIN, stubDatabase } from './helpers/app.ts'
 import { createTestDatabase, DB } from './helpers/db.ts'
 import { secretFile, TENANT_ID } from './helpers/env.ts'
+import { STATE_COOKIE } from '../lib/entra.ts'
 import { CookieJar, ISSUER, startFakeEntra, type AuthorizeOptions, type FakeEntra } from './helpers/fake-entra.ts'
 
 const sameOrigin = { 'sec-fetch-site': 'same-origin' }
-const STATE_COOKIE = '__Host-oauth2-redirect-state'
 const VERIFIER_COOKIE = '__Host-oauth2-code-verifier'
 
 interface Setup {
@@ -183,6 +183,26 @@ test('every failed check ends without a session and without an app_user row', DB
   for (const secret of [...s.entra.issued, 'Maria Muster', 'maria.muster', 'c0ffee00', 'access_denied']) {
     assert.ok(!log.includes(secret), `log contains ${secret}`)
   }
+})
+
+test('a callback without the state of this browser\'s sign-in leaves that sign-in in progress', DB, async (t) => {
+  const s = await setup(t)
+  const jar = new CookieJar()
+  const login = await s.app.inject({ method: 'GET', url: '/api/auth/login?returnTo=/admin' })
+  jar.update(login)
+  const callback = new URL(s.entra.authorize(String(login.headers.location)), ORIGIN)
+  // Another site sends the browser to the callback first: the cookies come
+  // along, the state does not.
+  for (const forged of ['?error=access_denied', '?error=access_denied&state=', '?code=x&state=forged', '?code=x']) {
+    const logged = s.logs().length
+    const res = await s.app.inject({ method: 'GET', url: `/api/auth/callback${forged}`, headers: { cookie: jar.header() } })
+    assert.equal(res.statusCode, 401, forged)
+    assert.match(s.logs().slice(logged), /"code":"state_mismatch".*"msg":"sign-in refused"/, forged)
+    jar.update(res)
+  }
+  assert.deepEqual(s.entra.requests, [])
+  const res = await s.app.inject({ method: 'GET', url: callback.pathname + callback.search, headers: { cookie: jar.header() } })
+  assert.deepEqual([res.statusCode, res.headers.location], [303, '/admin'])
 })
 
 test('an unreachable token endpoint is logged as a failed token request, not as a forged state', async (t) => {
