@@ -10,6 +10,7 @@ import { apiPost } from '../lib/api.ts'
 import { errorMessage } from '../lib/api-rules.ts'
 import { ROUND_LABELS, type Role } from '../lib/labels.ts'
 import { mayReadKeys, type SetupRules } from '../lib/setup-rules.ts'
+import { printable } from '../lib/sheet.ts'
 import type { BatchSummary, Configuration } from '../lib/types.ts'
 
 const props = defineProps<{
@@ -44,8 +45,18 @@ function printPath(batch: BatchSummary): string {
   return `/elections/${props.electionId}/batches/${batch.id}/print`
 }
 
+/** Sheets print until the batch's round opens; once it has closed, the codes with their use can be seen. */
+function prints(batch: BatchSummary): boolean {
+  return batch.state === 'issued' && printable(props.lifecycle, batch.roundKind)
+}
+
+function closed(batch: BatchSummary): boolean {
+  const round = batch.roundKind === 'regular' ? props.lifecycle.regular : props.lifecycle.runoff
+  return round === 'closed'
+}
+
 function readable(batch: BatchSummary): boolean {
-  return batch.state === 'issued' && mayReadKeys(props.role, props.lifecycle, batch.roundKind)
+  return batch.state === 'issued' && mayReadKeys(props.role, props.lifecycle, batch.roundKind) && (prints(batch) || closed(batch))
 }
 
 async function issue(groupId: string, roundKind: RoundKind): Promise<void> {
@@ -91,7 +102,7 @@ function groupName(batch: BatchSummary): string {
       Stimmkarten
     </h2>
     <p class="muted">
-      Jede Klasse oder Gruppe bekommt ihren eigenen Stapel Stimmkarten, sechs je A4-Seite. Die Druckseite zeigt immer dieselben Codes und kann jederzeit noch einmal gedruckt werden. Für eine mögliche Stichwahl können Stimmkarten schon vorab erzeugt werden; sie gelten erst, wenn die Stichwahl beginnt.
+      Jede Klasse oder Gruppe bekommt ihren eigenen Stapel Stimmkarten, sechs je A4-Seite. Die Druckseite zeigt immer dieselben Codes und kann bis zum Beginn der Runde noch einmal gedruckt werden; danach nicht mehr. Für eine mögliche Stichwahl können Stimmkarten schon vorab erzeugt werden; sie gelten erst, wenn die Stichwahl beginnt.
     </p>
     <p
       v-if="!anyIssue && batches.length === 0"
@@ -135,7 +146,7 @@ function groupName(batch: BatchSummary): string {
                 :href="printPath(batch)"
                 target="_blank"
                 rel="noopener"
-              >{{ role === 'witness' ? 'Codes anzeigen' : 'Drucken' }}</a>
+              >{{ prints(batch) ? 'Drucken' : 'Codes anzeigen' }}</a>
             </td>
           </tr>
         </tbody>
