@@ -59,11 +59,12 @@ export default [
       sourceType: 'module',
       parserOptions: {
         // Each workspace has its own tsconfig.json; the project service picks
-        // the nearest one per file. vite.config.ts is the one file no
-        // tsconfig.json includes (it runs in Node, the app in the browser),
-        // so it gets the web workspace's Node-side config as its default.
+        // the nearest one per file. vite.config.ts and the Playwright config
+        // at the root are the files no tsconfig.json beside them includes
+        // (both run in Node), so they get the web workspace's Node-side
+        // config as their default.
         projectService: {
-          allowDefaultProject: ['apps/web/vite.config.ts'],
+          allowDefaultProject: ['apps/web/vite.config.ts', 'playwright.config.ts'],
           defaultProject: 'apps/web/tsconfig.node.json',
         },
         tsconfigRootDir: import.meta.dirname,

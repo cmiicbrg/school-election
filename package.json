@@ -17,23 +17,31 @@
     "build": "npm run build --workspace apps/web",
     "migrate": "npm run migrate --workspace apps/api",
     "test": "node --test \"scripts/**/*.test.mjs\" && npm test --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p e2e/tsconfig.json",
     "lint": "npm run lint:js && npm run lint:md && npm run lint:deps && npm run typecheck",
     "lint:js": "eslint . --max-warnings 0",
     "lint:md": "markdownlint-cli2",
-    "lint:deps": "node scripts/lint-deps.mjs"
+    "lint:deps": "node scripts/lint-deps.mjs",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "e2e:install": "playwright install chromium",
+    "e2e:screenshots": "SCREENSHOT_DIR=docs/anleitung/bilder playwright test"
   },
   "engines": {
     "node": ">=26"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@playwright/test": "1.63.0",
     "@stylistic/eslint-plugin": "5.10.0",
     "@types/node": "26.6.4",
+    "@types/pngjs": "6.0.5",
     "eslint": "10.11.0",
     "eslint-plugin-vue": "10.11.1",
     "globals": "17.13.0",
+    "jsqr": "1.4.0",
     "markdownlint-cli2": "0.23.3",
+    "pngjs": "7.0.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.71.0",
     "vue-eslint-parser": "10.4.1"
