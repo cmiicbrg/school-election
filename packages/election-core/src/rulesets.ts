@@ -12,7 +12,9 @@
 // Ids carry a version. A ruleset is never edited in place: a change gets a
 // new id, so results computed under the old one stay reproducible.
 
-export type RulesetId = 'at-school-speaker-v1' | 'at-representative-v1' | 'single-choice-v1'
+/** Every ruleset id, in a fixed order; the database checks a contest's ruleset against this list. */
+export const RULESET_IDS = ['at-school-speaker-v1', 'at-representative-v1', 'single-choice-v1'] as const
+export type RulesetId = typeof RULESET_IDS[number]
 
 export interface Slot {
   /** 1-based position on the ballot; rank 1 is the highest slot. */

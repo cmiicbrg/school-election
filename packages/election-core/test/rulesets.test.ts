@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { activeSlots, isRulesetId, RULESETS } from '../src/index.ts'
+import { activeSlots, isRulesetId, RULESET_IDS, RULESETS } from '../src/index.ts'
 
 const points = (slots: readonly { points: number }[]) => slots.map((s) => s.points)
 const speaker = RULESETS['at-school-speaker-v1']
@@ -22,6 +22,11 @@ test('the school speaker ruleset carries the statutory points 6..1 with their fu
 test('the representative ruleset carries the statutory points 2, 1', () => {
   assert.deepEqual(points(representative.slots), [2, 1])
   assert.deepEqual(representative.slots.map((s) => s.function), ['representative', 'deputy'])
+})
+
+test('the list of ruleset ids names exactly the rulesets there are', () => {
+  assert.deepEqual([...RULESET_IDS].sort(), Object.keys(RULESETS).sort())
+  assert.equal(new Set(RULESET_IDS).size, RULESET_IDS.length)
 })
 
 test('the single-choice ruleset has exactly one slot', () => {

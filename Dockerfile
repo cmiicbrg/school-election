@@ -54,6 +54,9 @@ COPY packages/election-core/package.json packages/election-core/
 COPY packages/election-core/src packages/election-core/src
 COPY apps/api apps/api
 COPY --from=web /app/apps/web/dist apps/web/dist
+# The license texts and notice of libvips, the shared library sharp loads
+# from node_modules (see third-party-notices/README.md).
+COPY third-party-notices third-party-notices
 
 # What was built, reported by /api/health. Set by the CI and release
 # workflows; a plain local build reports "dev" and "unknown". Declared after

@@ -12,8 +12,11 @@ import { pathOf } from './lib/url.ts'
 import { applyHardening } from './plugins/hardening.ts'
 import { registerSessions } from './plugins/session.ts'
 import { authRoutes } from './routes/auth.ts'
+import { configurationRoutes } from './routes/configuration.ts'
 import { electionRoutes } from './routes/elections.ts'
 import { memberRoutes } from './routes/members.ts'
+import { pictureRoutes } from './routes/pictures.ts'
+import { prepareRoutes } from './routes/prepare.ts'
 
 export interface AppOptions {
   db: Database
@@ -56,6 +59,7 @@ export async function buildApp(config: Config, options: AppOptions): Promise<Fas
     logController: new LogController({ disableRequestLogging: true }),
     trustProxy: config.trustProxy,
     // Ballots and admin payloads are small; refuse anything large early.
+    // The picture upload route alone has a larger limit of its own.
     bodyLimit: 64 * 1024,
     // Strict validation: unknown properties are an error rather than being
     // stripped, and "1" is not quietly turned into 1.
@@ -108,6 +112,9 @@ export async function buildApp(config: Config, options: AppOptions): Promise<Fas
   await app.register(authRoutes, { config, db, entraAuthority: options.entraAuthority })
   await app.register(electionRoutes, { db })
   await app.register(memberRoutes, { db })
+  await app.register(configurationRoutes, { db })
+  await app.register(pictureRoutes, { db })
+  await app.register(prepareRoutes, { db })
 
   app.get('/api/health', { schema: { response: { '200': HealthResponse, '503': HealthResponse, '4xx': ErrorResponse } } }, async (_request, reply) => {
     const { version, gitSha } = config.build

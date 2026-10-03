@@ -22,9 +22,22 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   app_user: { table: ['SELECT', 'INSERT'], updateColumns: ['display_name', 'email'] },
   // Append-only: events are added and read, never changed or removed.
   audit_event: { table: ['SELECT', 'INSERT'] },
-  election: { table: ['SELECT', 'INSERT'] },
+  // Title, description and the lifecycle state change; elections are not
+  // deleted yet. Triggers keep the editing windows and the transitions
+  // (migration 0007).
+  election: { table: ['SELECT', 'INSERT'], updateColumns: ['title', 'description', 'state'] },
   // Members are invited and removed; binding sets user_id once.
   election_member: { table: ['SELECT', 'INSERT', 'DELETE'], updateColumns: ['user_id'] },
+  // The configuration of an election. Nothing moves to another election or
+  // contest: those columns are never updated.
+  contest: { table: ['SELECT', 'INSERT', 'DELETE'], updateColumns: ['title', 'ruleset_id'] },
+  candidate: { table: ['SELECT', 'INSERT', 'DELETE'], updateColumns: ['surname', 'given_name', 'picture', 'picture_sha256'] },
+  voter_group: { table: ['SELECT', 'INSERT', 'DELETE'], updateColumns: ['name'] },
+  voter_group_contest: { table: ['SELECT', 'INSERT', 'DELETE'] },
+  // Preparing creates the regular round and its ballot boxes; no round is
+  // opened, closed or removed yet.
+  round: { table: ['SELECT', 'INSERT'] },
+  round_contest: { table: ['SELECT', 'INSERT', 'DELETE'] },
 }
 
 /** Functions the runtime role may execute, by their signature. */

@@ -8,6 +8,17 @@ import { pathOf } from '../lib/url.ts'
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 
+declare module 'fastify' {
+  interface FastifyContextConfig {
+    /**
+     * The route serves content under a URL that changes whenever the
+     * content does (a candidate picture by its hash), and sets its own
+     * Cache-Control for a 200 or 304, which the no-store rule below keeps.
+     */
+    contentAddressed?: boolean
+  }
+}
+
 export function applyHardening(app: FastifyInstance, config: Config, { webDist }: { webDist?: string }): void {
   // CSRF: a state-changing request must come from our own pages. Browsers
   // send Sec-Fetch-Site on every request; only "same-origin" passes. Older
@@ -33,9 +44,12 @@ export function applyHardening(app: FastifyInstance, config: Config, { webDist }
   app.removeContentTypeParser('text/plain')
 
   // API responses carry election state and must not sit in a browser or
-  // proxy cache.
+  // proxy cache. The one exception is a content-addressed route's 200 or
+  // 304: its URL names the content, so what a cache keeps cannot go stale.
+  // Its refusals (401, 404, ...) are no-store like every other answer.
   app.addHook('onSend', (request, reply, payload, done) => {
-    if (isApiPath(pathOf(request.url))) reply.header('cache-control', 'no-store')
+    const cacheable = request.routeOptions.config.contentAddressed === true && (reply.statusCode === 200 || reply.statusCode === 304)
+    if (isApiPath(pathOf(request.url)) && !cacheable) reply.header('cache-control', 'no-store')
     done(null, payload)
   })
 

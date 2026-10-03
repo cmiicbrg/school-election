@@ -1,26 +1,32 @@
 // Elections and their audit log. Every route under /api/elections/:id
 // passes requireElectionAccess first (lib/election-access.ts).
 //
-//   POST /api/elections            a teacher creates a draft and becomes its owner
-//   GET  /api/elections            the elections the caller is a bound member of
-//   GET  /api/elections/:id        one election, with the caller's role and permissions
-//   GET  /api/elections/:id/audit  its audit log, and whether the chain verifies
+//   POST  /api/elections            a teacher creates a draft, from a preset or empty, and becomes its owner
+//   GET   /api/elections            the elections the caller is a bound member of
+//   GET   /api/elections/:id        one election, with the caller's role and permissions
+//   PATCH /api/elections/:id        its title or description, until voting starts
+//   GET   /api/elections/:id/audit  its audit log, and whether the chain verifies
 
 import type { FastifyInstance } from 'fastify'
 import { Type, type Static } from 'typebox'
-import { ELECTION_STATES, type ElectionState } from '@school-election/election-core'
+import { canEditCandidates, ELECTION_STATES, NEW_ELECTION, type ElectionState } from '@school-election/election-core'
 import { boundedName } from '../lib/app-user.ts'
 import { appendAudit, readAuditChain } from '../lib/audit.ts'
 import { verifyAuditChain } from '../lib/audit-chain.ts'
 import { callerOf, requireGlobalRole, requireSession } from '../lib/auth.ts'
+import { createContest } from '../lib/configuration.ts'
 import type { Database } from '../lib/db.ts'
-import { electionAccessOf, requireElectionAccess } from '../lib/election-access.ts'
+import { changeElection, electionAccessOf, requireElectionAccess } from '../lib/election-access.ts'
 import { ELECTION_ACTIONS, ELECTION_ROLES, permissionsOf, type ElectionRole } from '../lib/permissions.ts'
+import { PRESET_IDS, PRESETS } from '../lib/presets.ts'
 import { ErrorResponse, Literals, MultiLineText, SingleLineText, StrictObject } from '../lib/schemas/common.ts'
+import { ElectionUpdateBody } from '../lib/schemas/configuration.ts'
 
 const CreateElectionBody = StrictObject({
   title: SingleLineText(200),
   description: Type.Optional(MultiLineText(2000)),
+  /** The contests the election starts with (lib/presets.ts); without one it starts empty. */
+  preset: Type.Optional(Literals(PRESET_IDS)),
 })
 
 const ElectionSummary = StrictObject({
@@ -47,7 +53,7 @@ const AuditLogResponse = StrictObject({
     at: Type.String(),
     actor: StrictObject({ tid: Type.String(), oid: Type.String(), name: Type.String() }),
     action: Type.String(),
-    metadata: Type.Record(Type.String(), Type.String()),
+    metadata: Type.Record(Type.String(), Type.Union([Type.String(), Type.Integer()])),
     prevHash: Type.Union([Type.String(), Type.Null()]),
     hash: Type.String(),
   })),
@@ -74,7 +80,7 @@ export function electionRoutes(app: FastifyInstance, { db }: { db: Database }, d
     schema: { body: CreateElectionBody, response: { '201': ElectionDetail, '4xx': ErrorResponse } },
   }, async (request, reply) => {
     const caller = callerOf(request)
-    const { title, description = '' } = request.body
+    const { title, description = '', preset } = request.body
     const row = await db.tx(async (client) => {
       const { rows: [election] } = await client.query<ElectionRow>(
         'insert into election (title, description) values ($1, $2) returning id, title, description, state',
@@ -89,11 +95,11 @@ export function electionRoutes(app: FastifyInstance, { db }: { db: Database }, d
       )
       if (!owner) throw new Error('the signed-in caller has no app_user row')
       await client.query('insert into election_member (election_id, role, user_id) values ($1, \'owner\', $2)', [election.id, caller.id])
-      await appendAudit(client, election.id, {
-        actor: { tid: owner.tid, oid: owner.oid, name: boundedName(owner.display_name) ?? owner.oid },
-        action: 'election.created',
-        metadata: { title },
-      })
+      const actor = { tid: owner.tid, oid: owner.oid, name: boundedName(owner.display_name) ?? owner.oid }
+      await appendAudit(client, election.id, { actor, action: 'election.created', metadata: { title } })
+      // A preset's contests, each recorded like one the owner adds.
+      const access = { electionId: election.id, role: 'owner' as const, lifecycle: NEW_ELECTION, actor }
+      for (const contest of preset === undefined ? [] : PRESETS[preset]) await createContest(client, access, contest)
       return election
     })
     return reply.code(201).send(detail(row, 'owner'))
@@ -121,6 +127,22 @@ export function electionRoutes(app: FastifyInstance, { db }: { db: Database }, d
     const { rows: [row] } = await db.query<ElectionRow>('select id, title, description, state from election where id = $1', [access.electionId])
     if (!row) throw new Error('an election the guard found is gone')
     return detail(row, access.role)
+  })
+
+  app.patch<{ Body: Static<typeof ElectionUpdateBody> }>('/api/elections/:id', {
+    onRequest: requireElectionAccess(db, 'configure', canEditCandidates),
+    schema: { body: ElectionUpdateBody, response: { '200': ElectionDetail, '4xx': ErrorResponse } },
+  }, async (request) => {
+    const row = await changeElection(db, request, async (client, access) => {
+      const { rows: [current] } = await client.query<ElectionRow>('select id, title, description, state from election where id = $1', [access.electionId])
+      if (!current) throw new Error('an election the guard found is gone')
+      const { title = current.title, description = current.description } = request.body
+      if (title === current.title && description === current.description) return current
+      await client.query('update election set title = $2, description = $3 where id = $1', [access.electionId, title, description])
+      await appendAudit(client, access.electionId, { actor: access.actor, action: 'election.updated', metadata: { title, description } })
+      return { ...current, title, description }
+    })
+    return detail(row, electionAccessOf(request).role)
   })
 
   app.get('/api/elections/:id/audit', {

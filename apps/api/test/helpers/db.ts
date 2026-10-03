@@ -64,3 +64,16 @@ export async function withClient<T>(url: string, fn: (client: pg.Client) => Prom
     await client.end()
   }
 }
+
+/** The quoted values of the CHECK constraint that lists a column's values, in their order. */
+export async function checkedValues(url: string, table: string, column: string): Promise<string[]> {
+  return withClient(url, async (client) => {
+    const { rows } = await client.query<{ def: string }>(
+      `select pg_get_constraintdef(oid) as def from pg_constraint
+        where conrelid = $1::regclass and contype = 'c' and pg_get_constraintdef(oid) like $2`,
+      [table, `%(${column} = ANY%`],
+    )
+    if (rows.length !== 1) throw new Error(`expected one CHECK listing the values of ${table}.${column}, found ${rows.length}`)
+    return [...(rows[0]?.def ?? '').matchAll(/'([a-z0-9-]+)'::text/g)].map((match) => match[1] ?? '')
+  })
+}
