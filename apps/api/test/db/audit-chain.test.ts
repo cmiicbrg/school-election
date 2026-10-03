@@ -138,35 +138,56 @@ test('editing a stored event breaks verification; relinking or removing one is r
   assert.equal(verifyAuditChain(await chainOf(db, ELECTION_A)).valid, true)
 })
 
-test('the database keeps every chain linear: one first event, no forks, no foreign links', DB, async (t) => {
+test('the database keeps every chain linear: one first event, no forks, no foreign links, no cycles', DB, async (t) => {
   const { db, runtimeUrl } = await setup(t)
   const first = await db.tx((client) => appendAudit(client, ELECTION_A, invited(1)))
-  await db.tx((client) => appendAudit(client, ELECTION_A, invited(2)))
+  const second = await db.tx((client) => appendAudit(client, ELECTION_A, invited(2)))
   const other = await db.tx((client) => appendAudit(client, ELECTION_B, invited(3)))
 
-  const insert = `insert into audit_event (election_id, at, actor_tid, actor_oid, actor_name, action, metadata, prev_hash, hash)
-    values ($1, now()::timestamp(3), $2, $3, 'X', 'member.invited', '{}', $4, $5)`
-  const attempts: [string, string, string | null, string][] = [
-    ['a second first event', '23505', null, ELECTION_A],
-    ['a fork from the first event', '23505', first.hash, ELECTION_A],
-    ['a link to a missing event', '23503', 'e'.repeat(64), ELECTION_A],
-    ['a link into another election', '23503', other.hash, ELECTION_A],
+  const columns = 'election_id, at, actor_tid, actor_oid, actor_name, action, metadata, prev_seq, prev_hash, hash'
+  const insert = `insert into audit_event (${columns})
+    values ($1, now()::timestamp(3), $2, $3, 'X', 'member.invited', '{}', $4, $5, $6)`
+  const h = (c: string) => c.repeat(64)
+  const attempts: [string, string, number | null, string | null, string][] = [
+    ['a second first event', '23505', null, null, ELECTION_A],
+    ['a fork from the first event', '23505', first.seq, first.hash, ELECTION_A],
+    ['a link to a missing event', '23503', first.seq, h('e'), ELECTION_A],
+    ['a link by a seq and another event\'s hash', '23503', first.seq, second.hash, ELECTION_A],
+    ['a link into another election', '23503', other.seq, other.hash, ELECTION_A],
+    ['a predecessor named by its hash alone', '23514', null, second.hash, ELECTION_A],
+    ['a predecessor named by its seq alone', '23514', second.seq, null, ELECTION_A],
   ]
   await withClient(runtimeUrl, async (client) => {
-    for (const [label, code, prevHash, electionId] of attempts) {
+    for (const [label, code, prevSeq, prevHash, electionId] of attempts) {
       await assert.rejects(
-        client.query(insert, [electionId, ACTOR.tid, ACTOR.oid, prevHash, 'd'.repeat(64)]),
+        client.query(insert, [electionId, ACTOR.tid, ACTOR.oid, prevSeq, prevHash, h('d')]),
         (err) => sqlState(err) === code,
         label,
       )
     }
+    // Links that would close a cycle: to itself, to a later event, and two
+    // events naming each other in one statement, where the foreign key alone
+    // is checked only after both rows exist. Seqs are given explicitly here
+    // to make the cycle; the check refuses it whatever the seqs.
+    const own = `insert into audit_event (seq, ${columns}) overriding system value values`
+    const row = (seq: number, prevSeq: number, prevHash: string, hash: string) =>
+      `(${seq}, '${ELECTION_A}', now()::timestamp(3), '${ACTOR.tid}', '${ACTOR.oid}', 'X', 'member.invited', '{}', ${prevSeq}, '${prevHash}', '${hash}')`
+    const cycles: [string, string][] = [
+      ['a self-link', `${own} ${row(100, 100, h('a'), h('a'))}`],
+      ['a link to a later event', `${own} ${row(100, 101, h('b'), h('a'))}, ${row(101, second.seq, second.hash, h('b'))}`],
+      ['two events naming each other', `${own} ${row(100, 101, h('b'), h('a'))}, ${row(101, 100, h('a'), h('b'))}`],
+    ]
+    for (const [label, statement] of cycles) {
+      await assert.rejects(client.query(statement), (err) => sqlState(err) === '23514', label)
+    }
   })
+  assert.deepEqual(verifyAuditChain(await chainOf(db, ELECTION_A)), { valid: true, length: 2, head: second.hash })
 })
 
 test('the database holds only finite times in whole milliseconds, which the hashed text can express', DB, async (t) => {
   const { runtimeUrl } = await setup(t)
-  const insert = `insert into audit_event (election_id, at, actor_tid, actor_oid, actor_name, action, metadata, prev_hash, hash)
-    values ($1, $2, $3, $4, 'X', 'member.invited', '{}', null, $5)`
+  const insert = `insert into audit_event (election_id, at, actor_tid, actor_oid, actor_name, action, metadata, prev_seq, prev_hash, hash)
+    values ($1, $2, $3, $4, 'X', 'member.invited', '{}', null, null, $5)`
   await withClient(runtimeUrl, async (client) => {
     for (const at of ['infinity', '-infinity', '2026-10-05T08:00:00.000001Z']) {
       await assert.rejects(client.query(insert, [ELECTION_A, at, ACTOR.tid, ACTOR.oid, 'd'.repeat(64)]), (err) => sqlState(err) === '23514', at)

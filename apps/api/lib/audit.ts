@@ -94,9 +94,10 @@ export async function appendAudit<A extends AuditAction>(
   // The time is taken under the lock, so it follows the chain order (as long
   // as the server clock does not go back), and in whole milliseconds, which
   // a JavaScript Date and the hashed ISO 8601 text hold exactly.
-  const head = await client.query<{ at: Date, prev_hash: string | null }>(
-    `select date_trunc('milliseconds', clock_timestamp()) as at,
-            (select hash from audit_event where election_id = $1 order by seq desc limit 1) as prev_hash`,
+  const head = await client.query<{ at: Date, prev_seq: string | null, prev_hash: string | null }>(
+    `select date_trunc('milliseconds', clock_timestamp()) as at, head.seq as prev_seq, head.hash as prev_hash
+       from (select 1) as one
+       left join (select seq, hash from audit_event where election_id = $1 order by seq desc limit 1) as head on true`,
     [election],
   )
   const row = head.rows[0]
@@ -104,9 +105,9 @@ export async function appendAudit<A extends AuditAction>(
   const content = { electionId: election, at: row.at.toISOString(), actor, action, metadata, prevHash: row.prev_hash }
   const hash = auditEventHash(content)
   const inserted = await client.query<{ seq: string }>(
-    `insert into audit_event (election_id, at, actor_tid, actor_oid, actor_name, action, metadata, prev_hash, hash)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning seq`,
-    [election, content.at, actor.tid, actor.oid, actor.name, action, JSON.stringify(metadata), content.prevHash, hash],
+    `insert into audit_event (election_id, at, actor_tid, actor_oid, actor_name, action, metadata, prev_seq, prev_hash, hash)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning seq`,
+    [election, content.at, actor.tid, actor.oid, actor.name, action, JSON.stringify(metadata), row.prev_seq, content.prevHash, hash],
   )
   return { seq: toSeq(inserted.rows[0]?.seq), ...content, hash }
 }

@@ -44,6 +44,22 @@ test('the hash is SHA-256 over a fixed canonical record, so another implementati
   assert.equal(auditEventHash(second), '7827d380b44d772cbfee0ecf7bb7189ab5d24c5255a70752db1489e0aa166ed6')
 })
 
+test('the hash is taken over the UTF-8 bytes of the canonical record', () => {
+  // Expected value from `printf '%s' '<record>' | sha256sum` in a UTF-8
+  // shell: ü is c3 bc, the dash e2 80 93 and the ballot box, outside the
+  // Basic Multilingual Plane, f0 9f 97 b3. The same record as UTF-16 hashes
+  // to c39822459b49e7eeb1802195d1b735b294d080fa67e5fcb3c24b7a19f18ae76b.
+  const content: AuditEventContent = {
+    electionId: ELECTION,
+    at: '2026-10-05T07:47:00.000Z',
+    actor: { ...ACTOR, name: 'Jürgen Öztürk' },
+    action: 'election.created',
+    metadata: { title: 'Klassensprecherwahl 3B – Stimmzettel 🗳' },
+    prevHash: null,
+  }
+  assert.equal(auditEventHash(content), '10213fe764d22e26ee5b081c92a5839b7a1be12e0083bf12e0d8f2f6af884036')
+})
+
 test('a genuine chain verifies and reports its head; an empty one is valid', () => {
   const events = chain(4)
   assert.deepEqual(verifyAuditChain(events), { valid: true, length: 4, head: events[3]?.hash })

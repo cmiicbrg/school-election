@@ -4,7 +4,7 @@
 // wrote, without a database.
 //
 // Each election has its own chain. An event's hash is the SHA-256, in
-// lowercase hex, of the canonical JSON of
+// lowercase hex, of the UTF-8 bytes of the canonical JSON of
 //
 //   { version: 1, electionId, at, actor: { tid, oid, name }, action, metadata, prevHash }
 //
@@ -66,7 +66,7 @@ export function auditEventHash(event: AuditEventContent): string {
     metadata: event.metadata,
     prevHash: event.prevHash,
   }
-  return createHash('sha256').update(canonicalJson(record)).digest('hex')
+  return createHash('sha256').update(canonicalJson(record), 'utf8').digest('hex')
 }
 
 /**

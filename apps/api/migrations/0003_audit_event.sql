@@ -6,8 +6,11 @@
 --
 -- The runtime role may add and read events, never change or remove them.
 -- The database keeps each chain linear: an election has one first event (no
--- predecessor), every other event names an existing event of the same
--- election as its predecessor, and no event is the predecessor of two.
+-- predecessor), every other event names an earlier event of the same
+-- election as its predecessor, by its seq and hash, and no event is the
+-- predecessor of two. Each link points to a smaller seq, so following the
+-- links always ends at the first event: no event can name itself or a later
+-- one, and the links cannot form a cycle, even within one statement.
 -- Whether the hashes are right is checked by recomputing them
 -- (verifyAuditChain), by the server and by the offline verifier.
 --
@@ -25,11 +28,15 @@ create table audit_event (
   actor_name text not null check (char_length(actor_name) between 1 and 256),
   action text not null check (action ~ '^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*$' and char_length(action) <= 64),
   metadata jsonb not null check (jsonb_typeof(metadata) = 'object'),
+  prev_seq bigint,
   prev_hash text check (prev_hash ~ '^[0-9a-f]{64}$'),
   hash text not null check (hash ~ '^[0-9a-f]{64}$'),
+  check ((prev_seq is null) = (prev_hash is null)),
+  check (prev_seq < seq),
   unique (election_id, hash),
+  unique (election_id, seq, hash),
   unique nulls not distinct (election_id, prev_hash),
-  foreign key (election_id, prev_hash) references audit_event (election_id, hash)
+  foreign key (election_id, prev_seq, prev_hash) references audit_event (election_id, seq, hash)
 );
 
 -- The chain head (the newest event) and a chain in order.
