@@ -86,7 +86,7 @@ The **first round** of a ranked contest (`firstRoundResult`) ends in one of four
 
 Runoff selection fills the two places by first places. When a group of candidates with equal first places no longer fits into the places left, only that group is compared on first-round points, and a group still equal on points goes to the lot. More first places therefore always beat more points.
 
-A **runoff** or an anonymous single-choice poll (`runoffResult`) ends `elected` (more valid votes; in a poll, the most), `tie` (equal votes at the top: no winner and no lot, settled manually) or `committee-decision` (zero valid ballots). A poll with a single option follows the single-candidate rule. A runoff result names the first-round contest it decides, and a poll names none, so neither a poll nor the runoff of another contest with the same two candidates can be applied as a contest's runoff.
+A **runoff** or an anonymous single-choice poll (`runoffResult`) ends `elected` (more valid votes; in a poll, the most), `tie` (equal votes at the top: no winner and no lot, settled manually) or `committee-decision` (zero valid ballots). A runoff always has exactly two candidates; a poll with a single option follows the single-candidate rule. A runoff result names the first-round contest it decides, and a poll names none, so neither a poll nor the runoff of another contest with the same two candidates can be applied as a contest's runoff.
 
 ### Derived positions
 

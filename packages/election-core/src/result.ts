@@ -100,14 +100,16 @@ export function firstRoundResult(contest: Contest, ballots: readonly CastBallot[
 
 /**
  * A single-choice contest: the runoff of the first-round contest `runoffOf`,
- * where the candidate with more valid votes wins, or an anonymous poll
- * (`runoffOf` null), where the most votes win. A single option needs "Ja" on
- * more than half of the valid ballots, as in a first round. Naming the first
- * round explicitly keeps a poll, or the runoff of another contest with the
- * same candidates, from ever being applied as this contest's runoff.
+ * always between two candidates, where the one with more valid votes wins; or
+ * an anonymous poll (`runoffOf` null), where the most votes win and a single
+ * option needs "Ja" on more than half of the valid ballots, as in a first
+ * round. Naming the first round explicitly keeps a poll, or the runoff of
+ * another contest with the same candidates, from ever being applied as this
+ * contest's runoff.
  */
 export function runoffResult(contest: Contest, ballots: readonly CastBallot[], runoffOf: string | null): RunoffResult {
   if (contest.rulesetId !== 'single-choice-v1') throw new TypeError('a ranked contest is counted by firstRoundResult')
+  if (runoffOf !== null && contest.candidateIds.length !== 2) throw new TypeError('a runoff has exactly two candidates')
   const statistics = computeStatistics(contest, ballots)
   const round = { contestId: contest.id, rulesetId: contest.rulesetId, statistics, runoffOf }
   const trace: TraceStep[] = [countStep(contest.id, statistics)]

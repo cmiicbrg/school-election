@@ -350,6 +350,9 @@ test('a single-choice poll: the most votes win, a tie at the top is shown, and o
 test('each counting function refuses the other kind of contest and ballots of another contest', () => {
   assert.throws(() => firstRoundResult(contest(['a', 'b'], SINGLE), []), TypeError)
   assert.throws(() => runoffResult(contest(['a', 'b'], SPEAKER), [], null), TypeError)
+  // Only a poll may have one option or more than two.
+  assert.throws(() => runoffResult(contest(['a'], SINGLE), [], 'contest'), TypeError)
+  assert.throws(() => runoffResult(contest(['a', 'b', 'c'], SINGLE), [], 'contest'), TypeError)
   const other = contest(['a', 'b'], SPEAKER, 'other')
   assert.throws(() => firstRoundResult(contest(['a', 'b']), [cast(other, ['a', 'b'])]), TypeError)
 })

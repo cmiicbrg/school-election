@@ -24,7 +24,7 @@ export interface RunoffEntryLot {
   readonly id: 'runoff-entry'
   readonly reason: 'runoff-entry'
   readonly candidates: readonly string[]
-  /** How many of the tied candidates enter the runoff: the first drawn. */
+  /** How many of the tied candidates enter the runoff: the first `seats` in the drawn order. */
   readonly seats: number
   /** Who entered the runoff without the lot. */
   readonly qualified: readonly string[]
