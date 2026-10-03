@@ -114,6 +114,35 @@ Every result carries a trace: language-neutral steps with their numbers, which t
 
 For the worked example (Alice 41 first places, Bob and Carol 32 each, Bob 287 points, Carol 271) the trace reads: the count; 53 first places needed, nobody has them; two places by first places, Alice advances, Bob and Carol are tied; one place by points, Bob 287 against Carol 271, Bob advances; the runoff Alice against Bob.
 
+## Lifecycle
+
+An election and its rounds follow one state machine (`packages/election-core/src/lifecycle.ts`), so whether something may happen now is decided in one place rather than by flags spread over the code. The API reads the stored states, asks the lifecycle, and stores the next state in the same transaction as the change.
+
+```text
+election  draft ⇄ prepared → active → final
+round     planned → open → closed
+```
+
+- **draft**: the structure (contests, voter groups and their mapping, each contest's ruleset) can change.
+- **prepared**: the structure is fixed and keys can be issued. Unprepare goes back to draft; it is only possible before any round has opened, because prepared always means that none has.
+- **active**: the regular round has opened. The runoff round exists only once it is activated, which opens it, after the regular round has closed; runoff keys can be printed in advance and stay unusable until then.
+- **final**: no round is open, and nothing changes any more.
+
+A closed round never reopens. A state transition and every guard return either an allowed verdict or a typed refusal (`election-final`, `not-draft`, `not-prepared`, `voting-started`, `round-planned`, `round-open`, `round-closed`, `no-runoff`, `runoff-activated`); an impossible combination of states is a programming error.
+
+| Change | Allowed |
+| --- | --- |
+| Structure | in a draft |
+| Candidates, title and description | until the regular round opens, so a misspelled name never forces a return to draft |
+| Witnesses and co-admins | until the election is final |
+| Issuing, topping up or replacing a batch of keys | once prepared, until the batch's round opens: regular keys before the regular round, runoff keys until the runoff is activated, also while round 1 is open or closed |
+| Casting a ballot | while its round is open |
+| A round's result | once the round has closed, for every role; never while it is open |
+| Activating the runoff | once, after the regular round has closed |
+| Recording a lot, finalizing | after the regular round has closed, while no round is open |
+
+Whether a result actually requires a runoff or a lot is decided by the result (see above), not by the lifecycle.
+
 ## Audit log
 
 The audit log records what administrators do to an election: who acted (the stable Entra identity, tenant and object id, plus the display name), when, the action, and that action's metadata. It never records voter activity: no ballots or ballot content, no keys, no use of an entitlement, no voter sessions or tokens, no request metadata. Each action has a fixed list of metadata fields with a type each; anything else is refused. The actions and their fields are listed in `apps/api/lib/audit.ts`.

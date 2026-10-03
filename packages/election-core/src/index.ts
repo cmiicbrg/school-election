@@ -1,4 +1,5 @@
-// Pure election domain: rulesets, ballot validation, counting and results.
+// Pure election domain: rulesets, ballot validation, counting, results and
+// the election lifecycle.
 // No I/O and no framework imports — eslint.config.js enforces that.
 
 /**
@@ -47,6 +48,34 @@ export {
   type Outcome,
   type Resolution,
 } from './resolve.ts'
+
+export {
+  canActivateRunoff,
+  canCastBallot,
+  canEditCandidates,
+  canEditStructure,
+  canEnterLot,
+  canFinalize,
+  canIssueBatch,
+  canManageMembers,
+  canRotateBatch,
+  canShowResults,
+  ELECTION_STATES,
+  isConsistentLifecycle,
+  LIFECYCLE_ACTIONS,
+  NEW_ELECTION,
+  ROUND_KINDS,
+  ROUND_STATES,
+  transition,
+  type ElectionState,
+  type Lifecycle,
+  type LifecycleAction,
+  type LifecycleRefusal,
+  type RoundKind,
+  type RoundState,
+  type Transition,
+  type Verdict,
+} from './lifecycle.ts'
 
 export type {
   CandidateValue,
