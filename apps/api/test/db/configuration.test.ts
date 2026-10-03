@@ -67,6 +67,7 @@ interface StateRows {
   election: { state: string, structure_editable: boolean, candidates_editable: boolean, final: boolean, advances_to: string | null, returns_to: string | null }[]
   kind: { kind: string, created_planned: boolean }[]
   round: { state: string, opened: boolean, accepts_ballots: boolean }[]
+  transition: { from_state: string, to_state: string }[]
 }
 
 async function stateRows(url: string): Promise<StateRows> {
@@ -74,6 +75,7 @@ async function stateRows(url: string): Promise<StateRows> {
     election: (await client.query<StateRows['election'][number]>('select * from election_state order by state')).rows,
     kind: (await client.query<StateRows['kind'][number]>('select * from round_kind order by kind')).rows,
     round: (await client.query<StateRows['round'][number]>('select * from round_state order by state')).rows,
+    transition: (await client.query<StateRows['transition'][number]>('select * from round_transition order by from_state, to_state')).rows,
   }))
 }
 
@@ -116,6 +118,19 @@ test('the state tables say what the lifecycle in packages/election-core allows',
   })))
   const stored = rows.election.flatMap((row) => [row.advances_to, row.returns_to].flatMap((to) => to === null ? [] : [`${row.state} → ${to}`]))
   assert.deepEqual(stored.sort(), [...moves].sort())
+
+  // And a round along the rows of round_transition (migration 0009). A
+  // runoff round is created open, which is no transition.
+  const roundMoves = new Set(LIFECYCLES.flatMap((lifecycle) => LIFECYCLE_ACTIONS.flatMap((action) => {
+    const result = transition(lifecycle, action)
+    if (!result.ok) return []
+    return ROUND_KINDS.flatMap((kind) => {
+      const from = kind === 'regular' ? lifecycle.regular : lifecycle.runoff
+      const to = kind === 'regular' ? result.next.regular : result.next.runoff
+      return from !== null && to !== null && from !== to ? [`${from} → ${to}`] : []
+    })
+  })))
+  assert.deepEqual(rows.transition.map((row) => `${row.from_state} → ${row.to_state}`).sort(), [...roundMoves].sort())
 })
 
 test('no table numbers its rows by a sequence or a time-ordered id; the audit log alone has its sequence', DB, async (t) => {
@@ -194,7 +209,7 @@ test('an election moves only along the lifecycle, and back to draft only while n
 })
 
 test('rounds start planned before voting, and their ballot boxes change only while they are planned', DB, async (t) => {
-  const { ownerUrl, runtimeUrl } = await setup(t)
+  const { runtimeUrl } = await setup(t)
   await withClient(runtimeUrl, async (client) => {
     await refused(client, '55000', [
       `insert into round (election_id, kind) values ('${A}', 'runoff')`,
@@ -209,11 +224,12 @@ test('rounds start planned before voting, and their ballot boxes change only whi
     await client.query(`insert into contest (id, election_id, title, ruleset_id) values ('${CONTEST_A}', '${A}', 'Schulsprecher/in', 'at-school-speaker-v1')`)
     await client.query(`insert into round_contest (election_id, round_id, contest_id) select '${A}', id, '${CONTEST_A}' from round where election_id = '${A}'`)
     await client.query(`update election set state = 'prepared' where id = '${A}'`)
-    // The runtime role has no say over a round's state, nor removes one.
-    await refused(client, '42501', [`update round set state = 'open'`, `delete from round`, `update round_contest set contest_id = contest_id`])
+    // The runtime role opens a round (test/db/ballot-box.test.ts has the
+    // rest of its transitions), and removes none.
+    await refused(client, '42501', [`delete from round`, `update round_contest set contest_id = contest_id`])
+    await client.query(`update round set state = 'open' where election_id = '${A}'`)
+    await refused(client, '55000', [`delete from round_contest where election_id = '${A}'`])
   })
-  await withClient(ownerUrl, (client) => client.query(`update round set state = 'open' where election_id = '${A}'`))
-  await withClient(runtimeUrl, (client) => refused(client, '55000', [`delete from round_contest where election_id = '${A}'`]))
 })
 
 test('everything joins within one election: no mapping, candidate or ballot box across two', DB, async (t) => {

@@ -14,7 +14,7 @@ import { lifecycleOf, Refusal, type ElectionAccess } from '../lib/election-acces
 import { prepareElection, type PrepareResult } from '../lib/prepare.ts'
 import type { ElectionRole } from '../lib/permissions.ts'
 import { DB, withClient } from './helpers/db.ts'
-import { ANNA, CARLA, createElection, electionApp, forceElectionState, signIn, WANDA, type Browser, type ElectionApp, type Person } from './helpers/elections.ts'
+import { ANNA, CARLA, createElection, electionApp, forceElectionState, forceRoundState, signIn, WANDA, type Browser, type ElectionApp, type Person } from './helpers/elections.ts'
 
 interface Setup {
   s: ElectionApp
@@ -200,7 +200,7 @@ test('the owner and co-admins read a batch\'s keys whenever they like; a witness
 
   // Closed: the witness sees every key of the round, used or unused; the
   // runoff keys, which could still vote, stay hidden from them.
-  await withClient(s.ownerUrl, (client) => client.query(`update round set state = 'closed' where election_id = $1 and kind = 'regular'`, [id]))
+  await forceRoundState(s.ownerUrl, id, 'closed')
   const expected = keysOf(issued).map((key) => ({ key, used: key === usedKey }))
   for (const person of [WANDA, ANNA]) {
     assert.deepEqual((await read(person, issued.batch.id)).keys, expected)
@@ -243,7 +243,7 @@ test('replacing a batch voids its keys and issues as many new ones, only until i
 
   // A draft has no keys to issue.
   await forceElectionState(s.ownerUrl, id, 'draft')
-  await withClient(s.ownerUrl, (client) => client.query(`update round set state = 'planned' where election_id = $1`, [id]))
+  await forceRoundState(s.ownerUrl, id, 'planned')
   await assert.rejects(issue(ANNA, g1a, 'regular', 1), refusedWith(409, 'not_prepared'))
 })
 

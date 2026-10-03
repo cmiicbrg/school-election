@@ -20,6 +20,7 @@ export {
 } from './rulesets.ts'
 
 export {
+  BALLOT_KINDS,
   contestSlots,
   offersNo,
   validateBallot,

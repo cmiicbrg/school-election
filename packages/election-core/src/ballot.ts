@@ -31,7 +31,8 @@ export interface Contest {
 }
 
 /** 'ranking' and 'no' are valid votes, 'invalid' is a confirmed invalid vote. */
-export type BallotKind = 'ranking' | 'no' | 'invalid'
+export const BALLOT_KINDS = ['ranking', 'no', 'invalid'] as const
+export type BallotKind = typeof BALLOT_KINDS[number]
 
 declare const validBallot: unique symbol
 
