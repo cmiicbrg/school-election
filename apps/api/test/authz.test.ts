@@ -82,6 +82,8 @@ test('the app refuses to register an election route without the guard', async (t
   assert.throws(() => app.get('/api/elections/:id/late', { preHandler: guard() }, handler), /requireElectionAccess/)
   assert.throws(() => app.get('/api/elections/:id/second', { onRequest: [async () => {}, guard()] }, handler), /requireElectionAccess/)
   assert.throws(() => app.get('/api/elections/:electionId', { onRequest: guard() }, handler), /:id/)
+  assert.throws(() => app.get('/api/elections/', handler), /:id/)
+  assert.throws(() => app.post('/api/elections/', { onRequest: guard() }, handler), /:id/)
   assert.doesNotThrow(() => app.get('/api/elections/:id/fine', { onRequest: guard() }, handler))
   assert.doesNotThrow(() => app.get('/api/elections/:id/also-fine', { onRequest: [guard(), async () => {}] }, handler))
 })

@@ -167,7 +167,8 @@ export function lifecycleOf(election: ElectionState): Lifecycle {
   }
 }
 
-const ELECTION_ROUTE = /^\/api\/elections\/./
+// Everything below /api/elections/, the bare /api/elections/ included.
+const ELECTION_ROUTE = /^\/api\/elections\//
 
 /**
  * An onRoute hook (app.ts): every route below /api/elections/ must address
