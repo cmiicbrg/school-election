@@ -21,7 +21,9 @@ export {
 
 export {
   BALLOT_KINDS,
+  contestKey,
   contestSlots,
+  isBallotFor,
   offersNo,
   validateBallot,
   type BallotError,
