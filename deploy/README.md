@@ -90,7 +90,8 @@ The health check answers `{"status":"ok","db":"up","version":"v1.0.0","gitSha":"
 Fetch the nginx example of the same release, replace `wahl.example.org` in it with your host name, and enable it:
 
 ```bash
-sudo curl -fsSL -o /etc/nginx/sites-available/school-election "https://raw.githubusercontent.com/cmiicbrg/school-election/v1.0.0/deploy/nginx.example.conf"
+tag=v1.0.0   # the release you deploy, as above
+sudo curl -fsSL -o /etc/nginx/sites-available/school-election "https://raw.githubusercontent.com/cmiicbrg/school-election/$tag/deploy/nginx.example.conf"
 sudo nano /etc/nginx/sites-available/school-election
 sudo ln -s /etc/nginx/sites-available/school-election /etc/nginx/sites-enabled/school-election
 ```
