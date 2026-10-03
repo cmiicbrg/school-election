@@ -1,10 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { cp, mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { createDatabase } from '../../lib/db.ts'
 import { checkDatabaseSettings, REQUIRED_SETTINGS } from '../../lib/db-settings.ts'
 import { expectedPrivileges, type Privilege } from '../../lib/runtime-privileges.ts'
 import { sqlState } from '../../lib/pg-errors.ts'
-import { migrate } from '../../scripts/migrate.ts'
+import { migrate, MIGRATIONS_DIR } from '../../scripts/migrate.ts'
 import { createTestDatabase, DB, TEST_RUNTIME_PASSWORD, withClient } from '../helpers/db.ts'
 
 const safe: Record<string, string> = {
@@ -190,9 +193,14 @@ test('pg_read_all_settings, granted by earlier versions, is refused at startup a
   t.after(() => withClient(admin, (c) => c.query('revoke pg_read_all_settings from school_election_app')).catch(() => {}))
   const db = createDatabase(testDb.runtimeUrl, () => {})
   t.after(() => db.close())
-  assert.deepEqual(await checkDatabaseSettings(db), [
-    'the server connects as school_election_app, which is a member of pg_read_all_settings; the runtime role must hold nothing else',
-  ])
+  const refused = ['the server connects as school_election_app, which is a member of pg_read_all_settings; the runtime role must hold nothing else']
+  assert.deepEqual(await checkDatabaseSettings(db), refused)
+  // A run whose migration fails keeps it: the server still deployed may need it to restart.
+  const failing = await mkdtemp(path.join(tmpdir(), 'school-election-migrations-'))
+  await cp(MIGRATIONS_DIR, failing, { recursive: true })
+  await writeFile(path.join(failing, '9001_broken.sql'), 'select 1/0;')
+  await assert.rejects(migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD, migrationsDir: failing }), /9001_broken.sql failed/)
+  assert.deepEqual(await checkDatabaseSettings(db), refused)
   await migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD })
   assert.deepEqual(await checkDatabaseSettings(db), [])
 })

@@ -171,7 +171,8 @@ async function migrationFiles(dir: string, until: string | undefined): Promise<M
 // down; a membership in any role is refused rather than silently revoked.
 // The one exception is pg_read_all_settings, which earlier versions granted
 // for the startup check: preload_settings() (migration 0006) replaces it, so
-// the grant is taken back.
+// the grant is taken back with the privilege reset, once the migrations have
+// succeeded. Until then the server still running may need it to restart.
 const SUPERSEDED_MEMBERSHIP = 'pg_read_all_settings'
 const UNPRIVILEGED = 'login nosuperuser nocreatedb nocreaterole noreplication nobypassrls inherit'
 
@@ -187,27 +188,23 @@ async function ensureRuntimeRole(client: pg.Client, password: string): Promise<b
     }
   }
   if (existed) await client.query(await formatted(client, `alter role %I with ${UNPRIVILEGED}`))
-  const direct = await client.query(
-    `select 1 from pg_auth_members m
-      where m.member = (select oid from pg_roles where rolname = $1)
-        and m.roleid = (select oid from pg_roles where rolname = $2)`,
-    [RUNTIME_ROLE, SUPERSEDED_MEMBERSHIP],
-  )
-  if (direct.rowCount !== 0) await client.query(`revoke ${SUPERSEDED_MEMBERSHIP} from ${RUNTIME_ROLE}`)
+  await refuseMemberships(client, { except: SUPERSEDED_MEMBERSHIP })
+  return existed
+}
 
-  // Effective membership, not only direct grants: a role granted to any
-  // role the runtime role is a member of is inherited just the same.
+// Effective membership, not only direct grants: a role granted to any role
+// the runtime role is a member of is inherited just the same.
+async function refuseMemberships(client: pg.Client, { except }: { except?: string } = {}): Promise<void> {
   const memberships = await client.query<{ rolname: string }>(
     `select granted.rolname::text as rolname from pg_roles granted, pg_roles runtime
       where runtime.rolname = $1 and granted.oid <> runtime.oid
-        and pg_has_role(runtime.oid, granted.oid, 'MEMBER')`,
-    [RUNTIME_ROLE],
+        and pg_has_role(runtime.oid, granted.oid, 'MEMBER') and granted.rolname is distinct from $2`,
+    [RUNTIME_ROLE, except ?? null],
   )
   if (memberships.rows.length > 0) {
     const names = memberships.rows.map((row) => row.rolname).sort(byName).join(', ')
     throw new MigrationError(`${RUNTIME_ROLE} is a member of ${names}; revoke that first, the runtime role must hold nothing else`)
   }
-  return existed
 }
 
 async function setRuntimePassword(client: pg.Client, password: string): Promise<void> {
@@ -279,11 +276,20 @@ async function resetRuntimePrivileges(client: pg.Client, { complete }: { complet
     await client.query('alter default privileges revoke execute on routines from public')
     const grants = grantStatements(RUNTIME_ROLE, { tables, functions })
     if (grants.length > 0) await client.query(grants.join(';\n'))
+    const superseded = await client.query(
+      `select 1 from pg_auth_members
+        where member = (select oid from pg_roles where rolname = $1)
+          and roleid = (select oid from pg_roles where rolname = $2)`,
+      [RUNTIME_ROLE, SUPERSEDED_MEMBERSHIP],
+    )
+    if (superseded.rowCount !== 0) await client.query(`revoke ${SUPERSEDED_MEMBERSHIP} from ${RUNTIME_ROLE}`)
     await client.query('commit')
   } catch (err) {
     await client.query('rollback').catch(() => {})
     throw err
   }
+  // A grant by another role, which the revoke above does not remove.
+  await refuseMemberships(client)
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

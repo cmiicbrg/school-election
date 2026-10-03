@@ -182,7 +182,7 @@ test('a runtime role with an extra membership is refused, not silently changed, 
   // Roles are cluster-wide: undo it on the server connection, which outlives
   // this test's database, so the other tests find the role as they expect.
   t.after(() => withClient(process.env.TEST_DATABASE_URL ?? '', (c) => c.query('revoke pg_monitor from school_election_app')))
-  await assert.rejects(run(db.ownerUrl), /school_election_app is a member of pg_monitor, pg_read_all_settings, pg_read_all_stats, pg_stat_scan_tables; revoke that first/)
+  await assert.rejects(run(db.ownerUrl), /school_election_app is a member of pg_monitor, pg_read_all_stats, pg_stat_scan_tables; revoke that first/)
 })
 
 test('a full run refuses a runtime privilege on a table that no migration creates', DB, async (t) => {
