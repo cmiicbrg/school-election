@@ -22,15 +22,36 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   app_user: { table: ['SELECT', 'INSERT'], updateColumns: ['display_name', 'email'] },
   // Append-only: events are added and read, never changed or removed.
   audit_event: { table: ['SELECT', 'INSERT'] },
-  election: { table: ['SELECT', 'INSERT'] },
+  // Title, description and the lifecycle state change; elections are not
+  // deleted yet. Triggers keep the editing windows and the transitions
+  // (migration 0007).
+  election: { table: ['SELECT', 'INSERT'], updateColumns: ['title', 'description', 'state'] },
   // Members are invited and removed; binding sets user_id once.
   election_member: { table: ['SELECT', 'INSERT', 'DELETE'], updateColumns: ['user_id'] },
+  // The states of the lifecycle and what each allows, which the triggers
+  // read as the role that runs them (migration 0007). Nothing changes them.
+  election_state: { table: ['SELECT'] },
+  round_kind: { table: ['SELECT'] },
+  round_state: { table: ['SELECT'] },
+  // The configuration of an election. Nothing moves to another election or
+  // contest: those columns are never updated.
+  contest: { table: ['SELECT', 'INSERT', 'DELETE'], updateColumns: ['title', 'ruleset_id'] },
+  candidate: { table: ['SELECT', 'INSERT', 'DELETE'], updateColumns: ['surname', 'given_name', 'picture', 'picture_sha256'] },
+  voter_group: { table: ['SELECT', 'INSERT', 'DELETE'], updateColumns: ['name'] },
+  voter_group_contest: { table: ['SELECT', 'INSERT', 'DELETE'] },
+  // Preparing creates the regular round and its ballot boxes; no round is
+  // opened, closed or removed yet.
+  round: { table: ['SELECT', 'INSERT'] },
+  round_contest: { table: ['SELECT', 'INSERT', 'DELETE'] },
 }
 
 /** Functions the runtime role may execute, by their signature. */
 export const RUNTIME_FUNCTIONS: readonly string[] = [
   // The preload settings for the startup check (migration 0006).
   'preload_settings()',
+  // How every trigger refuses a change, called as the role that runs the
+  // trigger (migration 0007).
+  'refuse(text)',
 ]
 
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/

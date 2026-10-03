@@ -12,6 +12,7 @@ export const TALLY_VERSION = 2
 export {
   activeSlots,
   isRulesetId,
+  RULESET_IDS,
   RULESETS,
   type Ruleset,
   type RulesetId,

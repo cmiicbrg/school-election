@@ -20,7 +20,7 @@
 
 import type { FastifyReply, FastifyRequest, HookHandlerDoneFunction, RouteOptions } from 'fastify'
 import type pg from 'pg'
-import type { ElectionState, Lifecycle, Verdict } from '@school-election/election-core'
+import { transition, type ElectionState, type Lifecycle, type LifecycleAction, type Verdict } from '@school-election/election-core'
 import { boundedName } from './app-user.ts'
 import type { AuditActor } from './audit-chain.ts'
 import { lockElection } from './audit.ts'
@@ -31,6 +31,14 @@ import { pathOf } from './url.ts'
 
 /** Whether the lifecycle allows the action now, e.g. canManageMembers. */
 export type LifecycleGuard = (lifecycle: Lifecycle) => Verdict
+
+/** The guard of a route that changes the election's state: whatever transition() says about the action. */
+export function canTransition(action: LifecycleAction): LifecycleGuard {
+  return (lifecycle) => {
+    const next = transition(lifecycle, action)
+    return next.ok ? { ok: true } : next
+  }
+}
 
 /** What the guard established about the caller and the election. */
 export interface ElectionAccess {
@@ -154,8 +162,8 @@ function electionIdOf(request: FastifyRequest): unknown {
 }
 
 /**
- * The lifecycle of an election from its stored state. Rounds are not
- * stored yet, and no route moves an election past draft, so the round
+ * The lifecycle of an election from its stored state. No route opens a
+ * round yet (preparing creates the regular round, planned), so the round
  * states are the ones each election state begins with: an active election
  * with its regular round open, a final one with it closed and no runoff.
  */

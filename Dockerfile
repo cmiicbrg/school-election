@@ -12,7 +12,7 @@
 # Every workspace's package.json is copied before `npm ci`: the lockfile
 # covers all of them, and npm ci refuses a workspace it cannot find.
 
-FROM docker.io/library/node:26-trixie-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS deps
+FROM docker.io/library/node:26.10.0-trixie-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/election-core/package.json packages/election-core/
@@ -27,7 +27,7 @@ COPY packages/election-core packages/election-core
 COPY apps/web apps/web
 RUN npm run build --workspace apps/web
 
-FROM docker.io/library/node:26-trixie-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS prod-deps
+FROM docker.io/library/node:26.10.0-trixie-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS prod-deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/election-core/package.json packages/election-core/
@@ -36,7 +36,7 @@ COPY apps/web/package.json apps/web/
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev --no-audit --no-fund --ignore-scripts
 
-FROM docker.io/library/node:26-trixie-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS runtime
+FROM docker.io/library/node:26.10.0-trixie-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
@@ -54,6 +54,9 @@ COPY packages/election-core/package.json packages/election-core/
 COPY packages/election-core/src packages/election-core/src
 COPY apps/api apps/api
 COPY --from=web /app/apps/web/dist apps/web/dist
+# The license texts and notice of libvips, the shared library sharp loads
+# from node_modules (see third-party-notices/README.md).
+COPY third-party-notices third-party-notices
 
 # What was built, reported by /api/health. Set by the CI and release
 # workflows; a plain local build reports "dev" and "unknown". Declared after

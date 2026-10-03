@@ -10,32 +10,57 @@
 // adds the actions it writes, with their fields, to AUDIT_ACTIONS.
 
 import type pg from 'pg'
+import { RULESET_IDS } from '@school-election/election-core'
 import { auditEventHash, MAX_ACTOR_NAME, type AuditActor, type AuditEvent, type AuditMetadata } from './audit-chain.ts'
 import { INVITED_ROLES } from './permissions.ts'
 
 /**
- * A metadata field: free text of at most 1000 UTF-16 code units, or one of a
- * fixed list of strings. Further types (a count, an id) come with the first
- * action that needs them.
+ * A metadata field: free text of at most 1000 UTF-16 code units ('text'),
+ * or of at most 2000 code points ('long-text': a description, counted as
+ * the API and the database count it), the id of a row ('uuid', in
+ * lowercase), a count (a non-negative safe integer), or one of a fixed
+ * list of strings.
  */
-export type AuditField = 'text' | readonly [string, ...string[]]
+export type AuditField = 'text' | 'long-text' | 'uuid' | 'count' | readonly [string, ...string[]]
 
 /**
- * Every action the log accepts, with exactly the metadata fields it carries.
- * The first ones are creating an election and managing its members.
+ * Every action the log accepts, with exactly the metadata fields it carries:
+ * creating an election, managing its members, configuring it and preparing
+ * it. Rows are named by their id, so an event still says which contest or
+ * candidate it means after a rename, and names and titles are recorded as
+ * they were set.
  */
 export const AUDIT_ACTIONS = {
   'election.created': { title: 'text' },
+  'election.updated': { title: 'text', description: 'long-text' },
   // The actor of member.bound is the invited person on their first sign-in,
   // so the event names the Entra identity the invitation was bound to.
   'member.invited': { email: 'text', role: INVITED_ROLES },
   'member.bound': { email: 'text', role: INVITED_ROLES },
   'member.removed': { email: 'text', role: INVITED_ROLES },
+  'contest.created': { contest: 'uuid', title: 'text', rulesetId: RULESET_IDS },
+  'contest.updated': { contest: 'uuid', title: 'text', rulesetId: RULESET_IDS },
+  // Its candidates, its ballot boxes and its place in the voter groups go with it.
+  'contest.removed': { contest: 'uuid', title: 'text', candidates: 'count' },
+  'candidate.added': { contest: 'uuid', candidate: 'uuid', surname: 'text', givenName: 'text' },
+  'candidate.renamed': { candidate: 'uuid', surname: 'text', givenName: 'text' },
+  'candidate.removed': { candidate: 'uuid', surname: 'text', givenName: 'text' },
+  // The SHA-256 of the stored picture, which its URL carries.
+  'candidate.picture-set': { candidate: 'uuid', sha256: 'text' },
+  'candidate.picture-removed': { candidate: 'uuid' },
+  'voter-group.created': { group: 'uuid', name: 'text' },
+  'voter-group.renamed': { group: 'uuid', name: 'text' },
+  'voter-group.removed': { group: 'uuid', name: 'text' },
+  'voter-group.contest-added': { group: 'uuid', contest: 'uuid' },
+  'voter-group.contest-removed': { group: 'uuid', contest: 'uuid' },
+  // What was prepared: the numbers the summary showed.
+  'election.prepared': { contests: 'count', voterGroups: 'count', candidates: 'count' },
+  'election.unprepared': {},
 } as const satisfies Readonly<Record<string, Readonly<Record<string, AuditField>>>>
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS
 
-type FieldValue<F> = F extends readonly (infer V)[] ? V : string
+type FieldValue<F> = F extends 'count' ? number : F extends readonly (infer V)[] ? V : string
 
 export type AuditMetadataOf<A extends AuditAction> = {
   -readonly [K in keyof (typeof AUDIT_ACTIONS)[A]]: FieldValue<(typeof AUDIT_ACTIONS)[A][K]>
@@ -54,6 +79,7 @@ export class AuditError extends Error {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MAX_TEXT = 1000
+const MAX_LONG_TEXT = 2000
 
 // Two-key advisory locks (a key space of their own, apart from one-key
 // locks such as the migrator's): a fixed class for the audit log and the
@@ -172,7 +198,7 @@ export async function readAuditChain(client: pg.ClientBase, electionId: string):
 }
 
 /** The metadata of an action, checked against its fields; throws AuditError otherwise. */
-export function auditMetadata(action: string, metadata: unknown): Record<string, string> {
+export function auditMetadata(action: string, metadata: unknown): Record<string, string | number> {
   if (!Object.hasOwn(AUDIT_ACTIONS, action)) throw new AuditError(`unknown audit action ${action}`)
   const fields: Readonly<Record<string, AuditField>> = AUDIT_ACTIONS[action as AuditAction]
   if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) {
@@ -181,7 +207,7 @@ export function auditMetadata(action: string, metadata: unknown): Record<string,
   const values = metadata as Record<string, unknown>
   const extra = Object.keys(values).find((key) => !Object.hasOwn(fields, key))
   if (extra !== undefined) throw new AuditError(`${action}: metadata field ${extra} is not allowed`)
-  const checked: Record<string, string> = {}
+  const checked: Record<string, string | number> = {}
   for (const [key, field] of Object.entries(fields)) {
     if (!Object.hasOwn(values, key)) throw new AuditError(`${action}: metadata field ${key} is missing`)
     checked[key] = fieldValue(field, values[key], `${action}: metadata field ${key}`)
@@ -189,10 +215,21 @@ export function auditMetadata(action: string, metadata: unknown): Record<string,
   return checked
 }
 
-function fieldValue(field: AuditField, value: unknown, label: string): string {
-  if (field === 'text') return text(value, MAX_TEXT, label)
-  if (typeof value === 'string' && field.includes(value)) return value
-  throw new AuditError(`${label} must be one of ${field.join(', ')}`)
+function fieldValue(field: AuditField, value: unknown, label: string): string | number {
+  switch (field) {
+    case 'text':
+      return text(value, MAX_TEXT, label)
+    case 'long-text':
+      return text(value, MAX_LONG_TEXT, label, 0, (string) => [...string].length)
+    case 'uuid':
+      return uuid(value, label)
+    case 'count':
+      if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return value
+      throw new AuditError(`${label} must be a non-negative safe integer`)
+    default:
+      if (typeof value === 'string' && field.includes(value)) return value
+      throw new AuditError(`${label} must be one of ${field.join(', ')}`)
+  }
 }
 
 function auditActor(actor: unknown): AuditActor {
@@ -208,8 +245,8 @@ function uuid(value: unknown, label: string): string {
 
 // Text the log can store and hash unchanged: PostgreSQL holds neither U+0000
 // nor a lone surrogate.
-function text(value: unknown, max: number, label: string, min = 0): string {
-  if (typeof value === 'string' && value.length >= min && value.length <= max && value.isWellFormed() && !value.includes('\0')) {
+function text(value: unknown, max: number, label: string, min = 0, length = (string: string) => string.length): string {
+  if (typeof value === 'string' && length(value) >= min && length(value) <= max && value.isWellFormed() && !value.includes('\0')) {
     return value
   }
   throw new AuditError(`${label} must be well-formed text of ${min} to ${max} characters`)

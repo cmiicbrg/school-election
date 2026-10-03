@@ -1,0 +1,13 @@
+{
+  // The tests of the web app's pure modules, which node:test runs. They
+  // import from src/ as Node does, with the .ts extension; ../tsconfig.json
+  // checks src/ for the browser as well.
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rewriteRelativeImportExtensions": true,
+    "types": ["node"]
+  },
+  "include": ["**/*.ts"]
+}

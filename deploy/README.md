@@ -3,7 +3,7 @@
 One virtual machine runs everything. Rootless podman runs PostgreSQL and the app from [`compose.example.yml`](compose.example.yml); nginx on the host terminates TLS and forwards to the app with [`nginx.example.conf`](nginx.example.conf). The examples use `wahl.example.org` for the site, `election` for the user that runs the stack and `~/school-election` for its directory; replace them with your own.
 
 - `postgres` is reachable only from the stack's internal network, which has no route off the host: no published port, data in a named volume. It starts with exactly the settings the app checks at startup.
-- `app` runs the published image, pinned by tag and digest, read-only, without capabilities, listening on `127.0.0.1:3000` only.
+- `app` runs the published image, pinned by tag and digest, read-only, without capabilities, listening on `127.0.0.1:3000` only. The image contains libvips, a shared library under the LGPL-3.0-or-later; its notice, source and license texts are in the image under `/app/third-party-notices` and in [`third-party-notices`](../third-party-notices/README.md).
 - `migrate` is a one-shot service: it applies pending migrations and sets the password of the app's database role.
 
 ## Entra ID app registration
@@ -113,7 +113,7 @@ curl -fsS https://wahl.example.org/api/health
 
 Then sign in at `https://wahl.example.org/api/auth/login`. Afterwards `https://wahl.example.org/api/auth/me` shows the signed-in name, with the role `teacher` for teachers.
 
-nginx only terminates TLS, forwards and logs. Do not add security headers or access rules there: the app sets the headers (CSP, HSTS, Referrer-Policy and the rest) and checks every request itself. The log format leaves out query strings and cookies, `/api/voter` and the plain-HTTP redirects are not logged at all, the error log keeps only critical entries for `/api/voter` and the sign-in callback, and neither request bodies nor responses are ever buffered to disk.
+nginx only terminates TLS, forwards and logs. Do not add security headers or access rules there: the app sets the headers (CSP, HSTS, Referrer-Policy and the rest) and checks every request itself. The log format leaves out query strings and cookies, `/api/voter` and the plain-HTTP redirects are not logged at all, the error log keeps only critical entries for `/api/voter` and the sign-in callback, and neither request bodies nor responses are ever buffered to disk. Request bodies are limited to 64 KiB, as in the app, except for the upload of a candidate picture, which has its own `location` with 352 KiB. If you keep an older copy of the example, add that `location` block, or picture uploads fail with 413.
 
 ## Updates
 
@@ -136,7 +136,7 @@ With linger enabled, `podman-restart.service` starts every container with `resta
 
 ## Backups
 
-- Logical dumps only, and without the ballot box: `(umask 077 && podman compose exec -T postgres pg_dump -U postgres -d school_election --format=custom --exclude-table-data=ballot_box > school-election-$(date +%F).dump)`. A dump outlives the election, and ballots must not. It still holds names, addresses and the audit log, hence the umask: only `election` may read it.
+- Logical dumps only, and without the ballot box: `(umask 077 && podman compose exec -T postgres pg_dump -U postgres -d school_election --format=custom --exclude-table-data=ballot_box > school-election-$(date +%F).dump)`. A dump outlives the election, and ballots must not. It still holds names, addresses, candidate pictures and the audit log, hence the umask: only `election` may read it.
 - Never during an election, from opening its first round until the clean-up after its export has finished. In that time, also no file-level copy or snapshot of the PostgreSQL volume or the virtual machine: until the clean-up, deleted rows and the write-ahead log in the data files can still link ballots to keys.
 - No WAL archiving and no point-in-time recovery. `archive_mode` is off, and the app refuses to start otherwise.
 

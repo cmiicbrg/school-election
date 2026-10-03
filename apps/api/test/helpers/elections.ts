@@ -5,8 +5,9 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse, RouteOptions } from 'fastify'
 import { createDatabase, type Database } from '../../lib/db.ts'
+import type { ElectionState } from '@school-election/election-core'
 import { buildTestApp, ORIGIN } from './app.ts'
-import { createTestDatabase } from './db.ts'
+import { createTestDatabase, withClient } from './db.ts'
 import { CookieJar, startFakeEntra, type FakeEntra } from './fake-entra.ts'
 
 export interface ElectionApp {
@@ -46,7 +47,7 @@ export const WANDA: Person = { oid: 'd0000000-0000-4000-8000-00000000000d', name
 
 /** A signed-in browser: its requests are same-origin and carry its cookies. */
 export interface Browser {
-  request: (method: InjectOptions['method'], url: string, body?: object) => Promise<LightMyRequestResponse>
+  request: (method: InjectOptions['method'], url: string, body?: object, headers?: Record<string, string>) => Promise<LightMyRequestResponse>
 }
 
 export async function signIn(s: ElectionApp, person: Person): Promise<Browser> {
@@ -67,10 +68,10 @@ export async function signIn(s: ElectionApp, person: Person): Promise<Browser> {
   assert.equal(res.statusCode, 303, `sign-in of ${person.name}`)
   jar.update(res)
   return {
-    request: (method, url, body) => s.app.inject({
+    request: (method, url, body, headers = {}) => s.app.inject({
       method,
       url,
-      headers: { 'cookie': jar.header(), 'sec-fetch-site': 'same-origin' },
+      headers: { ...headers, 'cookie': jar.header(), 'sec-fetch-site': 'same-origin' },
       ...(body === undefined ? {} : { payload: body }),
     }),
   }
@@ -88,4 +89,23 @@ export async function auditActions(owner: Browser, electionId: string): Promise<
   const res = await owner.request('GET', `/api/elections/${electionId}/audit`)
   assert.equal(res.statusCode, 200)
   return res.json<{ events: { action: string }[] }>().events.map((event) => event.action)
+}
+
+/**
+ * Puts an election into a state no route reaches yet (none opens a round),
+ * or back out of one, as the database owner and past the lifecycle
+ * triggers, which would otherwise refuse such a jump.
+ */
+export async function forceElectionState(ownerUrl: string, electionId: string, state: ElectionState): Promise<void> {
+  await withClient(ownerUrl, async (client) => {
+    await client.query('begin')
+    await client.query('set local session_replication_role = replica')
+    await client.query('update election set state = $2 where id = $1', [electionId, state])
+    await client.query('commit')
+  })
+}
+
+/** A route's URL for an election, with made-up ids for everything else it names. */
+export function electionPath(pattern: string, electionId: string): string {
+  return pattern.replace(':id', electionId).replace(':sha256', 'a'.repeat(64)).replaceAll(/:[a-zA-Z]+Id\b/g, '0d3b5a0e-6a43-4c1b-9f5e-3d2c1b0a9f8e')
 }

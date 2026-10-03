@@ -5,7 +5,7 @@ import { assertElectionGuard, changeElection, requireElectionAccess } from '../l
 import { ELECTION_ACTIONS, ELECTION_ROLES, isPermitted, permissionsOf, type ElectionAction, type ElectionRole } from '../lib/permissions.ts'
 import { buildTestApp, stubDatabase } from './helpers/app.ts'
 import { DB, withClient } from './helpers/db.ts'
-import { ANNA, auditActions, BERND, CARLA, createElection, electionApp, signIn, WANDA, type Browser } from './helpers/elections.ts'
+import { ANNA, auditActions, BERND, CARLA, createElection, electionApp, electionPath, forceElectionState, signIn, WANDA, type Browser } from './helpers/elections.ts'
 
 // Who may do what, read from the requirements rather than from the code:
 // the owner everything, a co-admin everything but members and finalizing,
@@ -34,17 +34,38 @@ test('every role and action is permitted exactly as the matrix says', () => {
 })
 
 const ELECTION_ROUTES = [
+  'DELETE /api/elections/:id/candidates/:candidateId',
+  'DELETE /api/elections/:id/candidates/:candidateId/picture',
+  'DELETE /api/elections/:id/contests/:contestId',
   'DELETE /api/elections/:id/members/:memberId',
+  'DELETE /api/elections/:id/voter-groups/:groupId',
   'GET /api/elections',
   'GET /api/elections/:id',
   'GET /api/elections/:id/audit',
+  'GET /api/elections/:id/candidates/:candidateId/picture/:sha256',
+  'GET /api/elections/:id/configuration',
   'GET /api/elections/:id/members',
+  'GET /api/elections/:id/preparation',
   'HEAD /api/elections',
   'HEAD /api/elections/:id',
   'HEAD /api/elections/:id/audit',
+  'HEAD /api/elections/:id/candidates/:candidateId/picture/:sha256',
+  'HEAD /api/elections/:id/configuration',
   'HEAD /api/elections/:id/members',
+  'HEAD /api/elections/:id/preparation',
+  'PATCH /api/elections/:id',
+  'PATCH /api/elections/:id/candidates/:candidateId',
+  'PATCH /api/elections/:id/contests/:contestId',
+  'PATCH /api/elections/:id/voter-groups/:groupId',
   'POST /api/elections',
+  'POST /api/elections/:id/contests',
+  'POST /api/elections/:id/contests/:contestId/candidates',
   'POST /api/elections/:id/members',
+  'POST /api/elections/:id/prepare',
+  'POST /api/elections/:id/unprepare',
+  'POST /api/elections/:id/voter-groups',
+  'PUT /api/elections/:id/candidates/:candidateId/picture',
+  'PUT /api/elections/:id/voter-groups/:groupId/contests',
 ]
 
 test('every /api/elections/:id route starts with requireElectionAccess, and answers 401 and 404 before anything else', DB, async (t) => {
@@ -61,8 +82,8 @@ test('every /api/elections/:id route starts with requireElectionAccess, and answ
   for (const route of guarded) {
     const name = `${String(route.method)} ${route.url}`
     assert.doesNotThrow(() => assertElectionGuard(route), name)
-    const url = route.url.replace(':id', id).replace(':memberId', '0d3b5a0e-6a43-4c1b-9f5e-3d2c1b0a9f8e')
-    const method = route.method as 'GET' | 'HEAD' | 'POST' | 'DELETE'
+    const url = electionPath(route.url, id)
+    const method = route.method as 'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
     const anonymous = await s.app.inject({ method, url, headers: { 'sec-fetch-site': 'same-origin' } })
     assert.equal(anonymous.statusCode, 401, name)
     // Another teacher, with a body the route would accept: still nothing.
@@ -173,7 +194,7 @@ test('once final, member changes are 409 with the lifecycle\'s reason, and readi
   const s = await electionApp(t)
   const anna = await signIn(s, ANNA)
   const id = await createElection(anna)
-  await withClient(s.ownerUrl, (client) => client.query('update election set state = \'final\' where id = $1', [id]))
+  await forceElectionState(s.ownerUrl, id, 'final')
   const res = await anna.request('POST', `/api/elections/${id}/members`, { email: WANDA.email, role: 'witness' })
   assert.deepEqual([res.statusCode, res.json()], [409, { error: 'election_final' }])
   assert.equal((await anna.request('GET', `/api/elections/${id}/members`)).statusCode, 200)
@@ -198,12 +219,12 @@ test('a change checks access again under the election\'s lock: a removal or a st
   const post = (browser: Browser) => browser.request('POST', `/api/elections/${id}/test-change`, {})
   assert.deepEqual((await post(anna)).json(), { role: 'owner' })
 
-  meanwhile = () => withClient(s.ownerUrl, (client) => client.query('update election set state = \'final\' where id = $1', [id]))
+  meanwhile = () => forceElectionState(s.ownerUrl, id, 'final')
   const final = await post(anna)
   assert.deepEqual([final.statusCode, final.json()], [409, { error: 'election_final' }])
 
   meanwhile = () => withClient(s.ownerUrl, (client) => client.query('delete from election_member where election_id = $1', [id]))
-  await withClient(s.ownerUrl, (client) => client.query('update election set state = \'draft\' where id = $1', [id]))
+  await forceElectionState(s.ownerUrl, id, 'draft')
   const removed = await post(anna)
   assert.deepEqual([removed.statusCode, removed.json()], [404, { error: 'not_found' }])
 })

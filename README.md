@@ -38,4 +38,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately as de
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). The container image also contains libvips, a shared library under the LGPL-3.0-or-later that the API uses to re-encode candidate pictures; [third-party-notices](third-party-notices/README.md) has its notice, source and license texts, and the image carries them as `/app/third-party-notices`.

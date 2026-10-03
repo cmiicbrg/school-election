@@ -1,9 +1,8 @@
 import { test, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import { ELECTION_STATES } from '@school-election/election-core'
 import { ELECTION_ROLES } from '../../lib/permissions.ts'
 import { sqlState } from '../../lib/pg-errors.ts'
-import { createTestDatabase, DB, withClient } from '../helpers/db.ts'
+import { checkedValues, createTestDatabase, DB, withClient } from '../helpers/db.ts'
 
 const ELECTION = '3f2b8c1e-5a4d-4e6f-9b7a-0c1d2e3f4a5b'
 
@@ -21,22 +20,10 @@ async function setup(t: TestContext) {
   return { ...db, userId }
 }
 
-/** The quoted values of the CHECK constraint on a column. */
-async function checkedValues(url: string, table: string, column: string): Promise<string[]> {
-  return withClient(url, async (client) => {
-    const { rows } = await client.query<{ def: string }>(
-      `select pg_get_constraintdef(oid) as def from pg_constraint
-        where conrelid = $1::regclass and contype = 'c' and pg_get_constraintdef(oid) like $2`,
-      [table, `%(${column} = ANY%`],
-    )
-    assert.equal(rows.length, 1, `${table}.${column}`)
-    return [...(rows[0]?.def ?? '').matchAll(/'([a-z-]+)'::text/g)].map((match) => match[1] ?? '')
-  })
-}
-
-test('the stored states and roles are exactly the ones the code knows', DB, async (t) => {
+// The election states are rows of election_state (migration 0007), which
+// test/db/configuration.test.ts compares with the lifecycle.
+test('the stored roles are exactly the ones the code knows', DB, async (t) => {
   const { ownerUrl } = await setup(t)
-  assert.deepEqual(await checkedValues(ownerUrl, 'election', 'state'), [...ELECTION_STATES])
   assert.deepEqual(await checkedValues(ownerUrl, 'election_member', 'role'), [...ELECTION_ROLES])
 })
 
@@ -86,7 +73,7 @@ test('an invitation binds once: the runtime role can set the person of a pending
     for (const statement of ['update election_member set user_id = null where id = $1', 'update election_member set user_id = user_id where id = $1']) {
       await assert.rejects(client.query(statement, [member.id]), (err) => sqlState(err) === '23000', statement)
     }
-    for (const statement of ['update election_member set role = \'admin\'', 'update election_member set invited_email = \'x@y.z\'', 'update election set state = \'final\'', 'delete from election']) {
+    for (const statement of ['update election_member set role = \'admin\'', 'update election_member set invited_email = \'x@y.z\'', 'update election set id = gen_random_uuid()', 'delete from election']) {
       await assert.rejects(client.query(statement), (err) => sqlState(err) === '42501', statement)
     }
   })

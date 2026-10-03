@@ -61,6 +61,17 @@ export function createDatabase(connectionString: string, onClientError: (err: Er
   }
 }
 
+/**
+ * Runs reads that must see one state, such as a configuration read over
+ * several queries, in a read-only, repeatable-read transaction.
+ */
+export function readSnapshot<T>(db: Database, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  return db.tx(async (client) => {
+    await client.query('set transaction isolation level repeatable read, read only')
+    return fn(client)
+  })
+}
+
 /** user@host:port/database, for log lines: never the password. */
 export function describeDatabase(connectionString: string): string {
   const url = new URL(connectionString)

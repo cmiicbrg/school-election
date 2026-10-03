@@ -4,7 +4,7 @@ import { verifyAuditChain, type AuditEvent } from '../lib/audit-chain.ts'
 import { bindInvitations } from '../lib/members.ts'
 import { DB, withClient } from './helpers/db.ts'
 import { TENANT_ID } from './helpers/env.ts'
-import { ANNA, auditActions, BERND, CARLA, createElection, electionApp, signIn, WANDA, type Browser } from './helpers/elections.ts'
+import { ANNA, auditActions, BERND, CARLA, createElection, electionApp, forceElectionState, signIn, WANDA, type Browser } from './helpers/elections.ts'
 
 interface MemberView {
   id: string
@@ -220,10 +220,10 @@ test('a final election binds no more invitations; another tenant\'s person binds
   const anna = await signIn(s, ANNA)
   const id = await createElection(anna)
   assert.equal((await invite(anna, id, WANDA.email)).statusCode, 201)
-  await withClient(s.ownerUrl, (client) => client.query('update election set state = \'final\' where id = $1', [id]))
+  await forceElectionState(s.ownerUrl, id, 'final')
   const wanda = await signIn(s, WANDA)
   assert.equal((await wanda.request('GET', `/api/elections/${id}`)).statusCode, 404)
-  await withClient(s.ownerUrl, (client) => client.query('update election set state = \'draft\' where id = $1', [id]))
+  await forceElectionState(s.ownerUrl, id, 'draft')
 
   // Sign-in only lets the configured tenant in; the binding checks it all the same.
   const foreign = { tid: '9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a', oid: 'f0000000-0000-4000-8000-00000000000f', displayName: 'Fremd', email: WANDA.email ?? null }
