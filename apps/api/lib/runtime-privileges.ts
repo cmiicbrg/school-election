@@ -28,7 +28,10 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
 }
 
 /** Functions the runtime role may execute, by their signature. */
-export const RUNTIME_FUNCTIONS: readonly string[] = []
+export const RUNTIME_FUNCTIONS: readonly string[] = [
+  // The preload settings for the startup check (migration 0006).
+  'preload_settings()',
+]
 
 /** One privilege, as the startup check reports what the role can do. */
 export interface Privilege {

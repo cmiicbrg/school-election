@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { createDatabase } from '../../lib/db.ts'
 import { checkDatabaseSettings, REQUIRED_SETTINGS } from '../../lib/db-settings.ts'
 import { expectedPrivileges, type Privilege } from '../../lib/runtime-privileges.ts'
+import { sqlState } from '../../lib/pg-errors.ts'
 import { migrate } from '../../scripts/migrate.ts'
 import { createTestDatabase, DB, TEST_RUNTIME_PASSWORD, withClient } from '../helpers/db.ts'
 
@@ -22,6 +23,9 @@ function serverWith(overrides: Record<string, string>, role: Partial<typeof runt
   const answer = (text: string, params?: unknown[]) => {
     if (text.includes('from pg_roles r where r.rolname = current_user')) return { rows: [{ ...runtimeRole, ...role }] }
     if (text.includes('has_table_privilege')) return { rows: privileges }
+    if (text.includes('preload_settings()')) {
+      return { rows: ['shared_preload_libraries', 'session_preload_libraries', 'local_preload_libraries'].map((name) => ({ name, setting: values[name] ?? '' })) }
+    }
     return { rows: (params?.[0] as string[]).map((name) => ({ name, value: values[name] ?? '' })) }
   }
   return { query: (text: string, params?: unknown[]) => Promise.resolve(answer(text, params)) } as never
@@ -178,28 +182,33 @@ test('object privileges granted by hand are caught at startup, and the next migr
   assert.deepEqual(await checkDatabaseSettings(db), [])
 })
 
-test('a role inherited through pg_read_all_settings is refused by the migrator and the startup check', DB, async (t) => {
+test('pg_read_all_settings, granted by earlier versions, is refused at startup and taken back by the next run', DB, async (t) => {
   const testDb = await createTestDatabase(t)
   const admin = process.env.TEST_DATABASE_URL ?? ''
-  // Cluster-wide: make pg_read_all_settings a member of another role, which
-  // the runtime role then inherits. Undone on the server connection.
-  await withClient(admin, async (c) => {
-    await c.query('create role se_inherited nologin')
-    await c.query('grant se_inherited to pg_read_all_settings')
-  })
-  t.after(() => withClient(admin, async (c) => {
-    await c.query('revoke se_inherited from pg_read_all_settings')
-    await c.query('drop role se_inherited')
-  }))
+  // Cluster-wide; the run below takes it back, and so does the clean-up if it fails first.
+  await withClient(admin, (c) => c.query('grant pg_read_all_settings to school_election_app'))
+  t.after(() => withClient(admin, (c) => c.query('revoke pg_read_all_settings from school_election_app')).catch(() => {}))
   const db = createDatabase(testDb.runtimeUrl, () => {})
   t.after(() => db.close())
   assert.deepEqual(await checkDatabaseSettings(db), [
-    'the server connects as school_election_app, which is a member of se_inherited; the runtime role must hold nothing else',
+    'the server connects as school_election_app, which is a member of pg_read_all_settings; the runtime role must hold nothing else',
   ])
-  await assert.rejects(
-    migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD }),
-    /school_election_app is a member of se_inherited; revoke that first/,
-  )
+  await migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD })
+  assert.deepEqual(await checkDatabaseSettings(db), [])
+})
+
+test('the runtime role reads the hidden preload settings only through preload_settings()', DB, async (t) => {
+  const testDb = await createTestDatabase(t)
+  await withClient(testDb.runtimeUrl, async (c) => {
+    await assert.rejects(c.query('select current_setting(\'shared_preload_libraries\')'), (err) => sqlState(err) === '42501')
+    const { rows } = await c.query<{ name: string }>('select name from preload_settings() order by name')
+    assert.deepEqual(rows.map((row) => row.name), ['local_preload_libraries', 'session_preload_libraries', 'shared_preload_libraries'])
+  })
+  // Nobody else may call it.
+  await withClient(testDb.ownerUrl, (c) => c.query('create role se_probe nologin'))
+  t.after(() => withClient(process.env.TEST_DATABASE_URL ?? '', (c) => c.query('drop role if exists se_probe')))
+  const { rows } = await withClient(testDb.ownerUrl, (c) => c.query<{ allowed: boolean }>('select has_function_privilege(\'se_probe\', \'preload_settings()\', \'EXECUTE\') as allowed'))
+  assert.equal(rows[0]?.allowed, false)
 })
 
 test('the server pins search_path to public, whatever the role or database sets', DB, async (t) => {

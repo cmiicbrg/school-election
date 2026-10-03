@@ -166,12 +166,13 @@ async function migrationFiles(dir: string, until: string | undefined): Promise<M
 }
 
 // The runtime role logs in with its own password and holds nothing but what
-// lib/runtime-privileges.ts grants it. Its attributes are set on every run, so a role that
-// was created or changed by hand with more rights is brought back down; a
-// membership in any other role is refused rather than silently revoked.
-// pg_read_all_settings lets the server check its privacy settings at
-// startup; it gives no access to data.
-export const RUNTIME_MEMBERSHIPS = ['pg_read_all_settings']
+// lib/runtime-privileges.ts grants it. Its attributes are set on every run, so
+// a role that was created or changed by hand with more rights is brought back
+// down; a membership in any role is refused rather than silently revoked.
+// The one exception is pg_read_all_settings, which earlier versions granted
+// for the startup check: preload_settings() (migration 0006) replaces it, so
+// the grant is taken back.
+const SUPERSEDED_MEMBERSHIP = 'pg_read_all_settings'
 const UNPRIVILEGED = 'login nosuperuser nocreatedb nocreaterole noreplication nobypassrls inherit'
 
 /** Creates the runtime role, or resets the attributes of the existing one; true if it existed. */
@@ -186,16 +187,21 @@ async function ensureRuntimeRole(client: pg.Client, password: string): Promise<b
     }
   }
   if (existed) await client.query(await formatted(client, `alter role %I with ${UNPRIVILEGED}`))
-  await client.query(`grant ${RUNTIME_MEMBERSHIPS.join(', ')} to ${RUNTIME_ROLE}`)
+  const direct = await client.query(
+    `select 1 from pg_auth_members m
+      where m.member = (select oid from pg_roles where rolname = $1)
+        and m.roleid = (select oid from pg_roles where rolname = $2)`,
+    [RUNTIME_ROLE, SUPERSEDED_MEMBERSHIP],
+  )
+  if (direct.rowCount !== 0) await client.query(`revoke ${SUPERSEDED_MEMBERSHIP} from ${RUNTIME_ROLE}`)
 
-  // Effective membership, not only direct grants: a role granted to an
-  // allowed role is inherited just the same.
+  // Effective membership, not only direct grants: a role granted to any
+  // role the runtime role is a member of is inherited just the same.
   const memberships = await client.query<{ rolname: string }>(
     `select granted.rolname::text as rolname from pg_roles granted, pg_roles runtime
       where runtime.rolname = $1 and granted.oid <> runtime.oid
-        and pg_has_role(runtime.oid, granted.oid, 'MEMBER')
-        and not (granted.rolname = any($2::text[]))`,
-    [RUNTIME_ROLE, RUNTIME_MEMBERSHIPS],
+        and pg_has_role(runtime.oid, granted.oid, 'MEMBER')`,
+    [RUNTIME_ROLE],
   )
   if (memberships.rows.length > 0) {
     const names = memberships.rows.map((row) => row.rolname).sort(byName).join(', ')

@@ -63,7 +63,9 @@ export const ALLOWED_SETTINGS: readonly { name: string, allowed: readonly string
 
 // Deny by default: modules such as auto_explain and pgaudit log statements
 // with their parameters, and any other module could. pg_stat_statements keeps
-// aggregated query texts with constants replaced, never parameters.
+// aggregated query texts with constants replaced, never parameters. Two of
+// these settings are hidden from unprivileged roles, so all three are read
+// through preload_settings() (migration 0006), which returns exactly them.
 const PRELOAD_SETTINGS = ['shared_preload_libraries', 'session_preload_libraries', 'local_preload_libraries']
 const ALLOWED_PRELOAD = new Set(['pg_stat_statements'])
 
@@ -79,8 +81,9 @@ export async function checkDatabaseSettings(db: Pick<Database, 'query'>): Promis
   const values = await currentSettings(db, [
     ...REQUIRED_SETTINGS.map((s) => s.name),
     ...ALLOWED_SETTINGS.map((s) => s.name),
-    ...PRELOAD_SETTINGS,
   ])
+  const { rows: preload } = await db.query<{ name: string, setting: string }>('select name, setting from preload_settings()')
+  for (const { name, setting } of preload) values.set(name, setting)
   for (const { name, expected, why } of REQUIRED_SETTINGS) {
     const actual = values.get(name) ?? ''
     if (actual !== expected) problems.push(`${name} is ${actual}, must be ${expected}: any other value ${why}`)
@@ -121,12 +124,12 @@ async function checkConnectedRole(db: Pick<Database, 'query'>): Promise<{ proble
               case when r.rolbypassrls then 'bypassrls' end
             ], null) as attributes,
             (select d.datdba = r.oid from pg_database d where d.datname = current_database()) as owner,
-            -- Effective membership, including roles granted to an allowed
-            -- role; a superuser is reported as such instead. text[], not
-            -- name[]: the driver parses only the former into an array.
+            -- Effective membership, including inherited roles; a superuser
+            -- is reported as such instead. text[], not name[]: the driver
+            -- parses only the former into an array.
             case when r.rolsuper then '{}'::text[] else coalesce((
               select array_agg(g.rolname::text order by g.rolname) from pg_roles g
-               where g.oid <> r.oid and pg_has_role(r.oid, g.oid, 'MEMBER') and g.rolname <> 'pg_read_all_settings'
+               where g.oid <> r.oid and pg_has_role(r.oid, g.oid, 'MEMBER')
             ), '{}'::text[]) end as memberships,
             array_remove(array[
               case when has_schema_privilege('public', 'CREATE') then 'objects in schema public' end,
