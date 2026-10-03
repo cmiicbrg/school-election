@@ -7,14 +7,17 @@
 // The scenario is seeded as the owner, straight into the tables, so it
 // does not depend on the HTTP layer. Votes go through the caster the test
 // passes: sqlCaster() casts them as the runtime role with plain SQL, the
-// way the application's ballot transaction will. The assertions read the
-// database as the owner, including what the runtime role never sees: the
-// staging table, and each row's transaction id (xmin) and position (ctid).
+// way the application's ballot transaction does, and castBallotCaster()
+// through castBallot itself. The assertions read the database as the
+// owner, including what the runtime role never sees: the staging table,
+// and each row's transaction id (xmin) and position (ctid).
 
 import assert from 'node:assert/strict'
 import type { TestContext } from 'node:test'
 import type pg from 'pg'
-import { activeSlots, RULESETS, type BallotKind, type RulesetId } from '@school-election/election-core'
+import { activeSlots, RULESETS, validateBallot, type BallotKind, type Contest, type RulesetId } from '@school-election/election-core'
+import { castBallot } from '../../lib/ballot-box.ts'
+import type { Database } from '../../lib/db.ts'
 import { inOrder } from '../../lib/in-order.ts'
 import { createTestDatabase, withClient, type TestDatabase } from './db.ts'
 
@@ -36,7 +39,11 @@ export interface PrivacyScenario extends TestDatabase {
   /** Every key's credential id; the tracked one is the first. */
   credentialIds: string[]
   tracked: string
-  /** The 32-bit transaction id of every vote, as xmin shows it; filled by the caster. */
+  /**
+   * The 32-bit transaction id of every vote, as xmin shows it; filled by
+   * the caster. castBallot writes under a savepoint, whose rows carry the
+   * subtransaction's id, so the caster records the id its rows carry.
+   */
   voteXids: Set<string>
   /** The votes in the order they were cast; filled by voteInterleaved. */
   castOrder: Vote[]
@@ -64,6 +71,17 @@ const CONTESTS: { id: string, boxId: string, title: string, rulesetId: RulesetId
   { id: '708192a3-b4c5-40d1-8cf3-6e7f8091a2b3', boxId: 'a2b3c4d5-e6f7-4304-9125-91a2b3c4d5e6', title: 'Abstimmung', rulesetId: 'single-choice-v1', candidates: 1 },
 ]
 
+/**
+ * The tracked key, and a segment of every candidate id: values that occur
+ * nowhere but in this scenario, so a log that quoted a key, a ranking or a
+ * statement would be found by a search for them. CI searches the
+ * PostgreSQL container's log for both once the tests have run
+ * (.github/workflows/ci.yml).
+ */
+export const CANARY_KEY = 'CANARYKEY00000000000'
+export const CANARY_CANDIDATE_SEGMENT = '0ca0a0a0a0'
+const canaryCandidateId = (contest: number, n: number) => `${contest}a0a0a0a-0a0a-4a0a-8a0a-${CANARY_CANDIDATE_SEGMENT}${String(n).padStart(2, '0')}`
+
 /** A normalised key that is no real key: digits only, numbered. */
 const fakeKey = (n: number) => String(n).padStart(20, '0')
 
@@ -74,32 +92,31 @@ const fakeKey = (n: number) => String(n).padStart(20, '0')
  */
 export async function seedPrivacyScenario(t: TestContext, { others = 50 } = {}): Promise<PrivacyScenario> {
   assert.ok(others >= 50, 'the anonymity set is at least fifty other voters')
-  const voters = others + 1
   const db = await createTestDatabase(t)
   return withClient(db.ownerUrl, async (client) => {
     await client.query('insert into election (id, title) values ($1, $2)', [ELECTION, 'Wahl'])
     await client.query('insert into voter_group (id, election_id, name) values ($1, $2, $3)', [GROUP, ELECTION, '3A'])
     await client.query('insert into round (id, election_id, kind) values ($1, $2, $3)', [ROUND, ELECTION, 'regular'])
     const contests: ScenarioContest[] = []
-    await inOrder(CONTESTS, async (contest) => {
+    await inOrder(CONTESTS.entries(), async ([index, contest]) => {
       await client.query('insert into contest (id, election_id, title, ruleset_id) values ($1, $2, $3, $4)', [contest.id, ELECTION, contest.title, contest.rulesetId])
-      const { rows } = await client.query<{ id: string }>(
-        `insert into candidate (election_id, contest_id, surname, given_name)
-         select $1, $2, 'Kandidat ' || n, '' from generate_series(1, $3::int) as n returning id`,
-        [ELECTION, contest.id, contest.candidates],
+      const candidateIds = Array.from({ length: contest.candidates }, (_, n) => canaryCandidateId(index, n)).toSorted((a, b) => a.localeCompare(b, 'en'))
+      await client.query(
+        `insert into candidate (id, election_id, contest_id, surname, given_name)
+         select c.id, $1, $2, 'Kandidat ' || c.n, '' from unnest($3::uuid[]) with ordinality as c (id, n)`,
+        [ELECTION, contest.id, candidateIds],
       )
       await client.query('insert into voter_group_contest (election_id, voter_group_id, contest_id) values ($1, $2, $3)', [ELECTION, GROUP, contest.id])
       await client.query('insert into round_contest (id, election_id, round_id, contest_id) values ($1, $2, $3, $4)', [contest.boxId, ELECTION, ROUND, contest.id])
-      const candidateIds = rows.map((row) => row.id).toSorted()
       contests.push({ contestId: contest.id, boxId: contest.boxId, rulesetId: contest.rulesetId, candidateIds, slots: activeSlots(RULESETS[contest.rulesetId], candidateIds.length).length })
     })
     await client.query('update election set state = $2 where id = $1', [ELECTION, 'prepared'])
     await client.query('insert into credential_batch (id, election_id, voter_group_id, round_kind) values ($1, $2, $3, $4)', [BATCH, ELECTION, GROUP, 'regular'])
     const { rows: keys } = await client.query<{ id: string, xmin: string }>(
       `insert into credential (election_id, batch_id, key)
-       select $1, $2, lpad(n::text, 20, '0') from generate_series(0, $3::int - 1) as n
+       select $1, $2, k.key from unnest($3::text[]) as k (key)
        returning id, xmin::text`,
-      [ELECTION, BATCH, voters],
+      [ELECTION, BATCH, [CANARY_KEY, ...Array.from({ length: others }, (_, n) => fakeKey(n + 1))]],
     )
     await client.query(
       `insert into credential_entitlement (election_id, credential_id, round_contest_id)
@@ -108,7 +125,7 @@ export async function seedPrivacyScenario(t: TestContext, { others = 50 } = {}):
     )
     await client.query('update election set state = $2 where id = $1', [ELECTION, 'active'])
     await client.query('update round set state = $2 where id = $1', [ROUND, 'open'])
-    const { rows: ordered } = await client.query<{ id: string }>('select id from credential where key = $1', [fakeKey(0)])
+    const { rows: ordered } = await client.query<{ id: string }>('select id from credential where key = $1', [CANARY_KEY])
     const tracked = ordered[0]?.id ?? assert.fail('the tracked key is missing')
     return {
       ...db,
@@ -190,8 +207,11 @@ export async function voteInterleaved(scenario: PrivacyScenario, cast: Caster, s
   })
 }
 
+/** The current transaction's id as xmin will show it: the low 32 bits. */
+const XID = 'select (pg_current_xact_id()::text::bigint % 4294967296)::text as xid'
+
 /**
- * Casts a vote as the application's ballot transaction will: one
+ * Casts a vote as the application's ballot transaction does: one
  * transaction that uses the entitlement up and stages the ballot, as the
  * runtime role, recording the transaction's id as xmin will show it.
  */
@@ -199,7 +219,7 @@ export function sqlCaster(client: pg.Client, scenario: PrivacyScenario): Caster 
   return async (vote) => {
     await client.query('begin')
     try {
-      const { rows: [xid] } = await client.query<{ xid: string }>('select (pg_current_xact_id()::text::bigint % 4294967296)::text as xid')
+      const { rows: [xid] } = await client.query<{ xid: string }>(XID)
       scenario.voteXids.add(xid?.xid ?? assert.fail('no transaction id'))
       const used = await client.query(
         'update credential_entitlement set consumed = true where credential_id = $1 and round_contest_id = $2 and not consumed',
@@ -215,6 +235,44 @@ export function sqlCaster(client: pg.Client, scenario: PrivacyScenario): Caster 
       await client.query('rollback')
       throw err
     }
+  }
+}
+
+/** What the voter would submit for a planned vote, for election-core to validate. */
+function ballotInput(vote: Vote, contest: ScenarioContest): unknown {
+  switch (vote.kind) {
+    case 'no':
+      return { kind: 'no' }
+    case 'invalid':
+      return { kind: 'ranking', ranking: Array.from({ length: contest.slots }, () => null), confirmInvalid: true }
+    case 'ranking':
+      return { kind: 'ranking', ranking: vote.ranking }
+  }
+}
+
+/**
+ * Casts a vote through castBallot, the production code, in a transaction
+ * of its own from the pool, as the voter route does: the ballot validated
+ * by election-core for the contest, as the route validates it.
+ */
+export function castBallotCaster(db: Database, scenario: PrivacyScenario): Caster {
+  return async (vote) => {
+    const scenarioContest = scenario.contests.find((contest) => contest.boxId === vote.boxId) ?? assert.fail('no contest for the box')
+    const contest: Contest = { id: scenarioContest.contestId, rulesetId: scenarioContest.rulesetId, candidateIds: scenarioContest.candidateIds }
+    const validated = validateBallot(contest, ballotInput(vote, scenarioContest))
+    assert.ok(validated.ok, `the planned ${vote.kind} vote is a ballot`)
+    await db.tx(async (client) => {
+      const { rows: [xid] } = await client.query<{ xid: string }>(XID)
+      scenario.voteXids.add(xid?.xid ?? assert.fail('no transaction id'))
+      const result = await castBallot(client, { credentialId: vote.credentialId, roundContestId: vote.boxId, contest, ballot: validated.ballot })
+      assert.deepEqual(result, { cast: true })
+      // What the rows castBallot wrote actually carry: the savepoint's id.
+      const { rows: [written] } = await client.query<{ xid: string }>(
+        'select xmin::text as xid from credential_entitlement where credential_id = $1 and round_contest_id = $2',
+        [vote.credentialId, vote.boxId],
+      )
+      scenario.voteXids.add(written?.xid ?? assert.fail('the entitlement castBallot used up'))
+    })
   }
 }
 
@@ -333,7 +391,7 @@ export async function assertUnlinkable(scenario: PrivacyScenario): Promise<void>
     const { rows: entitlementXids } = await client.query<{ xid: string }>('select distinct xmin::text as xid from credential_entitlement where round_contest_id = any($1)', [boxes])
     assert.equal(ballotXids.length, 1)
     assert.deepEqual(entitlementXids, ballotXids)
-    assert.equal(scenario.voteXids.size, expected, 'the caster recorded every vote')
+    assert.ok(scenario.voteXids.size >= expected, 'the caster recorded every vote')
     assert.equal(scenario.voteXids.has(ballotXids[0]?.xid ?? ''), false)
     const { rows: credentials } = await client.query<{ id: string, xmin: string }>('select id, xmin::text from credential where election_id = $1', [scenario.electionId])
     assert.deepEqual(new Map(credentials.map((row) => [row.id, row.xmin])), scenario.credentialXmins)

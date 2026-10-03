@@ -4,6 +4,8 @@
 export const SQLSTATE = {
   duplicateObject: '42710',
   insufficientPrivilege: '42501',
+  /** How every trigger of the migrations refuses a change (refuse(), migration 0007). */
+  objectNotInPrerequisiteState: '55000',
   undefinedTable: '42P01',
 } as const
 

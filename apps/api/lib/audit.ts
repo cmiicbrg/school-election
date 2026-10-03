@@ -61,6 +61,9 @@ export const AUDIT_ACTIONS = {
   'credential-batch.replaced': { batch: 'uuid', replacement: 'uuid', group: 'uuid', round: ROUND_KINDS, keys: 'count' },
   // Voided by preparing again, because the group's contests had changed.
   'credential-batch.voided': { batch: 'uuid', group: 'uuid', keys: 'count' },
+  // A round closed and sealed, with how many ballots it holds: the one
+  // figure about a round's votes the log carries, and turnout only.
+  'round.closed': { round: ROUND_KINDS, ballots: 'count' },
 } as const satisfies Readonly<Record<string, Readonly<Record<string, AuditField>>>>
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS

@@ -20,7 +20,7 @@
 
 import type { FastifyReply, FastifyRequest, HookHandlerDoneFunction, RouteOptions } from 'fastify'
 import type pg from 'pg'
-import { transition, type ElectionState, type Lifecycle, type LifecycleAction, type Verdict } from '@school-election/election-core'
+import { isConsistentLifecycle, transition, type ElectionState, type Lifecycle, type LifecycleAction, type RoundState, type Verdict } from '@school-election/election-core'
 import { boundedName } from './app-user.ts'
 import type { AuditActor } from './audit-chain.ts'
 import { lockElection } from './audit.ts'
@@ -131,17 +131,23 @@ export async function changeElection<T>(
 
 interface AccessRow {
   state: ElectionState
+  regular: RoundState | null
+  runoff: RoundState | null
   role: ElectionRole
   tid: string
   oid: string
   display_name: string
 }
 
+/** The states of an election's rounds, as stored: null where the round does not exist. */
+export const ROUND_STATES_SQL = `(select r.state from round r where r.election_id = e.id and r.kind = 'regular') as regular,
+       (select r.state from round r where r.election_id = e.id and r.kind = 'runoff') as runoff`
+
 async function evaluate(db: Pick<Database, 'query'>, id: unknown, userId: string, check: Check): Promise<ElectionAccess> {
   if (typeof id !== 'string' || !UUID.test(id)) throw new Refusal(404, 'not_found')
   const electionId = id.toLowerCase()
   const { rows } = await db.query<AccessRow>(
-    `select e.state, m.role, u.tid, u.oid, u.display_name
+    `select e.state, m.role, u.tid, u.oid, u.display_name, ${ROUND_STATES_SQL}
        from election_member m
        join election e on e.id = m.election_id
        join app_user u on u.id = m.user_id
@@ -151,7 +157,7 @@ async function evaluate(db: Pick<Database, 'query'>, id: unknown, userId: string
   const row = rows[0]
   if (!row) throw new Refusal(404, 'not_found')
   if (!isPermitted(row.role, check.action)) throw new Refusal(403, 'forbidden')
-  const lifecycle = lifecycleOf(row.state)
+  const lifecycle = lifecycleOf(row.state, row)
   const verdict = check.guard?.(lifecycle)
   if (verdict && !verdict.ok) throw new Refusal(409, verdict.refusal.replaceAll('-', '_'))
   return { electionId, role: row.role, lifecycle, actor: { tid: row.tid, oid: row.oid, name: boundedName(row.display_name) ?? row.oid } }
@@ -162,21 +168,16 @@ function electionIdOf(request: FastifyRequest): unknown {
 }
 
 /**
- * The lifecycle of an election from its stored state. No route opens a
- * round yet (preparing creates the regular round, planned), so the round
- * states are the ones each election state begins with: an active election
- * with its regular round open, a final one with it closed and no runoff.
+ * The lifecycle of an election from its stored states: the election's and
+ * its rounds' (ROUND_STATES_SQL). A regular round that does not exist yet
+ * is a planned one; a runoff round that does not exist is none. States
+ * that do not form a lifecycle (the triggers of migrations 0007 and 0009
+ * keep them so) are a wiring error, never a user error.
  */
-export function lifecycleOf(election: ElectionState): Lifecycle {
-  switch (election) {
-    case 'draft':
-    case 'prepared':
-      return { election, regular: 'planned', runoff: null }
-    case 'active':
-      return { election, regular: 'open', runoff: null }
-    case 'final':
-      return { election, regular: 'closed', runoff: null }
-  }
+export function lifecycleOf(election: ElectionState, rounds: { regular: RoundState | null, runoff: RoundState | null }): Lifecycle {
+  const lifecycle = { election, regular: rounds.regular ?? 'planned', runoff: rounds.runoff } as Lifecycle
+  if (!isConsistentLifecycle(lifecycle)) throw new Error(`the stored states do not form a lifecycle: ${JSON.stringify(lifecycle)}`)
+  return lifecycle
 }
 
 const ELECTION_PATH = '/api/elections/'

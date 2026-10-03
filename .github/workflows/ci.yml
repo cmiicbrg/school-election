@@ -114,6 +114,24 @@ jobs:
           # With CI set, database tests fail instead of skipping if this is missing.
           TEST_DATABASE_URL: postgres://postgres:ci-owner-password@127.0.0.1:5432/postgres
 
+      # The privacy regression votes with a key and candidate ids that occur
+      # nowhere else (apps/api/test/helpers/privacy.ts). With the settings
+      # the app enforces at startup, PostgreSQL logs no statement, parameter
+      # or row, and its error messages name no value, so none of them may
+      # reach the container's log; this proves it on the real server with
+      # the flags the launcher sets, error paths included.
+      - name: The PostgreSQL log carries no vote
+        run: |
+          log="$(docker logs school-election-test-db 2>&1)"
+          # The log is the server's own: an empty one would prove nothing.
+          grep -q 'database system is ready to accept connections' <<<"$log"
+          for canary in CANARYKEY00000000000 0ca0a0a0a0; do
+            if grep -qiF "$canary" <<<"$log"; then
+              echo "The PostgreSQL log contains $canary" >&2
+              exit 1
+            fi
+          done
+
   # Build the deployment image on every PR. Publishing only happens on v*
   # tags, so without this a broken Dockerfile or a moved base image would not
   # surface until release time. Also runs on push to main, where it is the
