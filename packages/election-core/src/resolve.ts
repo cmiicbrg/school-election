@@ -75,39 +75,60 @@ export function resolve(
 
 function outcomeOf(first: FirstRoundResult, runoff: RunoffResult | undefined, lookup: LotLookup): Outcome {
   const trace = [...first.trace]
-  if (first.kind === 'elected' || first.kind === 'committee-decision') {
-    if (runoff !== undefined) throw new TypeError('the first round required no runoff')
-    if (first.kind === 'committee-decision') return { kind: first.kind, reason: first.reason, trace }
-    const derived = derivePositions(first.statistics, first.rulesetId, { candidateId: first.winnerId, basis: 'majority' }, lookup)
-    // The first-round trace already holds the derivation and its lot requests.
-    return positionsOutcome(derived, [...trace, ...derived.applied])
-  }
-
-  let pair = first.kind === 'runoff-required' ? first.runoffCandidates : undefined
-  if (first.kind === 'lot-required') {
-    const order = lookup(first.lot)
-    if (order !== undefined) {
-      pair = [...first.lot.qualified, ...order.slice(0, first.lot.seats)] as [string, string]
+  switch (first.kind) {
+    case 'committee-decision':
+      noRunoff(runoff, 'the first round required no runoff')
+      return { kind: first.kind, reason: first.reason, trace }
+    case 'elected': {
+      noRunoff(runoff, 'the first round required no runoff')
+      const derived = derivePositions(first.statistics, first.rulesetId, { candidateId: first.winnerId, basis: 'majority' }, lookup)
+      // The first-round trace already holds the derivation and its lot requests.
+      return positionsOutcome(derived, [...trace, ...derived.applied])
+    }
+    case 'runoff-required':
+      return afterRunoff(first, first.runoffCandidates, runoff, trace, lookup)
+    case 'lot-required': {
+      const order = lookup(first.lot)
+      if (order === undefined) {
+        noRunoff(runoff, 'the runoff pair is not decided yet')
+        return { kind: 'lot-required', lots: [first.lot], positions: [], trace }
+      }
+      const pair = [...first.lot.qualified, ...order.slice(0, first.lot.seats)] as [string, string]
       trace.push({ step: 'lot-applied', lotId: first.lot.id, order }, { step: 'runoff', candidates: pair })
+      return afterRunoff(first, pair, runoff, trace, lookup)
     }
   }
-  if (pair === undefined) {
-    if (runoff !== undefined) throw new TypeError('the runoff pair is not decided yet')
-    return { kind: 'lot-required', lots: first.kind === 'lot-required' ? [first.lot] : [], positions: [], trace }
-  }
+}
+
+function afterRunoff(
+  first: FirstRoundResult,
+  pair: readonly [string, string],
+  runoff: RunoffResult | undefined,
+  trace: TraceStep[],
+  lookup: LotLookup,
+): Outcome {
   if (runoff === undefined) return { kind: 'runoff-required', runoffCandidates: pair, trace }
   const runoffIds = runoff.statistics.candidates.map((c) => c.candidateId)
   if (runoff.runoffOf !== first.contestId || runoff.rulesetId !== 'single-choice-v1' || !isOrderOf(runoffIds, pair)) {
     throw new TypeError('the runoff result is not the runoff of this contest and its pair')
   }
-
   trace.push(...runoff.trace)
-  if (runoff.kind === 'tie') return { kind: 'tie', candidates: runoff.candidates, trace }
-  if (runoff.kind === 'committee-decision') return { kind: runoff.kind, reason: runoff.reason, trace }
-  // The runoff decides only who the principal is; every other position comes
-  // from the first-round points.
-  const derived = derivePositions(first.statistics, first.rulesetId, { candidateId: runoff.winnerId, basis: 'runoff' }, lookup)
-  return positionsOutcome(derived, [...trace, ...derived.steps, ...derived.applied])
+  switch (runoff.kind) {
+    case 'tie':
+      return { kind: 'tie', candidates: runoff.candidates, trace }
+    case 'committee-decision':
+      return { kind: runoff.kind, reason: runoff.reason, trace }
+    case 'elected': {
+      // The runoff decides only who the principal is; every other position
+      // comes from the first-round points.
+      const derived = derivePositions(first.statistics, first.rulesetId, { candidateId: runoff.winnerId, basis: 'runoff' }, lookup)
+      return positionsOutcome(derived, [...trace, ...derived.steps, ...derived.applied])
+    }
+  }
+}
+
+function noRunoff(runoff: RunoffResult | undefined, message: string): void {
+  if (runoff !== undefined) throw new TypeError(message)
 }
 
 function positionsOutcome(derived: DerivedPositions, trace: readonly TraceStep[]): Outcome {
