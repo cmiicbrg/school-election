@@ -1,7 +1,8 @@
 // The image carries a notice for libvips, the one library under a
-// copyleft license (third-party-notices/README.md). It has to name what is
-// actually installed, so an update of sharp fails here until the notice
-// follows it.
+// copyleft license, and for the two fonts of the printable sheets, under
+// the Open Font License (third-party-notices/README.md). It has to name
+// what is actually installed, so an update of sharp or of a font package
+// fails here until the notice follows it.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -49,4 +50,14 @@ test('the license texts the notice refers to are there, and the image carries th
   assert.match(readFileSync(path.join(NOTICES, 'LGPL-3.0.txt'), 'utf8'), /GNU LESSER GENERAL PUBLIC LICENSE\s+Version 3, 29 June 2007/)
   assert.match(readFileSync(path.join(NOTICES, 'GPL-3.0.txt'), 'utf8'), /GNU GENERAL PUBLIC LICENSE\s+Version 3, 29 June 2007/)
   assert.match(readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8'), /^COPY third-party-notices third-party-notices$/m)
+})
+
+test('the notice names the font packages at their installed versions, and each font\'s license text is the OFL', () => {
+  const lock = JSON.parse(readFileSync(path.join(ROOT, 'package-lock.json'), 'utf8')) as { packages: Record<string, { version?: string }> }
+  for (const [pkg, file] of [['dm-sans', 'OFL-1.1-DM-Sans.txt'], ['jetbrains-mono', 'OFL-1.1-JetBrains-Mono.txt']] as const) {
+    const version = lock.packages[`node_modules/@fontsource/${pkg}`]?.version
+    assert.ok(version, pkg)
+    assert.ok(notice.includes(`\`@fontsource/${pkg}\` ${version}`), `${pkg} ${version}`)
+    assert.match(readFileSync(path.join(NOTICES, file), 'utf8'), /SIL OPEN FONT LICENSE Version 1\.1/)
+  }
 })
