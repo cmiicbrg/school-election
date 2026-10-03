@@ -132,6 +132,55 @@ jobs:
             fi
           done
 
+  # The browser journeys (e2e/specs) against the real server with a fresh
+  # database, the sign-in stand-in and Chromium: what the unit, API and
+  # web tests cannot see. Same launcher for PostgreSQL as the tests.
+  e2e:
+    name: Browser journeys
+    if: github.event_name != 'push'
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      # Chromium, kept between runs as long as the lock file, and with it
+      # the Playwright version, stays the same.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - run: npx playwright install --with-deps chromium
+
+      - name: Start PostgreSQL
+        run: |
+          printf '%s' ci-owner-password > "$RUNNER_TEMP/pg-owner-password"
+          scripts/postgres.sh school-election-e2e-db 5432 "$RUNNER_TEMP/pg-owner-password"
+
+      - run: npm run e2e
+        env:
+          TEST_DATABASE_URL: postgres://postgres:ci-owner-password@127.0.0.1:5432/postgres
+
+      # What a failed journey leaves behind: the report, traces and videos.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: browser-journeys
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7
+
   # Build the deployment image on every PR. Publishing only happens on v*
   # tags, so without this a broken Dockerfile or a moved base image would not
   # surface until release time. Also runs on push to main, where it is the

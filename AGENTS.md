@@ -9,6 +9,7 @@ packages/election-core/   pure domain: rulesets, ballot validation, counting (no
 apps/api/                 Fastify on Node 26, raw TypeScript; serves apps/web/dist
 apps/web/                 Vue 3 + Vite SPA
 apps/api/migrations/      forward-only SQL migrations, applied by apps/api/scripts/migrate.ts
+e2e/                      Playwright journeys against the real server: harness, support, specs (playwright.config.ts at the root)
 scripts/lint-deps.mjs     exact-pin check across all workspaces
 scripts/postgres.sh       PostgreSQL with the settings the API requires (CI and development)
 deploy/                   compose, .env and nginx examples and the operator guide; example.org placeholders only
@@ -28,6 +29,7 @@ npm run migrate     # apply pending migrations as the PostgreSQL superuser
 npm run build       # web app → apps/web/dist
 npm run dev:api     # API on :3000
 npm run dev:web     # Vite dev server, proxies /api to :3000
+npm run e2e         # Playwright journeys in Chromium; needs TEST_DATABASE_URL and `npm run e2e:install` once
 ```
 
 ## Invariants
