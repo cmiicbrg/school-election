@@ -97,8 +97,8 @@ function outcomeOf(first: FirstRoundResult, runoff: RunoffResult | undefined, lo
   }
   if (runoff === undefined) return { kind: 'runoff-required', runoffCandidates: pair, trace }
   const runoffIds = runoff.statistics.candidates.map((c) => c.candidateId)
-  if (runoff.rulesetId !== 'single-choice-v1' || !isOrderOf(runoffIds, pair)) {
-    throw new TypeError('the runoff contest does not hold the runoff pair')
+  if (runoff.runoffOf !== first.contestId || runoff.rulesetId !== 'single-choice-v1' || !isOrderOf(runoffIds, pair)) {
+    throw new TypeError('the runoff result is not the runoff of this contest and its pair')
   }
 
   trace.push(...runoff.trace)

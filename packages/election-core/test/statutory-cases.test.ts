@@ -31,7 +31,7 @@ function run(example: StatutoryExample): Outcome {
     const entry = resolve(first, undefined, lots.filter((lot) => lot.lotId === 'runoff-entry'))
     assert.ok(entry.ok && entry.outcome.kind === 'runoff-required', 'the example needs a runoff')
     const runoff = contest(entry.outcome.runoffCandidates, 'single-choice-v1', 'runoff')
-    second = runoffResult(runoff, profile(runoff, example.runoff))
+    second = runoffResult(runoff, profile(runoff, example.runoff), c.id)
   }
   const resolution = resolve(first, second, lots)
   assert.ok(resolution.ok, 'lot decisions refused')

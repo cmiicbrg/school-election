@@ -319,7 +319,7 @@ test('runoff, exhaustive: more valid votes win, equal votes are a tie with no wi
   for (let a = 0; a <= 15; a++) {
     for (let b = 0; b <= 15; b++) {
       for (const invalid of [0, 2]) {
-        const result = runoffResult(c, profile(c, [[a, ['a']], [b, ['b']], [invalid, 'invalid']]))
+        const result = runoffResult(c, profile(c, [[a, ['a']], [b, ['b']], [invalid, 'invalid']]), 'contest')
         if (a + b === 0) assert.deepEqual([result.kind, result.kind === 'committee-decision' && result.reason], ['committee-decision', 'no-valid-ballots'])
         else if (a === b) assert.deepEqual([result.kind, result.kind === 'tie' && result.candidates], ['tie', ['a', 'b']])
         else assert.equal(result.kind === 'elected' && result.winnerId, a > b ? 'a' : 'b')
@@ -330,7 +330,7 @@ test('runoff, exhaustive: more valid votes win, equal votes are a tie with no wi
 
 test('runoff trace: the vote count and the comparison', () => {
   const c = contest(['a', 'b'], SINGLE, 'runoff')
-  assert.deepEqual(runoffResult(c, profile(c, [[7, ['b']], [5, ['a']], [1, 'invalid']])).trace, [
+  assert.deepEqual(runoffResult(c, profile(c, [[7, ['b']], [5, ['a']], [1, 'invalid']]), 'contest').trace, [
     { step: 'count', contestId: 'runoff', ballotsCast: 13, validBallots: 12, noBallots: 0, invalidBallots: 1 },
     { step: 'compare', basis: 'votes', seats: 1, values: [{ candidateId: 'b', value: 7 }, { candidateId: 'a', value: 5 }], advancing: ['b'], tied: [] },
   ])
@@ -338,17 +338,18 @@ test('runoff trace: the vote count and the comparison', () => {
 
 test('a single-choice poll: the most votes win, a tie at the top is shown, and one option needs a majority of "Ja"', () => {
   const c = contest(['a', 'b', 'c'], SINGLE, 'poll')
-  assert.equal(winner(runoffResult(c, profile(c, [[3, ['a']], [2, ['b']], [2, ['c']]]))), 'a')
-  const tie = runoffResult(c, profile(c, [[3, ['a']], [1, ['b']], [3, ['c']]]))
+  assert.equal(winner(runoffResult(c, profile(c, [[3, ['a']], [2, ['b']], [2, ['c']]]), null)), 'a')
+  const tie = runoffResult(c, profile(c, [[3, ['a']], [1, ['b']], [3, ['c']]]), null)
   assert.deepEqual(tie.kind === 'tie' && tie.candidates, ['a', 'c'])
+  assert.equal(tie.runoffOf, null)
   const one = contest(['a'], SINGLE, 'poll')
-  assert.equal(winner(runoffResult(one, profile(one, [[3, ['a']], [2, 'no']]))), 'a')
-  assert.equal(runoffResult(one, profile(one, [[2, ['a']], [2, 'no']])).kind, 'committee-decision')
+  assert.equal(winner(runoffResult(one, profile(one, [[3, ['a']], [2, 'no']]), null)), 'a')
+  assert.equal(runoffResult(one, profile(one, [[2, ['a']], [2, 'no']]), null).kind, 'committee-decision')
 })
 
 test('each counting function refuses the other kind of contest and ballots of another contest', () => {
   assert.throws(() => firstRoundResult(contest(['a', 'b'], SINGLE), []), TypeError)
-  assert.throws(() => runoffResult(contest(['a', 'b'], SPEAKER), []), TypeError)
+  assert.throws(() => runoffResult(contest(['a', 'b'], SPEAKER), [], null), TypeError)
   const other = contest(['a', 'b'], SPEAKER, 'other')
   assert.throws(() => firstRoundResult(contest(['a', 'b']), [cast(other, ['a', 'b'])]), TypeError)
 })

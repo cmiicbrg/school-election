@@ -39,7 +39,10 @@ export type FirstRoundResult = RoundResult & (
   | Committee
 )
 
-export type RunoffResult = RoundResult & (
+export type RunoffResult = RoundResult & {
+  /** The first-round contest this runoff decides; null for a poll. */
+  readonly runoffOf: string | null
+} & (
   | { readonly kind: 'elected', readonly winnerId: string }
   // No statutory rule breaks a runoff tie: no winner and no lot.
   | { readonly kind: 'tie', readonly candidates: readonly string[] }
@@ -96,14 +99,17 @@ export function firstRoundResult(contest: Contest, ballots: readonly CastBallot[
 }
 
 /**
- * A single-choice contest: a runoff, where the candidate with more valid votes
- * wins, or an anonymous poll, where the most votes win. A single option needs
- * "Ja" on more than half of the valid ballots, as in a first round.
+ * A single-choice contest: the runoff of the first-round contest `runoffOf`,
+ * where the candidate with more valid votes wins, or an anonymous poll
+ * (`runoffOf` null), where the most votes win. A single option needs "Ja" on
+ * more than half of the valid ballots, as in a first round. Naming the first
+ * round explicitly keeps a poll, or the runoff of another contest with the
+ * same candidates, from ever being applied as this contest's runoff.
  */
-export function runoffResult(contest: Contest, ballots: readonly CastBallot[]): RunoffResult {
+export function runoffResult(contest: Contest, ballots: readonly CastBallot[], runoffOf: string | null): RunoffResult {
   if (contest.rulesetId !== 'single-choice-v1') throw new TypeError('a ranked contest is counted by firstRoundResult')
   const statistics = computeStatistics(contest, ballots)
-  const round = { contestId: contest.id, rulesetId: contest.rulesetId, statistics }
+  const round = { contestId: contest.id, rulesetId: contest.rulesetId, statistics, runoffOf }
   const trace: TraceStep[] = [countStep(contest.id, statistics)]
 
   if (statistics.validBallots === 0) return committee(round, trace, 'no-valid-ballots')
@@ -148,7 +154,7 @@ function fill(values: readonly CandidateValue[], seats: number): { advancing: st
   return { advancing, tied: [] }
 }
 
-function committee(round: Omit<RoundResult, 'trace'>, trace: TraceStep[], reason: CommitteeReason): RoundResult & Committee {
+function committee<R extends Omit<RoundResult, 'trace'>>(round: R, trace: TraceStep[], reason: CommitteeReason) {
   trace.push({ step: 'committee-decision', reason })
-  return { ...round, kind: 'committee-decision', reason, trace }
+  return { ...round, kind: 'committee-decision' as const, reason, trace }
 }

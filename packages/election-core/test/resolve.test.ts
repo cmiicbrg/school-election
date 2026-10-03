@@ -19,9 +19,9 @@ function outcome(first: FirstRoundResult, runoff: RunoffResult | undefined, deci
 
 const holders = (o: Outcome) => 'positions' in o ? Object.fromEntries(o.positions.map((p) => [p.function, p.candidateId ?? p.basis])) : {}
 
-function runoff(candidates: readonly [string, string], votes: readonly [number, number]): RunoffResult {
+function runoff(candidates: readonly [string, string], votes: readonly [number, number], runoffOf: string | null = 'contest'): RunoffResult {
   const c = contest(candidates, 'single-choice-v1', 'runoff')
-  return runoffResult(c, profile(c, [[votes[0], [candidates[0]]], [votes[1], [candidates[1]]]]))
+  return runoffResult(c, profile(c, [[votes[0], [candidates[0]]], [votes[1], [candidates[1]]]]), runoffOf)
 }
 
 function deepFreeze<T>(value: T): T {
@@ -165,6 +165,9 @@ test('a runoff that does not belong to the first round is a programming error', 
   assert.throws(() => resolve(deputyLot, runoff(['a', 'b'], [1, 0]), []), TypeError)
   assert.throws(() => resolve(tieForSecond, runoff(['alice', 'carol'], [1, 0]), []), TypeError)
   assert.throws(() => resolve(entryLot, runoff(['a', 'b'], [1, 0]), []), TypeError)
+  // A poll, or the runoff of another contest, with the same two candidates.
+  assert.throws(() => resolve(tieForSecond, runoff(['alice', 'bob'], [1, 0], null), []), TypeError)
+  assert.throws(() => resolve(tieForSecond, runoff(['alice', 'bob'], [1, 0], 'another-contest'), []), TypeError)
   const empty = firstRoundResult(abc, [])
   assert.throws(() => resolve(empty, runoff(['a', 'b'], [1, 0]), []), TypeError)
   assert.deepEqual(outcome(empty, undefined), { kind: 'committee-decision', reason: 'no-valid-ballots', trace: empty.trace })
