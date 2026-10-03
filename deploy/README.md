@@ -87,14 +87,23 @@ The health check answers `{"status":"ok","db":"up","version":"v1.0.0","gitSha":"
 
 ## nginx and TLS
 
-Replace `wahl.example.org` in `nginx.example.conf`, copy it to `/etc/nginx/sites-available/school-election` and link it into `sites-enabled`. The example expects the certificate under `/etc/letsencrypt/live/wahl.example.org/` and answers ACME challenges from `/var/www/certbot`, so certbot's webroot mode issues and renews it. For the first certificate, enable the site with only the port 80 server, then:
+Fetch the nginx example of the same release, replace `wahl.example.org` in it with your host name, and enable it:
+
+```bash
+sudo curl -fsSL -o /etc/nginx/sites-available/school-election "https://raw.githubusercontent.com/cmiicbrg/school-election/v1.0.0/deploy/nginx.example.conf"
+sudo nano /etc/nginx/sites-available/school-election
+sudo ln -s /etc/nginx/sites-available/school-election /etc/nginx/sites-enabled/school-election
+```
+
+The example expects the certificate under `/etc/letsencrypt/live/wahl.example.org/` and answers ACME challenges from `/var/www/certbot`, so certbot's webroot mode issues and renews it. For the first certificate, comment out the port 443 server until certbot has run:
 
 ```bash
 sudo mkdir -p /var/www/certbot   # certbot refuses a webroot that does not exist
+sudo nginx -t && sudo systemctl reload nginx
 sudo certbot certonly --webroot -w /var/www/certbot -d wahl.example.org
 ```
 
-Then enable the whole file. On an SELinux host, nginx may not connect to the app's port until `sudo setsebool -P httpd_can_network_connect 1` allows it.
+Then restore the port 443 server. On an SELinux host, nginx may not connect to the app's port until `sudo setsebool -P httpd_can_network_connect 1` allows it.
 
 ```bash
 sudo nginx -t && sudo systemctl reload nginx
