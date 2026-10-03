@@ -14,6 +14,7 @@ import { activeSlots, RULESETS, type RulesetId } from '@school-election/election
 import { appendAudit } from './audit.ts'
 import type { Database } from './db.ts'
 import { Refusal, type ElectionAccess } from './election-access.ts'
+import { inOrder } from './in-order.ts'
 import { cleanName, compareCandidates, compareLabels, sameCandidateName, type CandidateName } from './names.ts'
 import { pictureUrl, type StoredPicture } from './pictures.ts'
 
@@ -362,11 +363,11 @@ export async function setVoterGroupContests(client: pg.ClientBase, access: Elect
   if (removed.length > 0) {
     await client.query('delete from voter_group_contest where voter_group_id = $1 and contest_id = any($2::uuid[])', [groupId, removed])
   }
-  for (const [ids, action] of [[added, 'voter-group.contest-added'], [removed, 'voter-group.contest-removed']] as const) {
-    for (const contest of ids) {
-      await appendAudit(client, access.electionId, { actor: access.actor, action, metadata: { group: groupId, contest } })
-    }
-  }
+  const changes = [
+    ...added.map((contest) => ({ action: 'voter-group.contest-added' as const, contest })),
+    ...removed.map((contest) => ({ action: 'voter-group.contest-removed' as const, contest })),
+  ]
+  await inOrder(changes, ({ action, contest }) => appendAudit(client, access.electionId, { actor: access.actor, action, metadata: { group: groupId, contest } }))
   return readVoterGroup(client, access.electionId, groupId)
 }
 

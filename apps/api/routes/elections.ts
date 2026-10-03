@@ -17,6 +17,7 @@ import { callerOf, requireGlobalRole, requireSession } from '../lib/auth.ts'
 import { cleaned, createContest, MAX_TITLE } from '../lib/configuration.ts'
 import type { Database } from '../lib/db.ts'
 import { changeElection, electionAccessOf, requireElectionAccess } from '../lib/election-access.ts'
+import { inOrder } from '../lib/in-order.ts'
 import { ELECTION_ACTIONS, ELECTION_ROLES, permissionsOf, type ElectionRole } from '../lib/permissions.ts'
 import { PRESET_IDS, PRESETS } from '../lib/presets.ts'
 import { ErrorResponse, Literals, MultiLineText, SingleLineText, StrictObject } from '../lib/schemas/common.ts'
@@ -100,7 +101,7 @@ export function electionRoutes(app: FastifyInstance, { db }: { db: Database }, d
       await appendAudit(client, election.id, { actor, action: 'election.created', metadata: { title } })
       // A preset's contests, each recorded like one the owner adds.
       const access = { electionId: election.id, role: 'owner' as const, lifecycle: NEW_ELECTION, actor }
-      for (const contest of preset === undefined ? [] : PRESETS[preset]) await createContest(client, access, contest)
+      await inOrder(preset === undefined ? [] : PRESETS[preset], (contest) => createContest(client, access, contest))
       return election
     })
     return reply.code(201).send(detail(row, 'owner'))

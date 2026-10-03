@@ -61,18 +61,14 @@ export async function preparePicture(file: File): Promise<PreparedPicture> {
     context.fillStyle = '#fff'
     context.fillRect(0, 0, size.width, size.height)
     context.drawImage(scaled, 0, 0)
-    for (const quality of PICTURE_QUALITIES) {
-      const blob = await encode(flat, quality)
-      if (blob.size <= PICTURE_MAX_UPLOAD_BYTES) {
-        return {
-          bytes: new Uint8Array(await blob.arrayBuffer()),
-          type: blob.type === 'image/webp' ? 'image/webp' : 'image/jpeg',
-          ...size,
-          preview: await dataUrl(blob),
-        }
-      }
+    const blob = await encodeWithin(flat, PICTURE_QUALITIES)
+    if (!blob) throw new PictureError('too-large')
+    return {
+      bytes: new Uint8Array(await blob.arrayBuffer()),
+      type: blob.type === 'image/webp' ? 'image/webp' : 'image/jpeg',
+      ...size,
+      preview: await dataUrl(blob),
     }
-    throw new PictureError('too-large')
   } finally {
     source.close()
   }
@@ -135,4 +131,12 @@ function dataUrl(blob: Blob): Promise<string> {
     reader.onerror = () => reject(new PictureError('failed'))
     reader.readAsDataURL(blob)
   })
+}
+
+/** The first encoding, from the highest quality down, that fits the upload limit; undefined if none does. */
+async function encodeWithin(image: HTMLCanvasElement, qualities: readonly number[]): Promise<Blob | undefined> {
+  const [quality, ...lower] = qualities
+  if (quality === undefined) return undefined
+  const blob = await encode(image, quality)
+  return blob.size <= PICTURE_MAX_UPLOAD_BYTES ? blob : encodeWithin(image, lower)
 }
