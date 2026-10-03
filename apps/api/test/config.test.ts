@@ -189,3 +189,16 @@ test('DEBUG, which makes dependencies print to stderr, is refused outside local 
   assert.doesNotThrow(() => loadConfig({ ...base, PUBLIC_ORIGIN: 'http://localhost:5173', DEBUG: '*' }))
   assert.doesNotThrow(() => loadConfig({ ...valid, DEBUG: ' ' }))
 })
+
+test('the build metadata from the image is exposed, with defaults outside an image', () => {
+  assert.deepEqual(loadConfig(valid).build, { version: 'dev', gitSha: 'unknown' })
+  const sha = 'c7f5b77e0a1b2c3d4e5f60718293a4b5c6d7e8f9'
+  assert.deepEqual(loadConfig({ ...valid, APP_VERSION: 'v1.2.0', GIT_SHA: sha }).build, { version: 'v1.2.0', gitSha: sha })
+  assert.deepEqual(loadConfig({ ...valid, APP_VERSION: ' ', GIT_SHA: '' }).build, { version: 'dev', gitSha: 'unknown' })
+  for (const value of ['-v1', 'v1 2', 'v1;rm', '<b>', 'x'.repeat(65)]) {
+    assert.match(problem({ ...valid, APP_VERSION: value }), /APP_VERSION must be a release tag/, value)
+  }
+  for (const value of ['C7F5B77', 'c7f5b7', 'main', `${sha}z`]) {
+    assert.match(problem({ ...valid, GIT_SHA: value }), /GIT_SHA must be a commit hash/, value)
+  }
+})

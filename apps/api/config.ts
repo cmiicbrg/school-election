@@ -24,6 +24,18 @@ export interface Config {
   entra: EntraConfig
   /** Key material the session cookie keys are derived from; at least 32 bytes. */
   sessionSecret: Buffer
+  build: BuildInfo
+}
+
+/**
+ * What was built, as the image records it (APP_VERSION and GIT_SHA, set from
+ * build arguments). Outside an image they are unset: "dev" and "unknown".
+ */
+export interface BuildInfo {
+  /** The release tag, such as v1.2.0. */
+  version: string
+  /** The commit the image was built from, lower-case hex. */
+  gitSha: string
 }
 
 /** The school's own Entra ID app registration; single tenant, confidential client. */
@@ -85,6 +97,10 @@ export function loadConfig(env: Env): Config {
       clientSecret: check(() => printableAscii(readSecret(env, 'ENTRA_CLIENT_SECRET'), 'ENTRA_CLIENT_SECRET_FILE'), ''),
     },
     sessionSecret: check(() => sessionSecret(env), Buffer.alloc(0)),
+    build: {
+      version: check(() => buildValue(env, 'APP_VERSION', 'dev', /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$/, 'a release tag such as v1.2.0'), ''),
+      gitSha: check(() => buildValue(env, 'GIT_SHA', 'unknown', /^[0-9a-f]{7,64}$/, 'a commit hash in lower-case hex'), ''),
+    },
   }
   check(() => refuseDebugNamespaces(env.DEBUG, local), undefined)
 
@@ -281,6 +297,15 @@ function guid(env: Env, name: string): string {
   const value = env[name]?.trim().toLowerCase()
   if (!value) throw new ConfigError(`${name} must be set to the GUID from the Entra app registration`)
   if (!GUID.test(value)) throw new ConfigError(`${name} must be a GUID such as 00000000-0000-0000-0000-000000000000, got ${value}`)
+  return value
+}
+
+// Build metadata ends up in responses and, later, in stored results, so only
+// a short value from a fixed alphabet is taken as it is.
+function buildValue(env: Env, name: string, fallback: string, pattern: RegExp, example: string): string {
+  const value = env[name]?.trim()
+  if (!value) return fallback
+  if (!pattern.test(value)) throw new ConfigError(`${name} must be ${example}, got ${value.slice(0, 80)}`)
   return value
 }
 

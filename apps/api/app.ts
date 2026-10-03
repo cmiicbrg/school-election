@@ -94,12 +94,13 @@ export async function buildApp(config: Config, options: AppOptions): Promise<Fas
   await app.register(authRoutes, { config, db, entraAuthority: options.entraAuthority })
 
   app.get('/api/health', { schema: { response: { '200': HealthResponse, '503': HealthResponse, '4xx': ErrorResponse } } }, async (_request, reply) => {
+    const { version, gitSha } = config.build
     try {
       await db.query('select 1')
-      return { status: 'ok' as const, db: 'up' as const }
+      return { status: 'ok' as const, db: 'up' as const, version, gitSha }
     } catch (err) {
       reply.log.warn({ err }, 'health: database unreachable')
-      return reply.code(503).send({ status: 'degraded', db: 'down' })
+      return reply.code(503).send({ status: 'degraded', db: 'down', version, gitSha })
     }
   })
 

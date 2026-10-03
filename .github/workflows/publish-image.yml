@@ -31,11 +31,13 @@ jobs:
           persist-credentials: false
 
       # workflow_dispatch can target any ref, so refuse anything that is not a
-      # release tag rather than publishing from an arbitrary branch.
+      # release tag rather than publishing from an arbitrary branch. The tag
+      # becomes APP_VERSION, so it must also be a value the app accepts
+      # (apps/api/config.ts), or the published image would refuse to start.
       - name: Verify release tag
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF_TYPE}" != "tag" ] || ! printf '%s' "${GITHUB_REF_NAME}" | grep -Eq '^v[0-9]'; then
+          if [ "${GITHUB_REF_TYPE}" != "tag" ] || ! printf '%s' "${GITHUB_REF_NAME}" | grep -Eqx 'v[0-9][0-9A-Za-z.+_-]{0,62}'; then
             echo "Refusing to publish: expected a v<version> tag, got ${GITHUB_REF_TYPE} '${GITHUB_REF_NAME}'" >&2
             exit 1
           fi
@@ -67,6 +69,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Reported by /api/health, so an operator can confirm what a deploy
+          # started. The guard above has checked ref_name.
+          build-args: |
+            APP_VERSION=${{ github.ref_name }}
+            GIT_SHA=${{ github.sha }}
 
       # Deployments pin images by digest, so surface it instead of making
       # whoever deploys resolve the manifest by hand.
