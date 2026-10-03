@@ -5,7 +5,7 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse, RouteOptions } from 'fastify'
 import { createDatabase, type Database } from '../../lib/db.ts'
-import type { ElectionState } from '@school-election/election-core'
+import type { ElectionState, RoundState } from '@school-election/election-core'
 import { buildTestApp, ORIGIN } from './app.ts'
 import { createTestDatabase, withClient } from './db.ts'
 import { CookieJar, startFakeEntra, type FakeEntra } from './fake-entra.ts'
@@ -103,6 +103,20 @@ export async function forceElectionState(ownerUrl: string, electionId: string, s
     await client.query('begin')
     await client.query('set local session_replication_role = replica')
     await client.query('update election set state = $2 where id = $1', [electionId, state])
+    await client.query('commit')
+  })
+}
+
+/**
+ * Puts an election's regular round into a state as the database owner and
+ * past the triggers, which let a direct statement open a round but never
+ * close one: closing is the seal's (migration 0009).
+ */
+export async function forceRoundState(ownerUrl: string, electionId: string, state: RoundState): Promise<void> {
+  await withClient(ownerUrl, async (client) => {
+    await client.query('begin')
+    await client.query('set local session_replication_role = replica')
+    await client.query('update round set state = $2 where election_id = $1 and kind = $3', [electionId, state, 'regular'])
     await client.query('commit')
   })
 }

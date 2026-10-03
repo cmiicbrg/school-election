@@ -28,20 +28,23 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   election: { table: ['SELECT', 'INSERT'], updateColumns: ['title', 'description', 'state'] },
   // Members are invited and removed; binding sets user_id once.
   election_member: { table: ['SELECT', 'INSERT', 'DELETE'], updateColumns: ['user_id'] },
-  // The states of the lifecycle and what each allows, which the triggers
-  // read as the role that runs them (migration 0007). Nothing changes them.
+  // The states of the lifecycle and what each allows, and the transitions
+  // of a round, which the triggers read as the role that runs them
+  // (migrations 0007 and 0009). Nothing changes them.
   election_state: { table: ['SELECT'] },
   round_kind: { table: ['SELECT'] },
   round_state: { table: ['SELECT'] },
+  round_transition: { table: ['SELECT'] },
   // The configuration of an election. Nothing moves to another election or
   // contest: those columns are never updated.
   contest: { table: ['SELECT', 'INSERT', 'DELETE'], updateColumns: ['title', 'ruleset_id'] },
   candidate: { table: ['SELECT', 'INSERT', 'DELETE'], updateColumns: ['surname', 'given_name', 'picture', 'picture_sha256'] },
   voter_group: { table: ['SELECT', 'INSERT', 'DELETE'], updateColumns: ['name'] },
   voter_group_contest: { table: ['SELECT', 'INSERT', 'DELETE'] },
-  // Preparing creates the regular round and its ballot boxes; no round is
-  // opened, closed or removed yet.
-  round: { table: ['SELECT', 'INSERT'] },
+  // Preparing creates the regular round and its ballot boxes. A round's
+  // state moves along round_transition: opening is a direct update, closing
+  // is the seal's (migration 0009). No round is removed.
+  round: { table: ['SELECT', 'INSERT'], updateColumns: ['state'] },
   round_contest: { table: ['SELECT', 'INSERT', 'DELETE'] },
   // Keys are issued in batches and a batch is voided; keys and batches are
   // removed only with their voter group or election. Triggers keep the
@@ -52,6 +55,13 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   credential: { table: ['SELECT', 'INSERT'] },
   // A vote uses an entitlement up, and nothing else changes it.
   credential_entitlement: { table: ['SELECT', 'INSERT'], updateColumns: ['consumed'] },
+  // The kinds of ballot, which the staging trigger reads (migration 0009).
+  ballot_kind: { table: ['SELECT'] },
+  // A vote stages its ballot. Nobody reads, changes or removes a staged
+  // ballot: the seal moves them, as the owner.
+  ballot_box: { table: ['INSERT'] },
+  // Sealed ballots are read for the count; the seal alone writes them.
+  ballot: { table: ['SELECT'] },
 }
 
 /** Functions the runtime role may execute, by their signature. */
@@ -61,6 +71,8 @@ export const RUNTIME_FUNCTIONS: readonly string[] = [
   // How every trigger refuses a change, called as the role that runs the
   // trigger (migration 0007).
   'refuse(text)',
+  // Closes an open round and seals its ballots (migration 0009).
+  'seal_round(uuid)',
 ]
 
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/
