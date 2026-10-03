@@ -2,7 +2,7 @@ import { test, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
-import { requireGlobalRole } from '../lib/auth.ts'
+import { callerOf, requireGlobalRole, requireSession } from '../lib/auth.ts'
 import { createDatabase, type Database } from '../lib/db.ts'
 import { ADMIN_SESSION_COOKIE, ADMIN_SESSION_SECONDS, type SessionUser } from '../plugins/session.ts'
 import { buildTestApp, ORIGIN, stubDatabase } from './helpers/app.ts'
@@ -295,6 +295,28 @@ test('a sealed session is accepted only as issued, by this key, within its lifet
   }
   assert.equal((await get(sealed(app, { __ts: Math.floor(expiredAt / 1000), user: user() }))).statusCode, 401, 'cookie sealed more than 8 hours ago')
   assert.equal((await get(sealed(app, { signIn: { nonce: 'n', returnTo: '/', startedAt: Date.now() } }))).statusCode, 401, 'a pending sign-in is no session')
+})
+
+test('a request the guard let through keeps its caller, even if the session expires meanwhile', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
+  const { app } = await buildTestApp()
+  t.after(() => app.close())
+  // The guard, then a slow step (a later election check, say) that crosses the 8-hour mark.
+  const slow = (_request: unknown, _reply: unknown, done: () => void) => {
+    t.mock.timers.tick(5000)
+    done()
+  }
+  app.get('/api/test/caller', { preHandler: [requireSession, slow] }, (request) => ({ name: callerOf(request).displayName }))
+  app.get('/api/test/unguarded', (request) => ({ name: callerOf(request).displayName }))
+
+  const cookie = sealed(app, { user: user(Date.now() - ADMIN_SESSION_SECONDS * 1000 + 1000) })
+  const res = await app.inject({ method: 'GET', url: '/api/test/caller', headers: { cookie } })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json(), { name: 'Maria Muster' })
+  // The next request finds the session expired.
+  assert.equal((await app.inject({ method: 'GET', url: '/api/test/caller', headers: { cookie } })).statusCode, 401)
+  // Without a guard there is no caller: a programming error, never a pass.
+  assert.equal((await app.inject({ method: 'GET', url: '/api/test/unguarded', headers: { cookie: sealed(app, { user: user() }) } })).statusCode, 500)
 })
 
 test('logout clears the session cookie and is a protected state change', async (t) => {

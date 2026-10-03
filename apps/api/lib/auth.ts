@@ -41,20 +41,27 @@ export function withinSeconds(since: unknown, seconds: number, now = Date.now())
   return now - since < seconds * 1000
 }
 
-/** For handlers behind requireSession: the caller, who is known to exist. */
+// The caller a guard let through, per request. The handler works with this
+// snapshot: reading the session and the clock again could find the
+// session expired a moment later, and fail a request already authorized.
+const authorized = new WeakMap<FastifyRequest, SessionUser>()
+
+/** For handlers behind requireSession or requireGlobalRole: the caller the guard authorized. */
 export function callerOf(request: FastifyRequest): SessionUser {
-  const user = currentUser(request)
-  if (!user) throw new Error('callerOf() used on a route without requireSession')
+  const user = authorized.get(request)
+  if (!user) throw new Error('callerOf() used on a route without requireSession or requireGlobalRole')
   return user
 }
 
 // A guard that replies does not call done(), so Fastify stops before the handler.
 
 export function requireSession(request: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction): void {
-  if (!currentUser(request)) {
+  const user = currentUser(request)
+  if (!user) {
     void reply.code(401).send({ error: 'unauthenticated' })
     return
   }
+  authorized.set(request, user)
   done()
 }
 
@@ -69,6 +76,7 @@ export function requireGlobalRole(role: GlobalRole) {
       void reply.code(403).send({ error: 'forbidden' })
       return
     }
+    authorized.set(request, user)
     done()
   }
 }
