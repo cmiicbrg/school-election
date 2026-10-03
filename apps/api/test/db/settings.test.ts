@@ -27,6 +27,8 @@ function serverWith(overrides: Record<string, string>, role: Partial<typeof runt
     if (text.includes('from pg_roles r where r.rolname = current_user')) return { rows: [{ ...runtimeRole, ...role }] }
     if (text.includes('has_table_privilege')) return { rows: privileges }
     if (text.includes('preload_settings()')) {
+      // As in the database: no other role may call it.
+      if ((role.name ?? runtimeRole.name) !== runtimeRole.name) throw Object.assign(new Error('permission denied'), { code: '42501' })
       return { rows: ['shared_preload_libraries', 'session_preload_libraries', 'local_preload_libraries'].map((name) => ({ name, setting: values[name] ?? '' })) }
     }
     return { rows: (params?.[0] as string[]).map((name) => ({ name, value: values[name] ?? '' })) }

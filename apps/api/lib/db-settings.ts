@@ -75,9 +75,11 @@ const ALLOWED_PRELOAD = new Set(['pg_stat_statements'])
  */
 export async function checkDatabaseSettings(db: Pick<Database, 'query'>): Promise<string[]> {
   const { problems, isRuntimeRole } = await checkConnectedRole(db)
-  // Only for the runtime role: any other role is refused above, and a
-  // superuser would list every privilege there is.
-  if (isRuntimeRole) problems.push(...await checkObjectPrivileges(db))
+  // The rest only for the runtime role: any other role is refused above, a
+  // superuser would list every privilege there is, and another role may not
+  // call preload_settings(), which would hide the reason behind a 42501.
+  if (!isRuntimeRole) return problems
+  problems.push(...await checkObjectPrivileges(db))
   const values = await currentSettings(db, [
     ...REQUIRED_SETTINGS.map((s) => s.name),
     ...ALLOWED_SETTINGS.map((s) => s.name),

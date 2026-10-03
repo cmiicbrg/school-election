@@ -61,18 +61,22 @@ const SIGNATURE = /^[a-z_][a-z0-9_]*\((?:[a-z_][a-z0-9_ ]*(?:, [a-z_][a-z0-9_ ]*
  * so they need no quoting.
  */
 export function grantStatements(role: string, existing: { tables: ReadonlySet<string>, functions: ReadonlySet<string> }): string[] {
+  const names = Object.entries(RUNTIME_TABLES).flatMap(([table, grant]) => [table, ...(grant.updateColumns ?? [])])
+  const unsafe = [...names.filter((name) => !IDENTIFIER.test(name)), ...RUNTIME_FUNCTIONS.filter((signature) => !SIGNATURE.test(signature))]
+  if (unsafe.length > 0) throw new Error(`runtime privileges: not a plain identifier or function signature: ${unsafe.join(', ')}`)
+  return [
+    ...Object.entries(RUNTIME_TABLES)
+      .filter(([table]) => existing.tables.has(table))
+      .flatMap(([table, grant]) => tableGrants(role, table, grant)),
+    ...RUNTIME_FUNCTIONS
+      .filter((signature) => existing.functions.has(signature))
+      .map((signature) => `grant execute on function ${signature} to ${role}`),
+  ]
+}
+
+function tableGrants(role: string, table: string, grant: TableGrant): string[] {
   const statements: string[] = []
-  for (const [table, grant] of Object.entries(RUNTIME_TABLES)) {
-    for (const name of [table, ...(grant.updateColumns ?? [])]) {
-      if (!IDENTIFIER.test(name)) throw new Error(`runtime privileges: ${name} is not a plain identifier`)
-    }
-    if (!existing.tables.has(table)) continue
-    if (grant.table.length > 0) statements.push(`grant ${grant.table.join(', ').toLowerCase()} on table ${table} to ${role}`)
-    if (grant.updateColumns?.length) statements.push(`grant update (${grant.updateColumns.join(', ')}) on table ${table} to ${role}`)
-  }
-  for (const signature of RUNTIME_FUNCTIONS) {
-    if (!SIGNATURE.test(signature)) throw new Error(`runtime privileges: ${signature} is not a plain function signature`)
-    if (existing.functions.has(signature)) statements.push(`grant execute on function ${signature} to ${role}`)
-  }
+  if (grant.table.length > 0) statements.push(`grant ${grant.table.join(', ').toLowerCase()} on table ${table} to ${role}`)
+  if (grant.updateColumns?.length) statements.push(`grant update (${grant.updateColumns.join(', ')}) on table ${table} to ${role}`)
   return statements
 }
