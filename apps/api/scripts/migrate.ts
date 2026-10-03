@@ -189,7 +189,27 @@ async function ensureRuntimeRole(client: pg.Client, password: string): Promise<b
   }
   if (existed) await client.query(await formatted(client, `alter role %I with ${UNPRIVILEGED}`))
   await refuseMemberships(client, { except: SUPERSEDED_MEMBERSHIP })
+  await refuseOwnership(client)
   return existed
+}
+
+// An owner keeps the right to alter, drop and grant on its objects, which no
+// revoke takes away; like a membership, ownership is refused, not changed.
+async function refuseOwnership(client: pg.Client): Promise<void> {
+  const owned = await client.query<{ name: string }>(
+    `select owned.name from (
+       select c.oid::regclass::text as name, c.relowner as owner from pg_class c
+       union all select f.oid::regprocedure::text, f.proowner from pg_proc f
+       union all select 'schema ' || n.nspname, n.nspowner from pg_namespace n
+       union all select t.oid::regtype::text, t.typowner from pg_type t where t.typtype in ('d', 'e', 'r')
+     ) as owned
+     where owned.owner = (select oid from pg_roles where rolname = $1)`,
+    [RUNTIME_ROLE],
+  )
+  if (owned.rows.length > 0) {
+    const names = owned.rows.map((row) => row.name).sort(byName).join(', ')
+    throw new MigrationError(`${RUNTIME_ROLE} owns ${names}; reassign that to the migration role first, the runtime role must own nothing`)
+  }
 }
 
 // Effective membership, not only direct grants: a role granted to any role

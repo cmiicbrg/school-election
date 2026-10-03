@@ -163,7 +163,7 @@ Co-admins and witnesses are invited by their school e-mail address. A pending in
 
 The server connects as `school_election_app`, a role without any attribute or membership that can only connect and use the schema. Two of the settings the startup check reads are hidden from such a role; `preload_settings()`, a function the migrations create, returns exactly the preload settings, so the role needs no membership such as `pg_read_all_settings`, which would let it read every setting. What it may do with each table and function is one list, `apps/api/lib/runtime-privileges.ts`, and nothing is allowed by default. Every migration run revokes all database, schema, table, sequence and function privileges from PUBLIC and the runtime role, then grants the list again, in one transaction, so a grant made by hand does not survive the next deploy. Functions are not executable by PUBLIC by default, either.
 
-At startup the server checks what the role can actually do, through any grant to it or to PUBLIC, and refuses to start while that goes beyond the list. Migrations run as the PostgreSQL superuser, which never serves requests.
+At startup the server checks what the role can actually do, through any grant to it or to PUBLIC and including the option to grant a privilege on, and refuses to start while that goes beyond the list or while the role owns any object: an owner can alter, drop and grant on its objects whatever is revoked from it. The migrator refuses such ownership, as it refuses memberships, rather than silently changing it. Migrations run as the PostgreSQL superuser, which never serves requests.
 
 ## Audit log
 

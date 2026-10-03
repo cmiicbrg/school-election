@@ -19,9 +19,11 @@ const safe: Record<string, string> = {
   local_preload_libraries: '',
 }
 
-const runtimeRole = { name: 'school_election_app', attributes: [] as string[], owner: false, memberships: [] as string[], creates: [] as string[] }
+const runtimeRole = { name: 'school_election_app', attributes: [] as string[], owner: false, memberships: [] as string[], creates: [] as string[], owns: [] as string[] }
 
-function serverWith(overrides: Record<string, string>, role: Partial<typeof runtimeRole> = {}, privileges: Privilege[] = expectedPrivileges()) {
+const PRELOAD = ['shared_preload_libraries', 'session_preload_libraries', 'local_preload_libraries']
+
+function serverWith(overrides: Record<string, string>, role: Partial<typeof runtimeRole> = {}, privileges: Privilege[] = expectedPrivileges(), preloadReturned = PRELOAD) {
   const values = { ...safe, ...overrides }
   const answer = (text: string, params?: unknown[]) => {
     if (text.includes('from pg_roles r where r.rolname = current_user')) return { rows: [{ ...runtimeRole, ...role }] }
@@ -29,7 +31,7 @@ function serverWith(overrides: Record<string, string>, role: Partial<typeof runt
     if (text.includes('preload_settings()')) {
       // As in the database: no other role may call it.
       if ((role.name ?? runtimeRole.name) !== runtimeRole.name) throw Object.assign(new Error('permission denied'), { code: '42501' })
-      return { rows: ['shared_preload_libraries', 'session_preload_libraries', 'local_preload_libraries'].map((name) => ({ name, setting: values[name] ?? '' })) }
+      return { rows: preloadReturned.map((name) => ({ name, setting: values[name] ?? '' })) }
     }
     return { rows: (params?.[0] as string[]).map((name) => ({ name, value: values[name] ?? '' })) }
   }
@@ -112,6 +114,9 @@ test('a privileged connected role is refused', async () => {
   assert.deepEqual(await checkDatabaseSettings(serverWith({}, { memberships: ['pg_monitor'] })), [
     'the server connects as school_election_app, which is a member of pg_monitor; the runtime role must hold nothing else',
   ])
+  assert.deepEqual(await checkDatabaseSettings(serverWith({}, { owns: Array.from({ length: 12 }, (_, i) => `t${i}`) })), [
+    'the server connects as school_election_app, which owns t0, t1, t2, t3, t4, t5, t6, t7, t8, t9 and 2 more; objects belong to the role that runs the migrations',
+  ])
   assert.deepEqual(await checkDatabaseSettings(serverWith({}, { creates: ['objects in schema public', 'temporary tables'] })), [
     'the server connects as school_election_app, which can create objects in schema public, temporary tables; the runtime role may only use what migrations grant',
   ])
@@ -126,6 +131,14 @@ test('a privilege beyond the runtime list is refused, whatever kind of object it
   ]
   assert.deepEqual(await checkDatabaseSettings(serverWith({}, {}, [...expectedPrivileges(), ...extra])), [
     'the runtime role has EXECUTE on function election_member_bind_once(), UPDATE on column election.title, UPDATE on table audit_event, USAGE on sequence audit_event_seq_seq, beyond what lib/runtime-privileges.ts grants; run the migrations, which reset its privileges',
+  ])
+  // A preload setting the function does not return is never read as empty.
+  assert.deepEqual(await checkDatabaseSettings(serverWith({}, {}, expectedPrivileges(), ['local_preload_libraries'])), [
+    'preload_settings() did not return shared_preload_libraries, session_preload_libraries; it must belong to the superuser that runs the migrations',
+  ])
+  // The option to grant a privilege on is a privilege of its own.
+  assert.deepEqual(await checkDatabaseSettings(serverWith({}, {}, [...expectedPrivileges(), { kind: 'table', object: 'election', privilege: 'SELECT WITH GRANT OPTION' }])), [
+    'the runtime role has SELECT WITH GRANT OPTION on table election, beyond what lib/runtime-privileges.ts grants; run the migrations, which reset its privileges',
   ])
   // Fewer privileges than listed is no privacy problem; the app fails where it needs one.
   assert.deepEqual(await checkDatabaseSettings(serverWith({}, {}, [])), [])
@@ -189,6 +202,39 @@ test('object privileges granted by hand are caught at startup, and the next migr
   // A function created after the run is not executable by PUBLIC either.
   await withClient(testDb.ownerUrl, (c) => c.query('create function later() returns int language sql as \'select 2\''))
   assert.deepEqual(await checkDatabaseSettings(db), [])
+})
+
+test('grant options on any privilege are caught at startup, and the next migration takes them away', DB, async (t) => {
+  const testDb = await createTestDatabase(t)
+  await withClient(testDb.ownerUrl, (c) => c.query(`
+    grant connect on database ${testDb.name} to school_election_app with grant option;
+    grant usage on schema public to school_election_app with grant option;
+    grant select on election to school_election_app with grant option;
+    grant update (user_id) on election_member to school_election_app with grant option;
+    grant execute on function preload_settings() to school_election_app with grant option`))
+  const db = createDatabase(testDb.runtimeUrl, () => {})
+  t.after(() => db.close())
+  assert.deepEqual(await checkDatabaseSettings(db), [
+    'the runtime role has CONNECT WITH GRANT OPTION on database, EXECUTE WITH GRANT OPTION on function preload_settings(), SELECT WITH GRANT OPTION on table election, UPDATE WITH GRANT OPTION on column election_member.user_id, USAGE WITH GRANT OPTION on schema public, beyond what lib/runtime-privileges.ts grants; run the migrations, which reset its privileges',
+  ])
+  await migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD })
+  assert.deepEqual(await checkDatabaseSettings(db), [])
+})
+
+test('a runtime role that owns an object is refused at startup and by the migrator', DB, async (t) => {
+  const testDb = await createTestDatabase(t)
+  // Per database: dropped with it.
+  await withClient(testDb.ownerUrl, (c) => c.query('alter function preload_settings() owner to school_election_app'))
+  const db = createDatabase(testDb.runtimeUrl, () => {})
+  t.after(() => db.close())
+  const problems = await checkDatabaseSettings(db)
+  assert.ok(problems.includes('the server connects as school_election_app, which owns preload_settings(); objects belong to the role that runs the migrations'), problems.join('\n'))
+  // Run as its new owner, the function no longer sees the hidden settings.
+  assert.ok(problems.includes('preload_settings() did not return shared_preload_libraries, session_preload_libraries; it must belong to the superuser that runs the migrations'), problems.join('\n'))
+  await assert.rejects(
+    migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD }),
+    /school_election_app owns preload_settings\(\); reassign that to the migration role first/,
+  )
 })
 
 test('pg_read_all_settings, granted by earlier versions, is refused at startup and taken back by the next run', DB, async (t) => {

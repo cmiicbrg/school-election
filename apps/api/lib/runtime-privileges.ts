@@ -35,8 +35,8 @@ export const RUNTIME_FUNCTIONS: readonly string[] = [
 
 /** One privilege, as the startup check reports what the role can do. */
 export interface Privilege {
-  kind: 'table' | 'column' | 'sequence' | 'function'
-  /** A table, `table.column`, a sequence or a function signature. */
+  kind: 'database' | 'schema' | 'table' | 'column' | 'sequence' | 'function'
+  /** A table, `table.column`, a sequence, a function signature, a schema, or '' for the database. */
   object: string
   privilege: string
 }
