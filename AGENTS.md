@@ -11,6 +11,7 @@ apps/web/                 Vue 3 + Vite SPA
 apps/api/migrations/      forward-only SQL migrations, applied by apps/api/scripts/migrate.ts
 scripts/lint-deps.mjs     exact-pin check across all workspaces
 scripts/postgres.sh       PostgreSQL with the settings the API requires (CI and development)
+deploy/                   compose, .env and nginx examples and the operator guide; example.org placeholders only
 docs/design.md            design decisions; update it with the behaviour it describes
 ```
 
@@ -44,4 +45,5 @@ These take precedence over convenience:
 - GitHub Actions are pinned by commit SHA with the version in a comment. The base image is pinned by tag and digest.
 - CI runs on pull requests to `main`. Images are published to GHCR only on `v*` tags.
 - Applied migrations are never edited; write a new one. A migration that creates tables adds an upgrade fixture in `apps/api/test/fixtures/upgrade/`.
-- The PostgreSQL settings the API checks at startup (`apps/api/lib/db-settings.ts`) and the ones `scripts/postgres.sh` sets change together; a test enforces it.
+- The PostgreSQL settings the API checks at startup (`apps/api/lib/db-settings.ts`) and the ones `scripts/postgres.sh` and `deploy/compose.example.yml` set change together; `apps/api/test/deploy-flags.test.ts` enforces it. `scripts/postgres.sh` starts the PostgreSQL image the compose example pins.
+- `deploy/README.md` is the operator guide; update it with any change to configuration, secrets or the compose example.
