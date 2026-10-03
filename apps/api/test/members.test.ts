@@ -175,7 +175,7 @@ test('refused member changes: a second invitation, the owner, an unknown member,
 test('election titles are one line of text; descriptions may span lines', DB, async (t) => {
   const s = await electionApp(t)
   const anna = await signIn(s, ANNA)
-  for (const body of [{}, { title: '' }, { title: '   ' }, { title: 'a\nb' }, { title: 'x'.repeat(201) }, { title: '\ud800' }, { title: 'ok', description: 'a\u0007' }, { title: 'ok', extra: 1 }]) {
+  for (const body of [{}, { title: '' }, { title: '   ' }, { title: 'a\nb' }, { title: 'x'.repeat(201) }, { title: '\ud800' }, { title: 'a\u2028b' }, { title: 'a\u2029b' }, { title: 'ok', description: 'a\u0007' }, { title: 'ok', extra: 1 }]) {
     assert.equal((await anna.request('POST', '/api/elections', body)).statusCode, 400, JSON.stringify(body))
   }
   assert.deepEqual((await anna.request('GET', '/api/elections')).json(), [])
@@ -199,6 +199,20 @@ test('a display name too long or malformed for the audit log is bounded at sign-
     `Wanda �Zeugin${'x'.repeat(243)}`,
   ])
   assert.deepEqual((await members(anna, id)).map((m) => m.displayName?.length), [255, 256])
+})
+
+test('a stored display name longer than the audit log holds is bounded wherever it becomes an actor', DB, async (t) => {
+  const s = await electionApp(t)
+  const anna = await signIn(s, ANNA)
+  const id = await createElection(anna)
+  // A row stored before names were bounded at sign-in, with the session that still names it.
+  const longName = `Anna ${'😀'.repeat(200)}`
+  await withClient(s.ownerUrl, (c) => c.query('update app_user set display_name = $1 where oid = $2', [longName, ANNA.oid]))
+  assert.equal((await invite(anna, id, WANDA.email)).statusCode, 201)
+  assert.equal((await anna.request('POST', '/api/elections', { title: 'Zweite Wahl' })).statusCode, 201)
+  const { events, chain } = await auditLog(anna, id)
+  assert.deepEqual(chain, { valid: true, length: 2, head: events[1]?.hash })
+  assert.deepEqual(events.map((e) => e.actor.name), [ANNA.name, longName.slice(0, 255)])
 })
 
 test('a final election binds no more invitations; another tenant\'s person binds none', DB, async (t) => {

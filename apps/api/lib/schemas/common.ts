@@ -28,9 +28,9 @@ export const HealthResponse = StrictObject({
 // surrogates, which PostgreSQL text and the audit log cannot hold as sent.
 const PLAIN = String.raw`[^\p{Cc}\p{Cs}]`
 
-/** One line of text, not blank: a title or a name. */
+/** One line of text, not blank: a title or a name. No line or paragraph separator (\p{Zl}, \p{Zp}) either. */
 export function SingleLineText(maxLength: number) {
-  return Type.String({ minLength: 1, maxLength, pattern: String.raw`^(?=.*\S)${PLAIN}+$` })
+  return Type.String({ minLength: 1, maxLength, pattern: String.raw`^(?=.*\S)[^\p{Cc}\p{Cs}\p{Zl}\p{Zp}]+$` })
 }
 
 /** Text over several lines: no control characters but tab and line breaks. */

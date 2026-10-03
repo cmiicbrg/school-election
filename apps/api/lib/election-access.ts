@@ -21,6 +21,7 @@
 import type { FastifyReply, FastifyRequest, HookHandlerDoneFunction, RouteOptions } from 'fastify'
 import type pg from 'pg'
 import type { ElectionState, Lifecycle, Verdict } from '@school-election/election-core'
+import { boundedName } from './app-user.ts'
 import type { AuditActor } from './audit-chain.ts'
 import { lockElection } from './audit.ts'
 import { authenticate, callerOf } from './auth.ts'
@@ -145,7 +146,7 @@ async function evaluate(db: Pick<Database, 'query'>, id: unknown, userId: string
   const lifecycle = lifecycleOf(row.state)
   const verdict = check.guard?.(lifecycle)
   if (verdict && !verdict.ok) throw new Refusal(409, verdict.refusal.replaceAll('-', '_'))
-  return { electionId, role: row.role, lifecycle, actor: { tid: row.tid, oid: row.oid, name: row.display_name } }
+  return { electionId, role: row.role, lifecycle, actor: { tid: row.tid, oid: row.oid, name: boundedName(row.display_name) ?? row.oid } }
 }
 
 function electionIdOf(request: FastifyRequest): unknown {

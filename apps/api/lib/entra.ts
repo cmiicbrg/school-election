@@ -15,8 +15,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import oauth2, { type OAuth2Namespace } from '@fastify/oauth2'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { GUID, type EntraConfig } from '../config.ts'
-import type { EntraIdentity } from './app-user.ts'
-import { MAX_ACTOR_NAME } from './audit-chain.ts'
+import { boundedName, type EntraIdentity } from './app-user.ts'
 import { isGlobalRole, type GlobalRole } from './auth.ts'
 
 export const ENTRA_AUTHORITY = 'https://login.microsoftonline.com'
@@ -125,7 +124,7 @@ export async function registerEntra(app: FastifyInstance, config: EntraConfig, r
       return {
         tid: config.tenantId,
         oid,
-        displayName: displayName(payload.name) ?? displayName(payload.preferred_username) ?? oid,
+        displayName: boundedName(payload.name) ?? boundedName(payload.preferred_username) ?? oid,
         email: text(payload.email) ?? text(payload.preferred_username) ?? null,
         roles: [...new Set(roles)],
       }
@@ -148,18 +147,4 @@ function exchangeFailure(err: unknown): string {
 
 function text(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
-}
-
-/**
- * A name as it is shown and as the audit log names an actor: well-formed
- * text without NUL (PostgreSQL holds neither a lone surrogate nor NUL), at
- * most MAX_ACTOR_NAME UTF-16 code units, cut between two characters.
- */
-function displayName(value: unknown): string | undefined {
-  const name = text(value)?.toWellFormed().replaceAll('\0', '')
-  if (name === undefined) return undefined
-  let end = Math.min(name.length, MAX_ACTOR_NAME)
-  // Not between the two halves of a surrogate pair.
-  if (end < name.length && /[\uD800-\uDBFF]/.test(name.charAt(end - 1))) end -= 1
-  return text(name.slice(0, end))
 }

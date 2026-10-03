@@ -9,6 +9,7 @@
 import type { FastifyInstance } from 'fastify'
 import { Type, type Static } from 'typebox'
 import { ELECTION_STATES, type ElectionState } from '@school-election/election-core'
+import { boundedName } from '../lib/app-user.ts'
 import { appendAudit, readAuditChain } from '../lib/audit.ts'
 import { verifyAuditChain } from '../lib/audit-chain.ts'
 import { callerOf, requireGlobalRole, requireSession } from '../lib/auth.ts'
@@ -89,7 +90,7 @@ export function electionRoutes(app: FastifyInstance, { db }: { db: Database }, d
       if (!owner) throw new Error('the signed-in caller has no app_user row')
       await client.query('insert into election_member (election_id, role, user_id) values ($1, \'owner\', $2)', [election.id, caller.id])
       await appendAudit(client, election.id, {
-        actor: { tid: owner.tid, oid: owner.oid, name: owner.display_name },
+        actor: { tid: owner.tid, oid: owner.oid, name: boundedName(owner.display_name) ?? owner.oid },
         action: 'election.created',
         metadata: { title },
       })
