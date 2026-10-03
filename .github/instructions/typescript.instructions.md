@@ -20,4 +20,4 @@ applyTo: "**/*.{ts,js,mjs,vue}"
 - `packages/election-core` stays pure: no Node, HTTP, database, session or Vue imports. ESLint enforces it.
 - The API runs as raw TypeScript on Node 26 (type stripping): no enums, namespaces or parameter properties, and relative imports carry the `.ts` extension.
 - Validate external input at the API boundary. The browser is never authoritative for ballot integrity.
-- Never log, persist or put into a URL path or query string a voting credential or ballot content.
+- Never log a voting key or ballot content, and never put either into a URL path or query string, an export or the audit log. Keys are stored only where they are issued, as generated, never next to a ballot, a session or an audit event.
