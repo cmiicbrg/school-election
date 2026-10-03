@@ -13,6 +13,7 @@ scripts/lint-deps.mjs     exact-pin check across all workspaces
 scripts/postgres.sh       PostgreSQL with the settings the API requires (CI and development)
 deploy/                   compose, .env and nginx examples and the operator guide; example.org placeholders only
 docs/design.md            design decisions; update it with the behaviour it describes
+third-party-notices/      notice and license texts of libvips, which the image carries; a test keeps its versions current
 ```
 
 npm workspaces share one root `package-lock.json`. Shared tooling (ESLint, TypeScript, markdownlint) lives in the root `package.json`; runtime dependencies live in the workspace that uses them.
