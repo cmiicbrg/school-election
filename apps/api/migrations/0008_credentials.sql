@@ -123,8 +123,8 @@ create trigger credential_window before insert or update on credential
 -- The freeze: entitlements are added and removed only while their round is
 -- planned, and only for keys of an issued batch for that round. Once the
 -- round is open the only change is a vote using one up, consumed from
--- false to true; nothing ever turns it back, and nothing changes once the
--- round has closed. Like the configuration triggers, these read the
+-- false to true, by a key of an issued batch; nothing ever turns it back,
+-- and nothing changes once the round has closed. Like the configuration triggers, these read the
 -- election's row with a share lock, so a change of the election's state
 -- waits for them to commit, and the other way round.
 create function credential_entitlement_freeze() returns trigger
@@ -147,6 +147,14 @@ begin
   if tg_op = 'UPDATE' then
     if new.consumed is distinct from old.consumed and (old.consumed or round_state is distinct from 'open') then
       raise exception 'an entitlement is used up only while its round is open, and never restored' using errcode = 'object_not_in_prerequisite_state';
+    end if;
+    -- A void batch keeps its entitlements, so its sheets can still be
+    -- compared, but its keys never vote.
+    if new.consumed and not old.consumed and not exists (
+      select 1 from public.credential c join public.credential_batch b on b.id = c.batch_id
+       where c.id = new.credential_id and b.state = 'issued'
+    ) then
+      raise exception 'a key of a void batch never votes' using errcode = 'object_not_in_prerequisite_state';
     end if;
     return new;
   end if;

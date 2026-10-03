@@ -207,7 +207,7 @@ An entitlement lets one key cast one ballot in one ballot box of its round. A re
 
 - a batch is added once the election is prepared and voided once, both until its round opens, and nothing else about it changes;
 - a key is added only to an issued batch, until its round opens, and never changes;
-- entitlements are added, unused, and removed only while their round is planned, and only for keys of an issued batch for that round. Once the round is open the only change is a ballot using one up, consumed from false to true; nothing turns it back, and once the round has closed nothing changes.
+- entitlements are added, unused, and removed only while their round is planned, and only for keys of an issued batch for that round. Once the round is open the only change is a ballot using one up, consumed from false to true, by a key of an issued batch: a void batch keeps its entitlements, so its sheets can still be compared, but its keys never vote. Nothing turns an entitlement back, and once the round has closed nothing changes.
 
 The runtime role cannot delete batches, keys or entitlements at all. These rules bind every statement a session runs directly, the database owner's included. A foreign key's cascade, such as removing a voter group in a draft, and a function the migrations define as `SECURITY DEFINER` run as the table owner and are not bound: a cascade only follows a change its own table's rules allowed, and such a function, which the runtime role can call only if `apps/api/lib/runtime-privileges.ts` lists it, keeps rules of its own.
 

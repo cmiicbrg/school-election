@@ -6,7 +6,8 @@
 import { test, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import type { LightMyRequestResponse } from 'fastify'
-import { parseKey, type ElectionState } from '@school-election/election-core'
+import { parseKey, type ElectionState, type RoundKind } from '@school-election/election-core'
+import type pg from 'pg'
 import { lockElection } from '../lib/audit.ts'
 import { issueBatch, listBatches, readBatchKeys, replaceBatch, type BatchKeys } from '../lib/credentials.ts'
 import { lifecycleOf, Refusal, type ElectionAccess } from '../lib/election-access.ts'
@@ -23,8 +24,10 @@ interface Setup {
   klasse: string
   g1a: string
   g2b: string
-  /** Runs fn as the member, holding the election's lock, as a route's change does. */
-  as: (person: Person) => <T>(fn: (client: Parameters<Parameters<ElectionApp['db']['tx']>[0]>[0], access: ElectionAccess) => Promise<T>) => Promise<T>
+  /** The library's operations as the member, holding the election's lock, as a route's change does. */
+  issue: (person: Person, voterGroupId: string, roundKind: RoundKind, count: number) => Promise<BatchKeys>
+  replace: (person: Person, batchId: string) => Promise<BatchKeys>
+  read: (person: Person, batchId: string) => Promise<BatchKeys>
 }
 
 const ok = <T>(res: LightMyRequestResponse, status = 200): T => {
@@ -62,11 +65,16 @@ async function prepared(t: TestContext): Promise<Setup> {
   await signIn(s, CARLA)
   const wanda = await signIn(s, WANDA)
   ok(await anna.request('POST', `${base}/prepare`))
-  const as: Setup['as'] = (person) => (fn) => s.db.tx(async (client) => {
+  const as = <T>(person: Person, fn: (client: pg.ClientBase, access: ElectionAccess) => Promise<T>) => s.db.tx(async (client) => {
     await lockElection(client, id)
     return fn(client, await accessOf(s, id, person))
   })
-  return { s, anna, wanda, id, school, klasse, g1a, g2b, as }
+  return {
+    s, anna, wanda, id, school, klasse, g1a, g2b,
+    issue: (person, voterGroupId, roundKind, count) => as(person, (client, access) => issueBatch(client, access, { voterGroupId, roundKind, count })),
+    replace: (person, batchId) => as(person, (client, access) => replaceBatch(client, access, batchId)),
+    read: (person, batchId) => as(person, (client, access) => readBatchKeys(client, access, batchId)),
+  }
 }
 
 /** What the guard would establish for the person, from the database as it is. */
@@ -109,8 +117,8 @@ async function entitlements(s: ElectionApp, batchId: string): Promise<Map<string
 const keysOf = (issued: BatchKeys) => issued.keys.map((entry) => entry.key)
 
 test('a batch stores every key exactly as issued, entitled to its group\'s contests; a runoff batch is entitled to nothing, and a top-up leaves the others alone', DB, async (t) => {
-  const { s, anna, wanda, id, school, klasse, g1a, g2b, as } = await prepared(t)
-  const regular = await as(ANNA)((client, access) => issueBatch(client, access, { voterGroupId: g1a, roundKind: 'regular', count: 30 }))
+  const { s, anna, wanda, id, school, klasse, g1a, g2b, issue } = await prepared(t)
+  const regular = await issue(ANNA, g1a, 'regular', 30)
   assert.equal(regular.keys.length, 30)
   assert.equal(new Set(keysOf(regular)).size, 30)
   for (const { key, used } of regular.keys) {
@@ -122,11 +130,11 @@ test('a batch stores every key exactly as issued, entitled to its group\'s conte
   const entitled = await entitlements(s, regular.batch.id)
   assert.deepEqual([...entitled.values()], Array.from({ length: 30 }, () => [`regular:${school}`, `regular:${klasse}`].sort()))
 
-  const runoff = await as(CARLA)((client, access) => issueBatch(client, access, { voterGroupId: g1a, roundKind: 'runoff', count: 5 }))
+  const runoff = await issue(CARLA, g1a, 'runoff', 5)
   assert.deepEqual([...(await entitlements(s, runoff.batch.id)).values()], Array.from({ length: 5 }, () => []))
   const before = await entitlements(s, regular.batch.id)
-  const topUp = await as(ANNA)((client, access) => issueBatch(client, access, { voterGroupId: g1a, roundKind: 'regular', count: 3 }))
-  const other = await as(ANNA)((client, access) => issueBatch(client, access, { voterGroupId: g2b, roundKind: 'regular', count: 2 }))
+  const topUp = await issue(ANNA, g1a, 'regular', 3)
+  const other = await issue(ANNA, g2b, 'regular', 2)
   assert.deepEqual(await entitlements(s, regular.batch.id), before)
   assert.deepEqual([...(await entitlements(s, topUp.batch.id)).values()], Array.from({ length: 3 }, () => [`regular:${school}`, `regular:${klasse}`].sort()))
   assert.deepEqual([...(await entitlements(s, other.batch.id)).values()], [[`regular:${school}`], [`regular:${school}`]])
@@ -162,17 +170,17 @@ test('a batch stores every key exactly as issued, entitled to its group\'s conte
 })
 
 test('the owner and co-admins read a batch\'s keys whenever they like; a witness only once its round has closed, each key used or unused', DB, async (t) => {
-  const { s, id, g1a, as } = await prepared(t)
-  const issued = await as(ANNA)((client, access) => issueBatch(client, access, { voterGroupId: g1a, roundKind: 'regular', count: 4 }))
-  const runoff = await as(ANNA)((client, access) => issueBatch(client, access, { voterGroupId: g1a, roundKind: 'runoff', count: 2 }))
+  const { s, id, g1a, issue, read } = await prepared(t)
+  const issued = await issue(ANNA, g1a, 'regular', 4)
+  const runoff = await issue(ANNA, g1a, 'runoff', 2)
   const count = () => withClient(s.ownerUrl, async (client) => (await client.query<{ n: number }>('select count(*)::int as n from credential')).rows[0]?.n)
   // Reading, as often as anyone likes, shows the stored keys and never creates any.
   for (const person of [ANNA, CARLA, ANNA]) {
-    assert.deepEqual(await as(person)((client, access) => readBatchKeys(client, access, issued.batch.id)), issued)
+    assert.deepEqual(await read(person, issued.batch.id), issued)
   }
   assert.equal(await count(), 6)
-  await assert.rejects(as(WANDA)((client, access) => readBatchKeys(client, access, issued.batch.id)), refusedWith(403, 'forbidden'))
-  await assert.rejects(as(ANNA)((client, access) => readBatchKeys(client, access, '0d3b5a0e-6a43-4c1b-9f5e-3d2c1b0a9f8e')), refusedWith(404, 'not_found'))
+  await assert.rejects(read(WANDA, issued.batch.id), refusedWith(403, 'forbidden'))
+  await assert.rejects(read(ANNA, '0d3b5a0e-6a43-4c1b-9f5e-3d2c1b0a9f8e'), refusedWith(404, 'not_found'))
 
   // Voting with one key while the round is open; nobody learns which yet.
   const [usedKey, ...unused] = keysOf(issued)
@@ -184,25 +192,25 @@ test('the owner and co-admins read a batch\'s keys whenever they like; a witness
       [usedKey],
     )
   })
-  await assert.rejects(as(WANDA)((client, access) => readBatchKeys(client, access, issued.batch.id)), refusedWith(403, 'forbidden'))
-  assert.deepEqual((await as(ANNA)((client, access) => readBatchKeys(client, access, issued.batch.id))).keys.map((k) => k.used), [null, null, null, null])
+  await assert.rejects(read(WANDA, issued.batch.id), refusedWith(403, 'forbidden'))
+  assert.deepEqual((await read(ANNA, issued.batch.id)).keys.map((k) => k.used), [null, null, null, null])
 
   // Closed: the witness sees every key of the round, used or unused; the
   // runoff keys, which could still vote, stay hidden from them.
   await withClient(s.ownerUrl, (client) => client.query(`update round set state = 'closed' where election_id = $1 and kind = 'regular'`, [id]))
   const expected = keysOf(issued).map((key) => ({ key, used: key === usedKey }))
   for (const person of [WANDA, ANNA]) {
-    assert.deepEqual((await as(person)((client, access) => readBatchKeys(client, access, issued.batch.id))).keys, expected)
+    assert.deepEqual((await read(person, issued.batch.id)).keys, expected)
   }
   assert.equal(unused.length, 3)
-  await assert.rejects(as(WANDA)((client, access) => readBatchKeys(client, access, runoff.batch.id)), refusedWith(403, 'forbidden'))
+  await assert.rejects(read(WANDA, runoff.batch.id), refusedWith(403, 'forbidden'))
   assert.equal(await count(), 6)
 })
 
 test('replacing a batch voids its keys and issues as many new ones, only until its round opens; issuing waits for preparing and is for owner and co-admins', DB, async (t) => {
-  const { s, anna, id, school, klasse, g1a, as } = await prepared(t)
-  const issued = await as(ANNA)((client, access) => issueBatch(client, access, { voterGroupId: g1a, roundKind: 'regular', count: 5 }))
-  const replacement = await as(CARLA)((client, access) => replaceBatch(client, access, issued.batch.id))
+  const { s, anna, id, school, klasse, g1a, issue, replace } = await prepared(t)
+  const issued = await issue(ANNA, g1a, 'regular', 5)
+  const replacement = await replace(CARLA, issued.batch.id)
   assert.equal(replacement.keys.length, 5)
   assert.deepEqual(keysOf(replacement).filter((key) => keysOf(issued).includes(key)), [])
   assert.deepEqual(await storedKeys(s, replacement.batch.id), keysOf(replacement))
@@ -210,38 +218,38 @@ test('replacing a batch voids its keys and issues as many new ones, only until i
   assert.deepEqual(await storedKeys(s, issued.batch.id), keysOf(issued))
   assert.deepEqual((await listBatches(s.db, id)).map((b) => [b.id, b.state]).toSorted(), [[issued.batch.id, 'void'], [replacement.batch.id, 'issued']].toSorted())
   assert.deepEqual([...(await entitlements(s, replacement.batch.id)).values()], Array.from({ length: 5 }, () => [`regular:${school}`, `regular:${klasse}`].sort()))
-  await assert.rejects(as(ANNA)((client, access) => replaceBatch(client, access, issued.batch.id)), refusedWith(409, 'batch_void'))
+  await assert.rejects(replace(ANNA, issued.batch.id), refusedWith(409, 'batch_void'))
   const events = ok<{ events: { action: string, metadata: Record<string, unknown> }[] }>(await anna.request('GET', `/api/elections/${id}/audit`)).events
   assert.deepEqual(events.filter((e) => e.action === 'credential-batch.replaced').map((e) => e.metadata), [
     { batch: issued.batch.id, replacement: replacement.batch.id, group: g1a, round: 'regular', keys: 5 },
   ])
 
-  await assert.rejects(as(WANDA)((client, access) => issueBatch(client, access, { voterGroupId: g1a, roundKind: 'regular', count: 1 })), refusedWith(403, 'forbidden'))
-  await assert.rejects(as(WANDA)((client, access) => replaceBatch(client, access, replacement.batch.id)), refusedWith(403, 'forbidden'))
-  await assert.rejects(as(ANNA)((client, access) => issueBatch(client, access, { voterGroupId: '0d3b5a0e-6a43-4c1b-9f5e-3d2c1b0a9f8e', roundKind: 'regular', count: 1 })), refusedWith(404, 'not_found'))
-  await assert.rejects(as(ANNA)((client, access) => issueBatch(client, access, { voterGroupId: g1a, roundKind: 'regular', count: 0 })), RangeError)
+  await assert.rejects(issue(WANDA, g1a, 'regular', 1), refusedWith(403, 'forbidden'))
+  await assert.rejects(replace(WANDA, replacement.batch.id), refusedWith(403, 'forbidden'))
+  await assert.rejects(issue(ANNA, '0d3b5a0e-6a43-4c1b-9f5e-3d2c1b0a9f8e', 'regular', 1), refusedWith(404, 'not_found'))
+  await assert.rejects(issue(ANNA, g1a, 'regular', 0), RangeError)
 
   // Once voting has started, regular keys are fixed; runoff keys can still be issued and replaced.
   await forceElectionState(s.ownerUrl, id, 'active')
   await withClient(s.ownerUrl, (client) => client.query(`update round set state = 'open' where election_id = $1 and kind = 'regular'`, [id]))
-  await assert.rejects(as(ANNA)((client, access) => issueBatch(client, access, { voterGroupId: g1a, roundKind: 'regular', count: 1 })), refusedWith(409, 'voting_started'))
-  await assert.rejects(as(ANNA)((client, access) => replaceBatch(client, access, replacement.batch.id)), refusedWith(409, 'voting_started'))
-  const runoff = await as(ANNA)((client, access) => issueBatch(client, access, { voterGroupId: g1a, roundKind: 'runoff', count: 2 }))
-  const runoffReplacement = await as(ANNA)((client, access) => replaceBatch(client, access, runoff.batch.id))
+  await assert.rejects(issue(ANNA, g1a, 'regular', 1), refusedWith(409, 'voting_started'))
+  await assert.rejects(replace(ANNA, replacement.batch.id), refusedWith(409, 'voting_started'))
+  const runoff = await issue(ANNA, g1a, 'runoff', 2)
+  const runoffReplacement = await replace(ANNA, runoff.batch.id)
   assert.equal(runoffReplacement.keys.length, 2)
 
   // A draft has no keys to issue.
   await forceElectionState(s.ownerUrl, id, 'draft')
   await withClient(s.ownerUrl, (client) => client.query(`update round set state = 'planned' where election_id = $1`, [id]))
-  await assert.rejects(as(ANNA)((client, access) => issueBatch(client, access, { voterGroupId: g1a, roundKind: 'regular', count: 1 })), refusedWith(409, 'not_prepared'))
+  await assert.rejects(issue(ANNA, g1a, 'regular', 1), refusedWith(409, 'not_prepared'))
 })
 
 test('preparing again voids only the unused batches of groups whose contests changed, and only once confirmed; candidate corrections and removed contests leave keys valid', DB, async (t) => {
-  const { s, anna, id, school, klasse, g1a, g2b, as } = await prepared(t)
+  const { s, anna, id, school, klasse, g1a, g2b, issue } = await prepared(t)
   const base = `/api/elections/${id}`
-  const batch1a = await as(ANNA)((client, access) => issueBatch(client, access, { voterGroupId: g1a, roundKind: 'regular', count: 3 }))
-  const batch2b = await as(ANNA)((client, access) => issueBatch(client, access, { voterGroupId: g2b, roundKind: 'regular', count: 2 }))
-  const runoff2b = await as(ANNA)((client, access) => issueBatch(client, access, { voterGroupId: g2b, roundKind: 'runoff', count: 2 }))
+  const batch1a = await issue(ANNA, g1a, 'regular', 3)
+  const batch2b = await issue(ANNA, g2b, 'regular', 2)
+  const runoff2b = await issue(ANNA, g2b, 'runoff', 2)
   const before1a = await entitlements(s, batch1a.batch.id)
 
   // A candidate correction while prepared touches no key.

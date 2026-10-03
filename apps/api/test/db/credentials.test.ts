@@ -84,6 +84,12 @@ test('entitlements freeze when their round opens: the runtime role only uses one
     await client.query(consume(KEY_A))
     await refused(client, '55000', [consume(KEY_A, false)])
   })
+  // A key of a void batch keeps its entitlement but never uses it up.
+  await withClient(ownerUrl, (client) => client.query(
+    `begin; set local session_replication_role = replica;
+     ${entitle(KEY_B)}; update credential_batch set state = 'void' where id = '${BATCH}'; commit`,
+  ))
+  await withClient(runtimeUrl, (client) => refused(client, '55000', [consume(KEY_B)]))
   // The rules bind every direct statement, the owner's too.
   await withClient(ownerUrl, (client) => refused(client, '55000', [
     'delete from credential_entitlement',
@@ -95,7 +101,7 @@ test('entitlements freeze when their round opens: the runtime role only uses one
   const { rows } = await withClient(ownerUrl, (client) => client.query<{ key: string, consumed: boolean }>(
     'select c.key, e.consumed from credential_entitlement e join credential c on c.id = e.credential_id',
   ))
-  assert.deepEqual(rows, [{ key: KEY_A, consumed: true }])
+  assert.deepEqual(rows.toSorted((a, b) => a.key.localeCompare(b.key)), [{ key: KEY_A, consumed: true }, { key: KEY_B, consumed: false }])
 })
 
 test('a function the migrations define as SECURITY DEFINER is not bound by the freeze, so the seal can rewrite a closed round\'s entitlements', DB, async (t) => {
