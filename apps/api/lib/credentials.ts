@@ -26,7 +26,9 @@ import { sqlState } from './pg-errors.ts'
 /** The most keys one batch holds; a group that needs more gets a top-up. */
 export const MAX_BATCH_KEYS = 1000
 
-export type BatchState = 'issued' | 'void'
+/** A batch is issued, and voided once when it is replaced; the keys of a void batch never vote. */
+export const BATCH_STATES = ['issued', 'void'] as const
+export type BatchState = typeof BATCH_STATES[number]
 
 export interface BatchSummary {
   id: string

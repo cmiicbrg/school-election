@@ -21,16 +21,26 @@
 -- Entitlements name their ballot box together with its election.
 alter table round_contest add unique (election_id, id);
 
--- round_kind mirrors ROUND_KINDS in packages/election-core: the round of
--- that kind of the batch's election, which for a runoff does not exist
--- until the runoff is activated. Removing a voter group, which happens only
--- in a draft, removes its batches.
+-- A batch is issued, and voided once when it is replaced. A void batch
+-- keeps its keys and their entitlements, so its sheets can still be
+-- compared, but its keys are not usable: they never vote, and no key is
+-- added to it. BATCH_STATES in apps/api/lib/credentials.ts lists the
+-- states, and a test keeps the two equal.
+create table credential_batch_state (
+  state text primary key,
+  usable boolean not null
+);
+insert into credential_batch_state (state, usable) values ('issued', true), ('void', false);
+
+-- round_kind: the round of that kind of the batch's election, which for a
+-- runoff does not exist until the runoff is activated. Removing a voter
+-- group, which happens only in a draft, removes its batches.
 create table credential_batch (
   id uuid primary key default gen_random_uuid(),
   election_id uuid not null,
   voter_group_id uuid not null,
-  round_kind text not null check (round_kind in ('regular', 'runoff')),
-  state text not null default 'issued' check (state in ('issued', 'void')),
+  round_kind text not null references round_kind (kind),
+  state text not null default 'issued' references credential_batch_state (state),
   unique (election_id, id),
   foreign key (election_id, voter_group_id) references voter_group (election_id, id) on delete cascade
 );
@@ -61,118 +71,210 @@ create table credential_entitlement (
 );
 create index credential_entitlement_round_contest on credential_entitlement (round_contest_id);
 
--- Batches are issued once the election is prepared, and a batch is voided,
--- once, until its round opens: a regular batch before voting starts, a
--- runoff batch until the runoff is activated, also while the regular round
--- is open or closed. Nothing else about a batch changes.
+-- Each trigger below states one rule for the operations it binds, and
+-- returns at once for a change it does not bind: one made by a cascade or
+-- by a SECURITY DEFINER function, where current_user is not session_user.
+-- Like the configuration triggers, they read the election's row with a
+-- share lock, so a change of the election's state waits for them to
+-- commit, and the other way round.
+--
+-- Keys belong to a fixed structure: an election takes them once it is
+-- prepared, its structure no longer editable, until it is final. Batches
+-- are issued then, and a batch is voided, once, until its round opens: a
+-- regular batch before voting starts, a runoff batch until the runoff is
+-- activated, also while the regular round is open or closed. Nothing else
+-- about a batch changes.
+create function credential_batch_prepared() returns trigger
+  language plpgsql set search_path = pg_catalog as $$
+declare
+  editable boolean;
+begin
+  if current_user <> session_user then
+    return new;
+  end if;
+  select s.structure_editable into editable
+    from public.election e join public.election_state s on s.state = e.state
+   where e.id = new.election_id
+     for share of e;
+  if editable then
+    perform public.refuse('keys are issued once the election is prepared');
+  end if;
+  return new;
+end
+$$;
+
+create function credential_batch_void_once() returns trigger
+  language plpgsql set search_path = pg_catalog as $$
+begin
+  if current_user <> session_user then
+    return new;
+  end if;
+  if (new.id, new.election_id, new.voter_group_id, new.round_kind) is distinct from (old.id, old.election_id, old.voter_group_id, old.round_kind)
+     or not exists (
+       select 1 from public.credential_batch_state was, public.credential_batch_state becomes
+        where was.state = old.state and was.usable and becomes.state = new.state and not becomes.usable
+     ) then
+    perform public.refuse('a batch is only ever voided, once');
+  end if;
+  return new;
+end
+$$;
+
 create function credential_batch_window() returns trigger
   language plpgsql set search_path = pg_catalog as $$
 declare
-  election_state text;
-  round_state text;
+  election_final boolean;
+  round_opened boolean;
 begin
   if current_user <> session_user then
     return new;
   end if;
-  if tg_op = 'UPDATE' and ((new.id, new.election_id, new.voter_group_id, new.round_kind) is distinct from (old.id, old.election_id, old.voter_group_id, old.round_kind)
-     or old.state <> 'issued' or new.state <> 'void') then
-    raise exception 'a batch is only ever voided, once' using errcode = 'object_not_in_prerequisite_state';
-  end if;
-  select e.state into election_state from public.election e where e.id = new.election_id for share;
-  select r.state into round_state from public.round r where r.election_id = new.election_id and r.kind = new.round_kind;
-  if election_state = 'final' or coalesce(round_state, 'planned') <> 'planned' then
-    raise exception 'keys are issued and replaced only until their round opens' using errcode = 'object_not_in_prerequisite_state';
-  end if;
-  if tg_op = 'INSERT' and election_state = 'draft' then
-    raise exception 'keys are issued once the election is prepared' using errcode = 'object_not_in_prerequisite_state';
+  select s.final into election_final
+    from public.election e join public.election_state s on s.state = e.state
+   where e.id = new.election_id
+     for share of e;
+  select rs.opened into round_opened
+    from public.round r join public.round_state rs on rs.state = r.state
+   where r.election_id = new.election_id and r.kind = new.round_kind;
+  if election_final or coalesce(round_opened, false) then
+    perform public.refuse('keys are issued and replaced only until their round opens');
   end if;
   return new;
 end
 $$;
 
+create trigger credential_batch_prepared before insert on credential_batch
+  for each row execute function credential_batch_prepared();
+create trigger credential_batch_void_once before update on credential_batch
+  for each row execute function credential_batch_void_once();
 create trigger credential_batch_window before insert or update on credential_batch
   for each row execute function credential_batch_window();
 
--- A key is added to an issued batch until the batch's round opens, and
--- never changes.
-create function credential_window() returns trigger
+-- A key is added to a usable batch while its election takes keys and its
+-- round has not opened, and never changes.
+create function credential_added() returns trigger
   language plpgsql set search_path = pg_catalog as $$
 begin
   if current_user <> session_user then
     return new;
   end if;
-  if tg_op = 'UPDATE' then
-    raise exception 'a key never changes' using errcode = 'object_not_in_prerequisite_state';
-  end if;
   if not exists (
     select 1 from public.credential_batch b
+      join public.credential_batch_state bs on bs.state = b.state
       join public.election e on e.id = b.election_id
+      join public.election_state s on s.state = e.state
       left join public.round r on r.election_id = b.election_id and r.kind = b.round_kind
-     where b.id = new.batch_id and b.state = 'issued' and e.state in ('prepared', 'active') and coalesce(r.state, 'planned') = 'planned'
+      left join public.round_state rs on rs.state = r.state
+     where b.id = new.batch_id and bs.usable and not s.structure_editable and not s.final and not coalesce(rs.opened, false)
        for share of b, e
   ) then
-    raise exception 'keys are added only to an issued batch, until its round opens' using errcode = 'object_not_in_prerequisite_state';
+    perform public.refuse('keys are added only to an issued batch, until its round opens');
   end if;
   return new;
 end
 $$;
 
-create trigger credential_window before insert or update on credential
-  for each row execute function credential_window();
+create function credential_unchanged() returns trigger
+  language plpgsql set search_path = pg_catalog as $$
+begin
+  if current_user <> session_user then
+    return new;
+  end if;
+  perform public.refuse('a key never changes');
+  return new;
+end
+$$;
+
+create trigger credential_added before insert on credential
+  for each row execute function credential_added();
+create trigger credential_unchanged before update on credential
+  for each row execute function credential_unchanged();
 
 -- The freeze: entitlements are added and removed only while their round is
--- planned, and only for keys of an issued batch for that round. Once the
--- round is open the only change is a vote using one up, consumed from
--- false to true, by a key of an issued batch; nothing ever turns it back,
--- and nothing changes once the round has closed. Like the configuration triggers, these read the
--- election's row with a share lock, so a change of the election's state
--- waits for them to commit, and the other way round.
-create function credential_entitlement_freeze() returns trigger
+-- planned, and added only unused, for keys of a usable batch for that
+-- round. Once the round is open the only change is a vote using one up,
+-- consumed from false to true, by a key of a usable batch; nothing ever
+-- turns it back, and nothing changes once the round has closed.
+create function credential_entitlement_planned() returns trigger
   language plpgsql set search_path = pg_catalog as $$
 declare
-  round_state text;
+  round_opened boolean;
 begin
   if current_user <> session_user then
     return coalesce(new, old);
   end if;
-  if tg_op = 'UPDATE' and (new.election_id, new.credential_id, new.round_contest_id) is distinct from (old.election_id, old.credential_id, old.round_contest_id) then
-    raise exception 'an entitlement never moves' using errcode = 'object_not_in_prerequisite_state';
-  end if;
-  select r.state into round_state
+  select rs.opened into round_opened
     from public.round_contest rc
     join public.round r on r.id = rc.round_id
+    join public.round_state rs on rs.state = r.state
     join public.election e on e.id = r.election_id
    where rc.id = coalesce(new.round_contest_id, old.round_contest_id)
      for share of e;
-  if tg_op = 'UPDATE' then
-    if new.consumed is distinct from old.consumed and (old.consumed or round_state is distinct from 'open') then
-      raise exception 'an entitlement is used up only while its round is open, and never restored' using errcode = 'object_not_in_prerequisite_state';
-    end if;
-    -- A void batch keeps its entitlements, so its sheets can still be
-    -- compared, but its keys never vote.
-    if new.consumed and not old.consumed and not exists (
-      select 1 from public.credential c join public.credential_batch b on b.id = c.batch_id
-       where c.id = new.credential_id and b.state = 'issued'
-    ) then
-      raise exception 'a key of a void batch never votes' using errcode = 'object_not_in_prerequisite_state';
-    end if;
-    return new;
-  end if;
-  if round_state is distinct from 'planned' then
-    raise exception 'entitlements are added and removed only while their round is planned' using errcode = 'object_not_in_prerequisite_state';
-  end if;
-  if tg_op = 'INSERT' and (new.consumed or not exists (
-    select 1 from public.credential c
-      join public.credential_batch b on b.id = c.batch_id
-      join public.round_contest rc on rc.id = new.round_contest_id
-      join public.round r on r.id = rc.round_id
-     where c.id = new.credential_id and b.state = 'issued' and b.round_kind = r.kind
-  )) then
-    raise exception 'an entitlement is added unused, for a key of an issued batch for its round' using errcode = 'object_not_in_prerequisite_state';
+  if round_opened is not false then
+    perform public.refuse('entitlements are added and removed only while their round is planned');
   end if;
   return coalesce(new, old);
 end
 $$;
 
-create trigger credential_entitlement_freeze before insert or update or delete on credential_entitlement
-  for each row execute function credential_entitlement_freeze();
+create function credential_entitlement_unused() returns trigger
+  language plpgsql set search_path = pg_catalog as $$
+begin
+  if current_user <> session_user then
+    return new;
+  end if;
+  if new.consumed or not exists (
+    select 1 from public.credential c
+      join public.credential_batch b on b.id = c.batch_id
+      join public.credential_batch_state bs on bs.state = b.state
+      join public.round_contest rc on rc.id = new.round_contest_id
+      join public.round r on r.id = rc.round_id
+     where c.id = new.credential_id and bs.usable and b.round_kind = r.kind
+  ) then
+    perform public.refuse('an entitlement is added unused, for a key of an issued batch for its round');
+  end if;
+  return new;
+end
+$$;
+
+create function credential_entitlement_used() returns trigger
+  language plpgsql set search_path = pg_catalog as $$
+declare
+  round_accepts_ballots boolean;
+begin
+  if current_user <> session_user then
+    return new;
+  end if;
+  if (new.election_id, new.credential_id, new.round_contest_id) is distinct from (old.election_id, old.credential_id, old.round_contest_id) then
+    perform public.refuse('an entitlement never moves');
+  end if;
+  select rs.accepts_ballots into round_accepts_ballots
+    from public.round_contest rc
+    join public.round r on r.id = rc.round_id
+    join public.round_state rs on rs.state = r.state
+    join public.election e on e.id = r.election_id
+   where rc.id = new.round_contest_id
+     for share of e;
+  if new.consumed is distinct from old.consumed and (old.consumed or round_accepts_ballots is not true) then
+    perform public.refuse('an entitlement is used up only while its round is open, and never restored');
+  end if;
+  -- A void batch keeps its entitlements, so its sheets can still be
+  -- compared, but its keys never vote.
+  if new.consumed and not old.consumed and not exists (
+    select 1 from public.credential c
+      join public.credential_batch b on b.id = c.batch_id
+      join public.credential_batch_state bs on bs.state = b.state
+     where c.id = new.credential_id and bs.usable
+  ) then
+    perform public.refuse('a key of a void batch never votes');
+  end if;
+  return new;
+end
+$$;
+
+create trigger credential_entitlement_planned before insert or delete on credential_entitlement
+  for each row execute function credential_entitlement_planned();
+create trigger credential_entitlement_unused before insert on credential_entitlement
+  for each row execute function credential_entitlement_unused();
+create trigger credential_entitlement_used before update on credential_entitlement
+  for each row execute function credential_entitlement_used();

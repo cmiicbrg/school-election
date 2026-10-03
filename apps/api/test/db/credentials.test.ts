@@ -4,9 +4,9 @@
 import { test, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import type pg from 'pg'
-import { ROUND_KINDS } from '@school-election/election-core'
+import { BATCH_STATES } from '../../lib/credentials.ts'
 import { sqlState } from '../../lib/pg-errors.ts'
-import { checkedValues, createTestDatabase, DB, withClient } from '../helpers/db.ts'
+import { createTestDatabase, DB, withClient } from '../helpers/db.ts'
 
 const ELECTION = '3f2b8c1e-5a4d-4e6f-9b7a-0c1d2e3f4a5b'
 const CONTEST = '5b4dae30-7c6f-4081-9d9c-2e3f4a5b6c7d'
@@ -55,9 +55,16 @@ async function moveOn(ownerUrl: string, election: string, round: string): Promis
   ))
 }
 
-test('the stored round kinds of batches are exactly the ones the code knows', DB, async (t) => {
+test('a batch\'s state is one the code knows, only an issued batch is usable, and its round kind is a round\'s', DB, async (t) => {
   const { ownerUrl } = await setup(t)
-  assert.deepEqual(await checkedValues(ownerUrl, 'credential_batch', 'round_kind'), [...ROUND_KINDS])
+  await withClient(ownerUrl, async (client) => {
+    const { rows } = await client.query<{ state: string, usable: boolean }>('select state, usable from credential_batch_state order by state')
+    assert.deepEqual(rows, [...BATCH_STATES].sort().map((state) => ({ state, usable: state !== 'void' })))
+    const { rows: references } = await client.query<{ target: string }>(
+      `select confrelid::regclass::text as target from pg_constraint where conrelid = 'credential_batch'::regclass and contype = 'f' order by 1`,
+    )
+    assert.deepEqual(references.map((row) => row.target), ['credential_batch_state', 'round_kind', 'voter_group'])
+  })
 })
 
 test('entitlements freeze when their round opens: the runtime role only uses one up, while the round is open, and never restores it', DB, async (t) => {
