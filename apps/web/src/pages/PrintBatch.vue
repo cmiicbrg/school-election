@@ -44,6 +44,8 @@ const election = ref<ElectionDetail>()
 const groupName = ref('')
 const batch = ref<BatchKeys>()
 const qr = ref(new Map<string, string>())
+/** Every card has its QR image: only then are the sheets shown and printable. */
+const ready = ref(false)
 const error = ref<string | null>(null)
 const origin = window.location.origin
 
@@ -63,12 +65,20 @@ async function load(): Promise<void> {
     election.value = detail
     groupName.value = configuration.voterGroups.find((group) => group.id === keys.batch.voterGroupId)?.name ?? ''
     batch.value = keys
-    // One image per key, drawn here: the policy allows data: images.
+  } catch (err) {
+    error.value = err instanceof ApiError ? MESSAGES[err.code] ?? 'Die Stimmkarten konnten nicht geladen werden.' : 'Die Stimmkarten konnten nicht geladen werden.'
+    return
+  }
+  try {
+    // One image per key, drawn here: the policy allows data: images. The
+    // sheets appear, and can be printed, only once every image is there.
     const drawn = await Promise.all(cards.value.map(async (card): Promise<[string, string]> =>
       [card.key, await QRCode.toDataURL(card.url, { errorCorrectionLevel: 'M', margin: 0, width: 320 })]))
     qr.value = new Map(drawn)
-  } catch (err) {
-    error.value = err instanceof ApiError ? MESSAGES[err.code] ?? 'Die Stimmkarten konnten nicht geladen werden.' : 'Die Stimmkarten konnten nicht geladen werden.'
+    ready.value = drawn.every(([, image]) => image !== '')
+    if (!ready.value) error.value = 'Die QR-Codes konnten nicht erzeugt werden.'
+  } catch {
+    error.value = 'Die QR-Codes konnten nicht erzeugt werden.'
   }
 }
 
@@ -101,8 +111,14 @@ onMounted(() => {
       >
         {{ error }}
       </p>
+      <p
+        v-else-if="batch && batch.batch.state === 'issued' && !ready"
+        role="status"
+      >
+        Die Stimmkarten werden vorbereitet …
+      </p>
       <button
-        v-if="batch && batch.batch.state === 'issued'"
+        v-if="ready"
         type="button"
         @click="print"
       >
@@ -118,7 +134,7 @@ onMounted(() => {
       Dieser Stapel wurde ersetzt. Seine Codes gelten nicht mehr; die neuen Stimmkarten sind der Stapel, der an seine Stelle getreten ist.
     </p>
 
-    <template v-if="batch && batch.batch.state === 'issued' && election">
+    <template v-if="ready && batch && election">
       <section
         v-for="(page, index) in pages"
         :key="index"
