@@ -11,25 +11,25 @@ const person = (changes: Partial<EntraIdentity> = {}): EntraIdentity => ({
   tid: TENANT,
   oid: 'c0ffee00-1234-4abc-8def-0123456789ab',
   displayName: 'Maria Muster',
-  upn: 'maria.muster@schule.example.org',
+  email: 'maria.muster@schule.example.org',
   ...changes,
 })
 
-test('a person is the pair (tid, oid): never the upn, never the oid alone', DB, async (t) => {
+test('a person is the pair (tid, oid): never the email, never the oid alone', DB, async (t) => {
   const testDb = await createTestDatabase(t)
   const db = createDatabase(testDb.runtimeUrl, () => {})
   t.after(() => db.close())
 
   const maria = await upsertAppUser(db, person())
-  assert.equal(await upsertAppUser(db, person({ displayName: 'Maria Neu', upn: null })), maria)
+  assert.equal(await upsertAppUser(db, person({ displayName: 'Maria Neu', email: null })), maria)
   // The same oid in another directory is someone else.
   const elsewhere = await upsertAppUser(db, person({ tid: OTHER_TENANT }))
-  // A upn handed on to someone new does not make them the old holder.
+  // An address handed on to someone new does not make them the old holder.
   const successor = await upsertAppUser(db, person({ oid: '0ddba11a-1234-4abc-8def-0123456789ab' }))
   assert.equal(new Set([maria, elsewhere, successor]).size, 3)
 
-  const { rows } = await db.query<{ id: string, display_name: string, upn: string | null }>('select id, display_name, upn from app_user where id = $1', [maria])
-  assert.deepEqual(rows, [{ id: maria, display_name: 'Maria Neu', upn: null }])
+  const { rows } = await db.query<{ id: string, display_name: string, email: string | null }>('select id, display_name, email from app_user where id = $1', [maria])
+  assert.deepEqual(rows, [{ id: maria, display_name: 'Maria Neu', email: null }])
 })
 
 test('the runtime role can neither rewrite an identity nor delete a person', DB, async (t) => {

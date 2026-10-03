@@ -10,9 +10,9 @@
 // starts the session. It has to be a GET, because Entra returns the browser
 // with a top-level redirect that carries the code in the query. A forged or
 // replayed callback gets nowhere: the state must match the state cookie, the
-// code is redeemed only with the PKCE verifier from the verifier cookie, and
-// the ID token must carry the nonce from the sealed session, all three set
-// in this browser by the login that started this sign-in and used once.
+// code is redeemed only with the client secret, and the ID token must carry
+// the nonce from the sealed session; state and nonce are set in this browser
+// by the login that started this sign-in, and used once.
 
 import { randomBytes } from 'node:crypto'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
@@ -33,7 +33,13 @@ export interface AuthRoutesOptions {
   entraAuthority?: string
 }
 
-const LoginQuery = StrictObject({ returnTo: Type.Optional(Type.String({ maxLength: 2048 })) })
+// Not strict: when single sign-on cannot complete silently, Entra sends the
+// browser back here with sso_reload=true, and possibly parameters of its own.
+// Only these are read.
+const LoginQuery = Type.Object({
+  returnTo: Type.Optional(Type.String({ maxLength: 2048 })),
+  sso_reload: Type.Optional(Type.String({ maxLength: 64 })),
+})
 
 // Not strict: Entra adds parameters of its own (session_state, iss, ...).
 // Only these are read.
@@ -62,8 +68,9 @@ export async function authRoutes(app: FastifyInstance, { config, db, entraAuthor
   })
   const entra = await registerEntra(app, config.entra, `${config.publicOrigin}/api/auth/callback`, entraAuthority)
 
-  // Sets the state and verifier cookies and the pending sign-in; changes
-  // nothing on the server.
+  // Sets the state cookie and the pending sign-in; changes nothing on the
+  // server. After an sso_reload the same URL would fail silently again, so
+  // that retry asks for the interactive sign-in page once.
   app.get<{ Querystring: Static<typeof LoginQuery> }>('/api/auth/login', {
     exposeHeadRoute: false,
     config: { rateLimit: SIGN_IN_RATE_LIMIT },
@@ -71,7 +78,8 @@ export async function authRoutes(app: FastifyInstance, { config, db, entraAuthor
   }, async (request, reply) => {
     const nonce = randomBytes(32).toString('base64url')
     request.adminSession.set('signIn', { nonce, returnTo: safeReturnTo(request.query.returnTo), startedAt: Date.now() })
-    return reply.redirect(await entra.authorizationUrl(request, reply, nonce), 302)
+    const interactive = request.query.sso_reload === 'true'
+    return reply.redirect(await entra.authorizationUrl(request, reply, nonce, interactive), 302)
   })
 
   app.get<{ Querystring: Static<typeof CallbackQuery> }>('/api/auth/callback', {

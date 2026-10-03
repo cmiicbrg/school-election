@@ -35,7 +35,7 @@ The API refuses to start with a missing or unsafe setting and names it. `apps/ap
 
 ### Signing in during development
 
-The dummy Entra values in `.env.example` are enough for everything except signing in. To sign in, register an app of your own in a Microsoft Entra tenant, never the school's production registration: single tenant, platform Web, redirect URI `http://localhost:5173/api/auth/callback`, an app role with the value `teacher` assigned to your account, the optional ID token claim `upn`, and a client secret. Put the tenant and client ids into `apps/api/.env` and the secret into `apps/api/.secrets/entra-client-secret`, then open <http://localhost:5173/api/auth/login>. The session cookies are `Secure` with the `__Host-` prefix, which Chrome, Edge and Firefox accept from `http://localhost`.
+The dummy Entra values in `.env.example` are enough for everything except signing in. To sign in, register an app of your own in a Microsoft Entra tenant, never the school's production registration: single tenant, platform Web, redirect URI `http://localhost:5173/api/auth/callback`, an app role with the value `teacher` assigned to your account, and a client secret. Put the tenant and client ids into `apps/api/.env` and the secret into `apps/api/.secrets/entra-client-secret`, then open <http://localhost:5173/api/auth/login>. The session cookies are `Secure` with the `__Host-` prefix, which Chrome, Edge and Firefox accept from `http://localhost`.
 
 ## Checks
 

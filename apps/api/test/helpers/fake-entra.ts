@@ -1,11 +1,10 @@
 // A stand-in for Entra ID on a local port: the tenant's signing keys and
 // its token endpoint, so sign-in runs end to end without a real tenant. The
 // token endpoint insists on what Entra insists on and the app must get
-// right: client authentication, the registered redirect URI, a code used
-// once, and a PKCE verifier matching the challenge of the authorization
-// request.
+// right: client authentication, the registered redirect URI and a code used
+// once.
 
-import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { exportJWK, generateKeyPair, SignJWT } from 'jose'
@@ -38,7 +37,6 @@ export interface FakeEntra {
 }
 
 interface PendingCode {
-  challenge: string
   redirectUri: string
   claims: Record<string, unknown>
   signWith: NonNullable<AuthorizeOptions['signWith']>
@@ -65,12 +63,10 @@ export async function startFakeEntra(): Promise<FakeEntra> {
     const body = new URLSearchParams(await readBody(request))
     const code = codes.get(body.get('code') ?? '')
     codes.delete(body.get('code') ?? '')
-    const verifier = body.get('code_verifier') ?? ''
     const valid = code !== undefined
       && request.headers.authorization === basic(CLIENT_ID, CLIENT_SECRET)
       && body.get('grant_type') === 'authorization_code'
       && body.get('redirect_uri') === code.redirectUri
-      && createHash('sha256').update(verifier).digest('base64url') === code.challenge
     if (!valid) return json(response, 400, { error: 'invalid_grant' })
     const tokens = { access_token: `access-${randomBytes(24).toString('base64url')}`, id_token: await sign(code) }
     issued.push(tokens.access_token, tokens.id_token)
@@ -97,7 +93,7 @@ export async function startFakeEntra(): Promise<FakeEntra> {
       const url = new URL(authorizationUrl)
       const param = (name: string) => url.searchParams.get(name) ?? ''
       if (url.origin !== authority || url.pathname !== `/${TENANT_ID}/oauth2/v2.0/authorize`
-        || param('client_id') !== CLIENT_ID || param('response_type') !== 'code' || param('code_challenge_method') !== 'S256') {
+        || param('client_id') !== CLIENT_ID || param('response_type') !== 'code') {
         throw new Error(`not an authorization request for this tenant: ${authorizationUrl}`)
       }
       const now = Math.floor(Date.now() / 1000)
@@ -107,8 +103,8 @@ export async function startFakeEntra(): Promise<FakeEntra> {
         tid: TENANT_ID,
         oid: 'c0ffee00-1234-4abc-8def-0123456789ab',
         name: 'Maria Muster',
+        email: 'maria.muster@schule.example.org',
         preferred_username: 'maria.muster@schule.example.org',
-        upn: 'maria.muster@schule.example.org',
         roles: ['teacher'],
         nonce: param('nonce'),
         iat: now,
@@ -118,7 +114,6 @@ export async function startFakeEntra(): Promise<FakeEntra> {
       }
       const code = randomBytes(24).toString('base64url')
       codes.set(code, {
-        challenge: param('code_challenge'),
         redirectUri: param('redirect_uri'),
         claims: Object.fromEntries(Object.entries(merged).filter(([, value]) => value !== undefined)),
         signWith,

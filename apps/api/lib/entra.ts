@@ -1,11 +1,15 @@
 // Sign-in with Microsoft Entra ID for one tenant, as a confidential client:
-// the authorization code flow with PKCE (S256), state and nonce.
-// @fastify/oauth2 builds the authorization URL, keeps the state and the PKCE
-// verifier in short-lived __Host- cookies, checks the state and exchanges
-// the code. jose then verifies the ID token against the tenant's signing
-// keys, and the claims are checked here, failing closed. Nothing contacts
-// Entra before the first sign-in: the keys are fetched on first use and
-// cached.
+// the authorization code flow with state and nonce. @fastify/oauth2 builds
+// the authorization URL, keeps the state in a short-lived __Host- cookie,
+// checks it and exchanges the code. jose then verifies the ID token against
+// the tenant's signing keys, and the claims are checked here, failing
+// closed. Nothing contacts Entra before the first sign-in: the keys are
+// fetched on first use and cached.
+//
+// No PKCE, by decision: the client is confidential, so an intercepted code
+// is worth nothing without the client secret, and the nonce ties the ID
+// token to the browser that started the sign-in, so a code injected into
+// another browser's callback is refused.
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import oauth2, { type OAuth2Namespace } from '@fastify/oauth2'
@@ -23,9 +27,12 @@ export interface VerifiedSignIn extends EntraIdentity {
 }
 
 export interface EntraClient {
-  /** The URL to send the browser to; sets the state and verifier cookies on the reply. */
-  authorizationUrl: (request: FastifyRequest, reply: FastifyReply, nonce: string) => Promise<string>
-  /** Checks the state, redeems the code with the verifier, clears both cookies; returns the ID token. */
+  /**
+   * The URL to send the browser to; sets the state cookie on the reply.
+   * `interactive` asks Entra for the sign-in page instead of single sign-on.
+   */
+  authorizationUrl: (request: FastifyRequest, reply: FastifyReply, nonce: string, interactive: boolean) => Promise<string>
+  /** Checks the state, redeems the code, clears the state cookie; returns the ID token. */
   exchangeCode: (request: FastifyRequest, reply: FastifyReply) => Promise<string>
   verifyIdToken: (idToken: string, nonce: string) => Promise<VerifiedSignIn>
 }
@@ -49,9 +56,10 @@ export async function registerEntra(app: FastifyInstance, config: EntraConfig, r
   const tenant = `/${config.tenantId}`
   await app.register(oauth2, {
     name: 'entra',
-    // openid for the ID token, profile for the name. No API scope: the
-    // access token is never used, and no token is kept after sign-in.
-    scope: ['openid', 'profile'],
+    // openid for the ID token, email and profile for the address and the
+    // name. No API scope: the access token is never used, and no token is
+    // kept after sign-in.
+    scope: ['openid', 'email', 'profile'],
     credentials: {
       client: { id: config.clientId, secret: config.clientSecret },
       auth: {
@@ -64,7 +72,6 @@ export async function registerEntra(app: FastifyInstance, config: EntraConfig, r
       http: { timeout: 10_000 },
     },
     callbackUri: redirectUri,
-    pkce: 'S256',
     hostPrefixedCookies: true,
     cookie: { httpOnly: true, sameSite: 'lax', maxAge: SIGN_IN_SECONDS },
   })
@@ -73,9 +80,10 @@ export async function registerEntra(app: FastifyInstance, config: EntraConfig, r
   const issuer = `${ENTRA_AUTHORITY}${tenant}/v2.0`
 
   return {
-    async authorizationUrl(request, reply, nonce) {
+    async authorizationUrl(request, reply, nonce, interactive) {
       const url = new URL(await client.generateAuthorizationUri(request, reply))
       url.searchParams.set('nonce', nonce)
+      if (interactive) url.searchParams.set('prompt', 'login')
       return url.toString()
     },
     async exchangeCode(request, reply) {
@@ -106,7 +114,7 @@ export async function registerEntra(app: FastifyInstance, config: EntraConfig, r
         tid: config.tenantId,
         oid,
         displayName: text(payload.name) ?? text(payload.preferred_username) ?? oid,
-        upn: text(payload.upn) ?? null,
+        email: text(payload.email) ?? text(payload.preferred_username) ?? null,
         roles: [...new Set(roles)],
       }
     },

@@ -237,13 +237,13 @@ jobs:
             echo "Expected /api/auth/me without a session to answer 401, got $status" >&2
             exit 1
           fi
-          # Sign-in starts at the configured tenant, with PKCE, and needs no
-          # outbound request to get there.
+          # Sign-in starts at the configured tenant, with a nonce, and needs
+          # no outbound request to get there.
           location="$(curl -s -o /dev/null -w '%{redirect_url}' http://127.0.0.1:3000/api/auth/login)"
           case "$location" in
-            "https://login.microsoftonline.com/$tenant/oauth2/v2.0/authorize?"*code_challenge_method=S256*) ;;
+            "https://login.microsoftonline.com/$tenant/oauth2/v2.0/authorize?"*nonce=*) ;;
             *)
-              echo "Expected /api/auth/login to redirect to the tenant's authorize endpoint with PKCE, got: $location" >&2
+              echo "Expected /api/auth/login to redirect to the tenant's authorize endpoint with a nonce, got: $location" >&2
               exit 1
               ;;
           esac
