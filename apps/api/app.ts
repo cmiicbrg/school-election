@@ -12,6 +12,7 @@ import { pathOf } from './lib/url.ts'
 import { applyHardening } from './plugins/hardening.ts'
 import { registerSessions } from './plugins/session.ts'
 import { authRoutes } from './routes/auth.ts'
+import { batchRoutes } from './routes/batches.ts'
 import { configurationRoutes } from './routes/configuration.ts'
 import { electionRoutes } from './routes/elections.ts'
 import { memberRoutes } from './routes/members.ts'
@@ -115,6 +116,7 @@ export async function buildApp(config: Config, options: AppOptions): Promise<Fas
   await app.register(configurationRoutes, { db })
   await app.register(pictureRoutes, { db })
   await app.register(prepareRoutes, { db })
+  await app.register(batchRoutes, { db })
 
   app.get('/api/health', { schema: { response: { '200': HealthResponse, '503': HealthResponse, '4xx': ErrorResponse } } }, async (_request, reply) => {
     const { version, gitSha } = config.build

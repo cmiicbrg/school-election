@@ -9,7 +9,7 @@
 
 import type { FastifyInstance } from 'fastify'
 import { Type, type Static } from 'typebox'
-import { canEditCandidates, ELECTION_STATES, NEW_ELECTION, type ElectionState } from '@school-election/election-core'
+import { canEditCandidates, ELECTION_STATES, NEW_ELECTION, ROUND_STATES, type ElectionState, type Lifecycle } from '@school-election/election-core'
 import { boundedName } from '../lib/app-user.ts'
 import { appendAudit, readAuditChain } from '../lib/audit.ts'
 import { verifyAuditChain } from '../lib/audit-chain.ts'
@@ -43,8 +43,14 @@ const ElectionDetail = StrictObject({
   description: Type.String(),
   state: Literals(ELECTION_STATES),
   role: Literals(ELECTION_ROLES),
-  /** What the caller's role allows; the state decides what is possible now. */
+  /** What the caller's role allows; the lifecycle decides what is possible now. */
   permissions: Type.Array(Literals(ELECTION_ACTIONS)),
+  /** The election's state with its rounds', as the lifecycle in election-core reads them. */
+  lifecycle: StrictObject({
+    election: Literals(ELECTION_STATES),
+    regular: Literals(ROUND_STATES),
+    runoff: Type.Union([Literals(['open', 'closed'] as const), Type.Null()]),
+  }),
 })
 
 const AuditLogResponse = StrictObject({
@@ -71,8 +77,8 @@ interface ElectionRow {
   state: ElectionState
 }
 
-function detail(row: ElectionRow, role: ElectionRole): Static<typeof ElectionDetail> {
-  return { id: row.id, title: row.title, description: row.description, state: row.state, role, permissions: permissionsOf(role) }
+function detail(row: ElectionRow, role: ElectionRole, lifecycle: Lifecycle): Static<typeof ElectionDetail> {
+  return { id: row.id, title: row.title, description: row.description, state: row.state, role, permissions: permissionsOf(role), lifecycle }
 }
 
 export function electionRoutes(app: FastifyInstance, { db }: { db: Database }, done: (err?: Error) => void): void {
@@ -104,7 +110,7 @@ export function electionRoutes(app: FastifyInstance, { db }: { db: Database }, d
       await inOrder(preset === undefined ? [] : PRESETS[preset], (contest) => createContest(client, access, contest))
       return election
     })
-    return reply.code(201).send(detail(row, 'owner'))
+    return reply.code(201).send(detail(row, 'owner', NEW_ELECTION))
   })
 
   app.get('/api/elections', {
@@ -128,7 +134,7 @@ export function electionRoutes(app: FastifyInstance, { db }: { db: Database }, d
     const access = electionAccessOf(request)
     const { rows: [row] } = await db.query<ElectionRow>('select id, title, description, state from election where id = $1', [access.electionId])
     if (!row) throw new Error('an election the guard found is gone')
-    return detail(row, access.role)
+    return detail(row, access.role, access.lifecycle)
   })
 
   app.patch<{ Body: Static<typeof ElectionUpdateBody> }>('/api/elections/:id', {
@@ -145,7 +151,8 @@ export function electionRoutes(app: FastifyInstance, { db }: { db: Database }, d
       await appendAudit(client, access.electionId, { actor: access.actor, action: 'election.updated', metadata: { title, description } })
       return { ...current, title, description }
     })
-    return detail(row, electionAccessOf(request).role)
+    const access = electionAccessOf(request)
+    return detail(row, access.role, access.lifecycle)
   })
 
   app.get('/api/elections/:id/audit', {
