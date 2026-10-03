@@ -83,7 +83,7 @@ podman compose up -d
 curl -fsS http://127.0.0.1:3000/api/health
 ```
 
-The health check answers `{"status":"ok","db":"up","version":"v1.0.0","gitSha":"…"}` with the release and commit that are running. On its very first start PostgreSQL creates the database before it accepts connections; if the migration reports that it cannot connect, run it again. When the app does not come up, `podman compose logs app` names every problem it refused to start with: a missing or unsafe setting, an unreadable secret file, or a PostgreSQL setting that differs from what the privacy model needs.
+The health check answers `{"status":"ok","db":"up","version":"v1.0.0","gitSha":"…","tallyVersion":2}` with the release and commit that are running and the version of the counting rules they apply. On its very first start PostgreSQL creates the database before it accepts connections; if the migration reports that it cannot connect, run it again. When the app does not come up, `podman compose logs app` names every problem it refused to start with: a missing or unsafe setting, an unreadable secret file, or a PostgreSQL setting that differs from what the privacy model needs.
 
 ## nginx and TLS
 

@@ -15,7 +15,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import oauth2, { type OAuth2Namespace } from '@fastify/oauth2'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { GUID, type EntraConfig } from '../config.ts'
-import type { EntraIdentity } from './app-user.ts'
+import { boundedName, type EntraIdentity } from './app-user.ts'
 import { isGlobalRole, type GlobalRole } from './auth.ts'
 
 export const ENTRA_AUTHORITY = 'https://login.microsoftonline.com'
@@ -124,7 +124,7 @@ export async function registerEntra(app: FastifyInstance, config: EntraConfig, r
       return {
         tid: config.tenantId,
         oid,
-        displayName: text(payload.name) ?? text(payload.preferred_username) ?? oid,
+        displayName: boundedName(payload.name) ?? boundedName(payload.preferred_username) ?? oid,
         email: text(payload.email) ?? text(payload.preferred_username) ?? null,
         roles: [...new Set(roles)],
       }

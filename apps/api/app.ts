@@ -1,15 +1,19 @@
 import { existsSync } from 'node:fs'
 import type { Writable } from 'node:stream'
-import Fastify, { LogController, type FastifyError, type FastifyInstance, type FastifyRequest } from 'fastify'
+import Fastify, { LogController, type FastifyError, type FastifyInstance, type FastifyRequest, type RouteOptions } from 'fastify'
 import helmet from '@fastify/helmet'
 import fastifyStatic from '@fastify/static'
+import { TALLY_VERSION } from '@school-election/election-core'
 import type { Config } from './config.ts'
 import type { Database } from './lib/db.ts'
+import { assertElectionGuard, onlyGuardedElectionRoutes } from './lib/election-access.ts'
 import { ErrorResponse, HealthResponse } from './lib/schemas/common.ts'
 import { pathOf } from './lib/url.ts'
 import { applyHardening } from './plugins/hardening.ts'
 import { registerSessions } from './plugins/session.ts'
 import { authRoutes } from './routes/auth.ts'
+import { electionRoutes } from './routes/elections.ts'
+import { memberRoutes } from './routes/members.ts'
 
 export interface AppOptions {
   db: Database
@@ -17,6 +21,8 @@ export interface AppOptions {
   logStream?: Writable
   /** Where Entra ID is reached. Tests point it at a local stand-in; it is not configurable. */
   entraAuthority?: string
+  /** Called with every route as it is registered; tests list them. */
+  onRoute?: (route: RouteOptions) => void
 }
 
 export async function buildApp(config: Config, options: AppOptions): Promise<FastifyInstance> {
@@ -86,21 +92,31 @@ export async function buildApp(config: Config, options: AppOptions): Promise<Fas
     return reply.code(status).send(body)
   })
 
+  // Before any route exists: an election route without the election guard
+  // stops the app from starting, and no other route serves an election path.
+  app.addHook('onRoute', (route) => {
+    assertElectionGuard(route)
+    options.onRoute?.(route)
+  })
+  app.addHook('onRequest', onlyGuardedElectionRoutes)
+
   const webDist = existsSync(config.webDistDir) ? config.webDistDir : undefined
   // Hooks before routes: a plugin context inherits only the hooks that
   // exist when it is registered, and the sign-in routes are one.
   applyHardening(app, config, { webDist })
   await registerSessions(app, config)
   await app.register(authRoutes, { config, db, entraAuthority: options.entraAuthority })
+  await app.register(electionRoutes, { db })
+  await app.register(memberRoutes, { db })
 
   app.get('/api/health', { schema: { response: { '200': HealthResponse, '503': HealthResponse, '4xx': ErrorResponse } } }, async (_request, reply) => {
     const { version, gitSha } = config.build
     try {
       await db.query('select 1')
-      return { status: 'ok' as const, db: 'up' as const, version, gitSha }
+      return { status: 'ok' as const, db: 'up' as const, version, gitSha, tallyVersion: TALLY_VERSION }
     } catch (err) {
       reply.log.warn({ err }, 'health: database unreachable')
-      return reply.code(503).send({ status: 'degraded', db: 'down', version, gitSha })
+      return reply.code(503).send({ status: 'degraded', db: 'down', version, gitSha, tallyVersion: TALLY_VERSION })
     }
   })
 

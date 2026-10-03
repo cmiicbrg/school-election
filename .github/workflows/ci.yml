@@ -151,7 +151,8 @@ jobs:
           cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=school-election' || '' }}
 
       # What only the container can prove: it runs unprivileged, Node 26's
-      # type stripping executes the raw TypeScript entrypoint, the built web
+      # type stripping executes the raw TypeScript entrypoint and the
+      # election-core workspace package it imports, the built web
       # app is in the image, and the security headers come from the
       # application rather than from a proxy.
       - name: Smoke-test the image
@@ -235,12 +236,16 @@ jobs:
           wait_healthy
           docker logs school-election-ci
 
-          # The health check also reports what the image was built from,
-          # which proves that the build arguments reach the running app.
+          # The health check also reports what the image was built from, which
+          # proves that the build arguments reach the running app, and the
+          # tally version from election-core, which the API imports through
+          # the workspace link in node_modules: that package's raw TypeScript
+          # has to run in the image as well.
+          tally="$(sed -n 's/^export const TALLY_VERSION = \([0-9][0-9]*\)$/\1/p' packages/election-core/src/index.ts)"
           body="$(curl -fsS http://127.0.0.1:3000/api/health)"
-          expected="{\"status\":\"ok\",\"db\":\"up\",\"version\":\"ci\",\"gitSha\":\"${GITHUB_SHA}\"}"
-          if [ "$body" != "$expected" ]; then
-            echo "Expected the image to reach the database as the runtime role and report its build, $expected, got: $body" >&2
+          expected="{\"status\":\"ok\",\"db\":\"up\",\"version\":\"ci\",\"gitSha\":\"${GITHUB_SHA}\",\"tallyVersion\":${tally}}"
+          if [ -z "$tally" ] || [ "$body" != "$expected" ]; then
+            echo "Expected the image to reach the database as the runtime role and report its build and tally version, $expected, got: $body" >&2
             exit 1
           fi
 

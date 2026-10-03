@@ -25,7 +25,7 @@ export function stubDatabase(query: Database['query'] = () => Promise.resolve({ 
  * The app as production builds it, from an environment, with log output
  * captured. Routes can still be added before the first inject().
  */
-export async function buildTestApp(env: Record<string, string> = {}, db: Database = stubDatabase(), options: Pick<AppOptions, 'entraAuthority'> = {}): Promise<TestApp> {
+export async function buildTestApp(env: Record<string, string> = {}, db: Database = stubDatabase(), options: Pick<AppOptions, 'entraAuthority' | 'onRoute'> = {}): Promise<TestApp> {
   let captured = ''
   const logStream = new Writable({
     write(chunk: Buffer, _encoding, done) {

@@ -16,11 +16,12 @@ const ACTOR = { tid: '6F1C2B3A-4D5E-4F60-8A7B-9C0D1E2F3A4B', oid: '2a3b4c5d-6e7f
 const invited = (n: number): AuditInput<'member.invited'> =>
   ({ actor: ACTOR, action: 'member.invited', metadata: { email: `member${n}@school.example`, role: 'witness' } })
 
-/** A migrated database and a pool connected as the runtime role, as the server runs. */
+/** A migrated database with elections A and B, and a pool connected as the runtime role, as the server runs. */
 async function setup(t: TestContext): Promise<{ db: Database, ownerUrl: string, runtimeUrl: string }> {
   const testDb = await createTestDatabase(t)
   const db = createDatabase(testDb.runtimeUrl, () => {})
   t.after(() => db.close())
+  await db.query('insert into election (id, title) values ($1, \'A\'), ($2, \'B\')', [ELECTION_A, ELECTION_B])
   return { db, ownerUrl: testDb.ownerUrl, runtimeUrl: testDb.runtimeUrl }
 }
 
@@ -215,7 +216,9 @@ test('the upgrade fixture is a genuine chain, and the stored events read back as
   const { db, ownerUrl } = await setup(t)
   const fixture = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../fixtures/upgrade/0003.sql')
   const sql = await readFile(fixture, 'utf8')
+  const election = '0b9e4a52-3c1d-4f7e-9a6b-2d8c5e1f7a30'
+  await db.query('insert into election (id, title) values ($1, \'Schulsprecherwahl 2026/27\')', [election])
   await withClient(ownerUrl, (client) => client.query(sql))
-  const events = await chainOf(db, '0b9e4a52-3c1d-4f7e-9a6b-2d8c5e1f7a30')
+  const events = await chainOf(db, election)
   assert.deepEqual(verifyAuditChain(events), { valid: true, length: 2, head: '7827d380b44d772cbfee0ecf7bb7189ab5d24c5255a70752db1489e0aa166ed6' })
 })
