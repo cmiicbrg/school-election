@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createDatabase } from '../../lib/db.ts'
 import { checkDatabaseSettings, REQUIRED_SETTINGS } from '../../lib/db-settings.ts'
+import { expectedPrivileges, type Privilege } from '../../lib/runtime-privileges.ts'
 import { migrate } from '../../scripts/migrate.ts'
 import { createTestDatabase, DB, TEST_RUNTIME_PASSWORD, withClient } from '../helpers/db.ts'
 
@@ -16,13 +17,14 @@ const safe: Record<string, string> = {
 
 const runtimeRole = { name: 'school_election_app', attributes: [] as string[], owner: false, memberships: [] as string[], creates: [] as string[] }
 
-function serverWith(overrides: Record<string, string>, role: Partial<typeof runtimeRole> = {}) {
+function serverWith(overrides: Record<string, string>, role: Partial<typeof runtimeRole> = {}, privileges: Privilege[] = expectedPrivileges()) {
   const values = { ...safe, ...overrides }
-  return {
-    query: (text: string, params?: unknown[]) => Promise.resolve(text.includes('from pg_roles r where r.rolname = current_user')
-      ? { rows: [{ ...runtimeRole, ...role }] }
-      : { rows: (params?.[0] as string[]).map((name) => ({ name, value: values[name] ?? '' })) }),
-  } as never
+  const answer = (text: string, params?: unknown[]) => {
+    if (text.includes('from pg_roles r where r.rolname = current_user')) return { rows: [{ ...runtimeRole, ...role }] }
+    if (text.includes('has_table_privilege')) return { rows: privileges }
+    return { rows: (params?.[0] as string[]).map((name) => ({ name, value: values[name] ?? '' })) }
+  }
+  return { query: (text: string, params?: unknown[]) => Promise.resolve(answer(text, params)) } as never
 }
 
 test('safe settings pass', async () => {
@@ -106,6 +108,20 @@ test('a privileged connected role is refused', async () => {
   ])
 })
 
+test('a privilege beyond the runtime list is refused, whatever kind of object it is on', async () => {
+  const extra: Privilege[] = [
+    { kind: 'table', object: 'audit_event', privilege: 'UPDATE' },
+    { kind: 'column', object: 'election.title', privilege: 'UPDATE' },
+    { kind: 'sequence', object: 'audit_event_seq_seq', privilege: 'USAGE' },
+    { kind: 'function', object: 'election_member_bind_once()', privilege: 'EXECUTE' },
+  ]
+  assert.deepEqual(await checkDatabaseSettings(serverWith({}, {}, [...expectedPrivileges(), ...extra])), [
+    'the runtime role has EXECUTE on function election_member_bind_once(), UPDATE on column election.title, UPDATE on table audit_event, USAGE on sequence audit_event_seq_seq, beyond what lib/runtime-privileges.ts grants; run the migrations, which reset its privileges',
+  ])
+  // Fewer privileges than listed is no privacy problem; the app fails where it needs one.
+  assert.deepEqual(await checkDatabaseSettings(serverWith({}, {}, [])), [])
+})
+
 test('a per-role override on the server is caught, because the check runs as the runtime role', DB, async (t) => {
   const testDb = await createTestDatabase(t)
   // Scoped to this test database, so no other test sees it.
@@ -136,6 +152,29 @@ test('direct schema privileges on the runtime role are caught, and the next migr
     'the server connects as school_election_app, which can create objects in schema public, schemas, temporary tables; the runtime role may only use what migrations grant',
   ])
   await migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD })
+  assert.deepEqual(await checkDatabaseSettings(db), [])
+})
+
+test('object privileges granted by hand are caught at startup, and the next migration takes them away', DB, async (t) => {
+  const testDb = await createTestDatabase(t)
+  // Per database, so no other test sees these.
+  await withClient(testDb.ownerUrl, (c) => c.query(`
+    grant update on audit_event to school_election_app;
+    grant update (title) on election to school_election_app;
+    grant delete on app_user to public;
+    grant usage on sequence audit_event_seq_seq to school_election_app;
+    create function leak() returns int language sql as 'select 1';
+    grant execute on function leak() to school_election_app;
+    grant execute on function election_member_bind_once() to public`))
+  const db = createDatabase(testDb.runtimeUrl, () => {})
+  t.after(() => db.close())
+  assert.deepEqual(await checkDatabaseSettings(db), [
+    'the runtime role has DELETE on table app_user, EXECUTE on function election_member_bind_once(), EXECUTE on function leak(), UPDATE on column election.title, UPDATE on table audit_event, USAGE on sequence audit_event_seq_seq, beyond what lib/runtime-privileges.ts grants; run the migrations, which reset its privileges',
+  ])
+  await migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD })
+  assert.deepEqual(await checkDatabaseSettings(db), [])
+  // A function created after the run is not executable by PUBLIC either.
+  await withClient(testDb.ownerUrl, (c) => c.query('create function later() returns int language sql as \'select 2\''))
   assert.deepEqual(await checkDatabaseSettings(db), [])
 })
 

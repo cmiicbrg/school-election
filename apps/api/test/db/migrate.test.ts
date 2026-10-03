@@ -185,6 +185,16 @@ test('a runtime role with an extra membership is refused, not silently changed, 
   await assert.rejects(run(db.ownerUrl), /school_election_app is a member of pg_monitor, pg_read_all_stats, pg_stat_scan_tables; revoke that first/)
 })
 
+test('a full run refuses a runtime privilege on a table that no migration creates', DB, async (t) => {
+  const db = await createTestDatabase(t, { migrated: false })
+  // Only the migrations before the election tables, which the list grants on.
+  const dir = await mkdtemp(path.join(tmpdir(), 'school-election-migrations-'))
+  for (const name of REAL.filter((file) => file < '0004')) await cp(path.join(MIGRATIONS_DIR, name), path.join(dir, name))
+  await assert.rejects(run(db.ownerUrl, dir), (err: Error) => err instanceof MigrationError && /grants on election, election_member, which no migration creates/.test(err.message))
+  // A run that stops early on purpose grants what exists so far.
+  assert.deepEqual(await migrate({ databaseUrl: db.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD, until: '0003_audit_event.sql' }), [])
+})
+
 test('the runtime role can connect but cannot create objects or read the migration records', DB, async (t) => {
   const db = await createTestDatabase(t)
   await withClient(db.runtimeUrl, async (client) => {

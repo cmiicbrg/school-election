@@ -159,6 +159,12 @@ Every route under `/api/elections/:id` starts with the same guard (`apps/api/lib
 
 Co-admins and witnesses are invited by their school e-mail address. A pending invitation grants nothing. When someone signs in, every pending invitation whose address matches theirs (the ID token's `email`, or `preferred_username` without one), ignoring case, is bound to their Entra identity in the same transaction that records the sign-in, with an audit event whose actor is the invited person. Only people of the configured tenant are matched, and an invitation is bound once: the database refuses to change it afterwards, so an address that is later given to someone else does not move it. Invitations in a final election, or to someone who is already a member, stay pending. Someone who is signed in already when they are invited sees the election after their next sign-in, so they have to sign out and in again. The address stays with the member, so the member list and the audit log show who was invited.
 
+## Database roles and privileges
+
+The server connects as `school_election_app`, a role without any attribute that can only connect and use the schema; its one membership, `pg_read_all_settings`, lets the startup check read the privacy settings. What it may do with each table and function is one list, `apps/api/lib/runtime-privileges.ts`, and nothing is allowed by default. Every migration run revokes all database, schema, table, sequence and function privileges from PUBLIC and the runtime role, then grants the list again, in one transaction, so a grant made by hand does not survive the next deploy. Functions are not executable by PUBLIC by default, either.
+
+At startup the server checks what the role can actually do, through any grant to it or to PUBLIC, and refuses to start while that goes beyond the list. Migrations run as the PostgreSQL superuser, which never serves requests.
+
 ## Audit log
 
 The audit log records what administrators do to an election: who acted (the stable Entra identity, tenant and object id, plus the display name), when, the action, and that action's metadata. It never records voter activity: no ballots or ballot content, no keys, no use of an entitlement, no voter sessions or tokens, no request metadata. Each action has a fixed list of metadata fields with a type each; anything else is refused. The actions and their fields are listed in `apps/api/lib/audit.ts`.

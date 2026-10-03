@@ -4,6 +4,7 @@
 // environment: these are not tuning knobs.
 
 import { RUNTIME_ROLE, type Database } from './db.ts'
+import { expectedPrivileges, TABLE_PRIVILEGES, type Privilege } from './runtime-privileges.ts'
 
 interface Requirement {
   readonly name: string
@@ -71,7 +72,10 @@ const ALLOWED_PRELOAD = new Set(['pg_stat_statements'])
  * privilege the connected role should not have, as a message naming it.
  */
 export async function checkDatabaseSettings(db: Pick<Database, 'query'>): Promise<string[]> {
-  const problems: string[] = await checkConnectedRole(db)
+  const { problems, isRuntimeRole } = await checkConnectedRole(db)
+  // Only for the runtime role: any other role is refused above, and a
+  // superuser would list every privilege there is.
+  if (isRuntimeRole) problems.push(...await checkObjectPrivileges(db))
   const values = await currentSettings(db, [
     ...REQUIRED_SETTINGS.map((s) => s.name),
     ...ALLOWED_SETTINGS.map((s) => s.name),
@@ -106,7 +110,7 @@ export async function checkDatabaseSettings(db: Pick<Database, 'query'>): Promis
 // the database owner or a role with extra rights or memberships could read
 // or change everything, and some of them could switch the settings above
 // off for their own sessions.
-async function checkConnectedRole(db: Pick<Database, 'query'>): Promise<string[]> {
+async function checkConnectedRole(db: Pick<Database, 'query'>): Promise<{ problems: string[], isRuntimeRole: boolean }> {
   const { rows } = await db.query<{ name: string, attributes: string[], owner: boolean, memberships: string[], creates: string[] }>(
     `select r.rolname as name,
             array_remove(array[
@@ -132,7 +136,7 @@ async function checkConnectedRole(db: Pick<Database, 'query'>): Promise<string[]
        from pg_roles r where r.rolname = current_user`,
   )
   const role = rows[0]
-  if (!role) return ['cannot identify the connected role']
+  if (!role) return { problems: ['cannot identify the connected role'], isRuntimeRole: false }
   const problems: string[] = []
   const who = `the server connects as ${role.name}`
   // Any other role could own tables or hold grants this check cannot see.
@@ -141,7 +145,42 @@ async function checkConnectedRole(db: Pick<Database, 'query'>): Promise<string[]
   if (role.owner) problems.push(`${who}, which owns the database; it must use the unprivileged runtime role`)
   if (role.memberships.length > 0) problems.push(`${who}, which is a member of ${role.memberships.join(', ')}; the runtime role must hold nothing else`)
   if (role.creates.length > 0) problems.push(`${who}, which can create ${role.creates.join(', ')}; the runtime role may only use what migrations grant`)
-  return problems
+  return { problems, isRuntimeRole: role.name === RUNTIME_ROLE && !role.attributes.includes('superuser') }
+}
+
+// What the connected role can do with every table, column, sequence and
+// function in schema public, through any grant, to it or to PUBLIC. A
+// column privilege is listed only where the role lacks it on the table.
+const PRIVILEGES_QUERY = `
+  select 'table' as kind, c.relname::text as object, p.privilege
+    from pg_class c cross join unnest($1::text[]) as p(privilege)
+   where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p', 'v', 'm', 'f')
+     and has_table_privilege(c.oid, p.privilege)
+  union all
+  select 'column', c.relname || '.' || a.attname, p.privilege
+    from pg_class c
+    join pg_attribute a on a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
+    cross join unnest(array['SELECT', 'INSERT', 'UPDATE', 'REFERENCES']) as p(privilege)
+   where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p', 'v', 'm', 'f')
+     and has_column_privilege(c.oid, a.attnum, p.privilege) and not has_table_privilege(c.oid, p.privilege)
+  union all
+  select 'sequence', c.relname::text, p.privilege
+    from pg_class c cross join unnest(array['USAGE', 'SELECT', 'UPDATE']) as p(privilege)
+   where c.relnamespace = 'public'::regnamespace and c.relkind = 'S' and has_sequence_privilege(c.oid, p.privilege)
+  union all
+  select 'function', f.oid::regprocedure::text, 'EXECUTE'
+    from pg_proc f
+   where f.pronamespace = 'public'::regnamespace and has_function_privilege(f.oid, 'EXECUTE')`
+
+// Anything beyond lib/runtime-privileges.ts, granted by hand or left over,
+// stops the server: the next migration run takes it away again.
+async function checkObjectPrivileges(db: Pick<Database, 'query'>): Promise<string[]> {
+  const key = (p: Privilege) => `${p.privilege} on ${p.kind} ${p.object}`
+  const allowed = new Set(expectedPrivileges().map(key))
+  const { rows } = await db.query<Privilege>(PRIVILEGES_QUERY, [TABLE_PRIVILEGES])
+  const extra = rows.map(key).filter((privilege) => !allowed.has(privilege)).sort()
+  if (extra.length === 0) return []
+  return [`the runtime role has ${extra.join(', ')}, beyond what lib/runtime-privileges.ts grants; run the migrations, which reset its privileges`]
 }
 
 async function currentSettings(db: Pick<Database, 'query'>, names: string[]): Promise<Map<string, string>> {

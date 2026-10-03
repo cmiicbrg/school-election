@@ -45,5 +45,6 @@ These take precedence over convenience:
 - GitHub Actions are pinned by commit SHA with the version in a comment. The base image is pinned by tag and digest.
 - CI runs on pull requests to `main`. Images are published to GHCR only on `v*` tags.
 - Applied migrations are never edited; write a new one. A migration that creates tables adds an upgrade fixture in `apps/api/test/fixtures/upgrade/`.
+- What the runtime role may do with tables and functions is listed in `apps/api/lib/runtime-privileges.ts` and nowhere else: migrations create objects but do not grant on them. The migrator re-applies the list on every run, and the server refuses to start while the role can do more. A new table gets no access until it is listed.
 - The PostgreSQL settings the API checks at startup (`apps/api/lib/db-settings.ts`) and the ones `scripts/postgres.sh` and `deploy/compose.example.yml` set change together; `apps/api/test/deploy-flags.test.ts` enforces it. `scripts/postgres.sh` starts the PostgreSQL image the compose example pins.
 - `deploy/README.md` is the operator guide; update it with any change to configuration, secrets or the compose example.

@@ -17,6 +17,7 @@ import pg from 'pg'
 import { ConfigError, loadMigrationConfig } from '../config.ts'
 import { RUNTIME_ROLE } from '../lib/db.ts'
 import { SQLSTATE, sqlState } from '../lib/pg-errors.ts'
+import { grantStatements, RUNTIME_FUNCTIONS, RUNTIME_TABLES } from '../lib/runtime-privileges.ts'
 
 export { RUNTIME_ROLE }
 export const MIGRATIONS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'migrations')
@@ -71,11 +72,13 @@ export async function migrate(options: MigrateOptions): Promise<string[]> {
     // The history is validated before the runtime role is touched.
     const pending = pendingMigrations(files, applied, migrationsDir, until)
     const existed = await ensureRuntimeRole(client, runtimePassword)
-    await resetRuntimePrivileges(client)
     for (const file of pending) {
       log(`applying ${file.name}`)
       await applyMigration(client, file) // NOSONAR: migrations run one after another, each in its own transaction
     }
+    // After the migrations, so the objects they created get their grants in
+    // the same run.
+    await resetRuntimePrivileges(client, { complete: until === undefined })
     // The password of an existing role changes only now: a run that fails
     // above leaves the old password, and with it the running server, working.
     if (existed) await setRuntimePassword(client, runtimePassword)
@@ -163,7 +166,7 @@ async function migrationFiles(dir: string, until: string | undefined): Promise<M
 }
 
 // The runtime role logs in with its own password and holds nothing but what
-// migrations grant it. Its attributes are set on every run, so a role that
+// lib/runtime-privileges.ts grants it. Its attributes are set on every run, so a role that
 // was created or changed by hand with more rights is brought back down; a
 // membership in any other role is refused rather than silently revoked.
 // pg_read_all_settings lets the server check its privacy settings at
@@ -226,11 +229,32 @@ async function formatted(client: pg.Client, template: string, password?: string)
   return rows[0]?.sql ?? ''
 }
 
-// Database and schema privileges are per database, so they are reset here on
-// every run: a reused runtime role may hold direct privileges granted by
-// hand, such as CREATE on the schema. CONNECT and USAGE are all it keeps;
-// table privileges come from the migrations themselves.
-async function resetRuntimePrivileges(client: pg.Client): Promise<void> {
+// Privileges are per database, so they are reset here on every run: a
+// reused runtime role may hold privileges granted by hand, such as CREATE on
+// the schema or UPDATE on a table. Every database, schema, table, sequence
+// and function privilege of PUBLIC and the runtime role is revoked, and the
+// role gets back CONNECT, USAGE on the schema and exactly what
+// lib/runtime-privileges.ts lists; the grants in earlier migrations are
+// superseded by that list. New functions are no longer executable by PUBLIC
+// by default either.
+async function resetRuntimePrivileges(client: pg.Client, { complete }: { complete: boolean }): Promise<void> {
+  const tables = new Set((await client.query<{ name: string }>(
+    `select relname::text as name from pg_class
+      where relnamespace = 'public'::regnamespace and relkind in ('r', 'p', 'v', 'm', 'f')`,
+  )).rows.map((row) => row.name))
+  const functions = new Set((await client.query<{ signature: string }>(
+    'select oid::regprocedure::text as signature from pg_proc where pronamespace = \'public\'::regnamespace',
+  )).rows.map((row) => row.signature))
+  // A run that stops early (until) has not created everything yet; a full
+  // run that lacks a listed object means the list names something no
+  // migration creates.
+  const missing = [
+    ...Object.keys(RUNTIME_TABLES).filter((table) => !tables.has(table)),
+    ...RUNTIME_FUNCTIONS.filter((signature) => !functions.has(signature)),
+  ]
+  if (complete && missing.length > 0) {
+    throw new MigrationError(`lib/runtime-privileges.ts grants on ${missing.join(', ')}, which no migration creates`)
+  }
   // One transaction: a running server never sees the moment between revoke
   // and grant. PUBLIC is reset too, so a database restored from a dump (which
   // starts with the default privileges) is repaired by the next run.
@@ -242,6 +266,13 @@ async function resetRuntimePrivileges(client: pg.Client): Promise<void> {
     end $$`)
     await client.query(`revoke all on schema public from public, ${RUNTIME_ROLE}`)
     await client.query(`grant usage on schema public to ${RUNTIME_ROLE}`)
+    // Revoking a table privilege revokes it on every column as well. Each
+    // list goes as one multi-statement query, inside this transaction.
+    await client.query(['tables', 'sequences', 'routines']
+      .map((kind) => `revoke all on all ${kind} in schema public from public, ${RUNTIME_ROLE}`).join(';\n'))
+    await client.query('alter default privileges revoke execute on routines from public')
+    const grants = grantStatements(RUNTIME_ROLE, { tables, functions })
+    if (grants.length > 0) await client.query(grants.join(';\n'))
     await client.query('commit')
   } catch (err) {
     await client.query('rollback').catch(() => {})
