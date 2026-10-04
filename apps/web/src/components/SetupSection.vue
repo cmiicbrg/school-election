@@ -36,7 +36,8 @@ const pictureErrors = reactive<Record<string, string>>({})
 // What is being edited, taken from the election and its configuration
 // when the page reads them again, unless the person has changed it since:
 // a draft that still equals what the server said last keeps following
-// the server, a draft someone typed into stays until they save it.
+// the server, a draft someone typed into stays until they save it. Saving
+// makes it follow the server again, which may have trimmed what was typed.
 const draft = reactive({ title: '', description: '' })
 const contestDrafts = reactive<Record<string, { title: string, rulesetId: RulesetId }>>({})
 const candidateDrafts = reactive<Record<string, { surname: string, givenName: string }>>({})
@@ -97,25 +98,40 @@ async function run(action: () => Promise<unknown>): Promise<void> {
   }
 }
 
-const saveElection = () => run(() => apiPatch(base.value, { title: draft.title, description: draft.description }))
+const saveElection = () => run(async () => {
+  await apiPatch(base.value, { title: draft.title, description: draft.description })
+  served.election = { title: draft.title, description: draft.description }
+})
 const addContest = () => run(async () => {
   await apiPost(`${base.value}/contests`, { title: newContest.title, rulesetId: newContest.rulesetId })
   newContest.title = ''
 })
-const saveContest = (contest: Contest) => run(() => apiPatch(`${base.value}/contests/${contest.id}`, contestDrafts[contest.id]))
+const saveContest = (contest: Contest) => run(async () => {
+  const entered = contestDrafts[contest.id]
+  await apiPatch(`${base.value}/contests/${contest.id}`, entered)
+  if (entered) served.contests[contest.id] = { ...entered }
+})
 const removeContest = (contest: Contest) => run(() => apiDelete(`${base.value}/contests/${contest.id}`))
 const addCandidate = (contest: Contest) => run(async () => {
   const entered = newCandidates[contest.id] ?? { surname: '', givenName: '' }
   await apiPost(`${base.value}/contests/${contest.id}/candidates`, { surname: entered.surname, givenName: entered.givenName })
   newCandidates[contest.id] = { surname: '', givenName: '' }
 })
-const saveCandidate = (candidate: Candidate) => run(() => apiPatch(`${base.value}/candidates/${candidate.id}`, candidateDrafts[candidate.id]))
+const saveCandidate = (candidate: Candidate) => run(async () => {
+  const entered = candidateDrafts[candidate.id]
+  await apiPatch(`${base.value}/candidates/${candidate.id}`, entered)
+  if (entered) served.candidates[candidate.id] = { ...entered }
+})
 const removeCandidate = (candidate: Candidate) => run(() => apiDelete(`${base.value}/candidates/${candidate.id}`))
 const addGroup = () => run(async () => {
   await apiPost(`${base.value}/voter-groups`, { name: newGroup.value })
   newGroup.value = ''
 })
-const saveGroup = (group: VoterGroup) => run(() => apiPatch(`${base.value}/voter-groups/${group.id}`, { name: groupDrafts[group.id] }))
+const saveGroup = (group: VoterGroup) => run(async () => {
+  const entered = groupDrafts[group.id] ?? ''
+  await apiPatch(`${base.value}/voter-groups/${group.id}`, { name: entered })
+  served.groups[group.id] = entered
+})
 const removeGroup = (group: VoterGroup) => run(() => apiDelete(`${base.value}/voter-groups/${group.id}`))
 async function setVotes(group: VoterGroup, contestId: string, checked: boolean): Promise<void> {
   const before = votes[group.id] ?? [...group.contestIds]

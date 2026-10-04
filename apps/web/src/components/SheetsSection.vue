@@ -5,6 +5,7 @@
 // the codes once the batch's round has closed.
 
 import { computed, reactive, ref } from 'vue'
+import { useDialogFocus } from '../lib/dialog-focus.ts'
 import type { Lifecycle, RoundKind } from '@school-election/election-core'
 import { apiPost } from '../lib/api.ts'
 import { errorMessage } from '../lib/api-rules.ts'
@@ -30,6 +31,8 @@ const busy = ref(false)
 const error = ref<string | null>(null)
 const done = ref<{ text: string, batchId: string } | null>(null)
 const replacing = ref<BatchSummary | null>(null)
+const replaceHeading = ref<HTMLElement | null>(null)
+useDialogFocus(replacing, replaceHeading)
 /** The number of voters entered per class. */
 const counts = reactive<Record<string, number>>({})
 
@@ -248,7 +251,11 @@ function groupName(batch: BatchSummary): string {
         role="alertdialog"
         aria-labelledby="replace-heading"
       >
-        <h3 id="replace-heading">
+        <h3
+          id="replace-heading"
+          ref="replaceHeading"
+          tabindex="-1"
+        >
           Stapel ersetzen?
         </h3>
         <p>Die {{ replacing.keys }} bisherigen Stimmkarten für {{ groupName(replacing) }} ({{ ROUND_LABELS[replacing.roundKind] }}) werden ungültig. Es werden {{ replacing.keys }} neue Codes erzeugt, die neu gedruckt werden müssen.</p>

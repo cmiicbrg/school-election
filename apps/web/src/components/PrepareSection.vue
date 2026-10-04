@@ -5,6 +5,7 @@
 // which, and the page asks before it goes on.
 
 import { computed, ref, watch } from 'vue'
+import { useDialogFocus } from '../lib/dialog-focus.ts'
 import { apiPost } from '../lib/api.ts'
 import { ApiError, errorMessage } from '../lib/api-rules.ts'
 import { problemText, RULESET_LABELS, warningText, type Problem } from '../lib/labels.ts'
@@ -33,11 +34,16 @@ const names = computed(() => ({
 
 const shownProblems = computed(() => problems.value.length > 0 ? problems.value : props.preparation.problems)
 
-// The confirmation names what preparing would void now: a change of the
-// configuration meanwhile makes it stale, so it goes away with one.
+// The confirmation names what preparing would void now, and the refusal
+// what was missing then: a change of the configuration makes both stale,
+// so they go away with one (the page reads what is missing again).
 watch(() => props.configuration, () => {
   stale.value = null
+  problems.value = []
 })
+
+const voidHeading = ref<HTMLElement | null>(null)
+useDialogFocus(stale, voidHeading)
 
 /**
  * Preparing, with or without a confirmation. A confirmation names the
@@ -187,7 +193,11 @@ const staleKeys = computed(() => (stale.value ?? []).reduce((sum, batch) => sum 
       role="alertdialog"
       aria-labelledby="void-heading"
     >
-      <h3 id="void-heading">
+      <h3
+        id="void-heading"
+        ref="voidHeading"
+        tabindex="-1"
+      >
         Stimmkarten werden ungültig
       </h3>
       <p>Durch die Änderungen am Aufbau passen die Stimmkarten dieser Klassen oder Gruppen nicht mehr. Beim Vorbereiten werden sie ungültig und müssen neu erzeugt und gedruckt werden:</p>
