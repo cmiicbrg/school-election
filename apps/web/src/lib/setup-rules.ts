@@ -47,8 +47,12 @@ export function setupRules(lifecycle: Lifecycle, permissions: readonly Permissio
   }
 }
 
-/** Whether a member in `role` may read a batch's keys now: the owner and co-admins always, a witness once the batch's round has closed (apps/api/lib/credentials.ts). */
+/**
+ * Whether a member in `role` may read a batch's keys now: the owner and
+ * co-admins always, a witness once the batch's round has closed or the
+ * election is final (apps/api/lib/credentials.ts).
+ */
 export function mayReadKeys(role: Role, lifecycle: Lifecycle, kind: RoundKind): boolean {
   const round: RoundState | null = kind === 'regular' ? lifecycle.regular : lifecycle.runoff
-  return role !== 'witness' || round === 'closed'
+  return role !== 'witness' || round === 'closed' || lifecycle.election === 'final'
 }

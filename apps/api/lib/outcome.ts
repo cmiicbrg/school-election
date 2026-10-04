@@ -5,9 +5,11 @@
 // are the sealed truth, the lots the officials', and the outcome follows
 // from them. At finalization the outcome as it stands is written once,
 // per contest, with the versions that derived it (final_outcome, migration
-// 0014), and a final election shows what was declared, whatever a later
-// version derives. A resolution the stored decisions make refuse is a hard
-// error, like a missing snapshot: the database was changed by hand.
+// 0014), and from then on the declared outcome is the contest's: a final
+// election shows what was declared, whatever a later version derives, and
+// nothing of it is resolved again. A resolution the stored decisions make
+// refuse is a hard error, like a missing snapshot: the database was
+// changed by hand.
 
 import type pg from 'pg'
 import { pollOutcome, resolve, type FirstRoundResult, type LotDecision, type Outcome, type Resolution, type RulesetId, type RunoffResult } from '@school-election/election-core'
@@ -41,7 +43,10 @@ export interface ContestOutcome {
   first: Snapshot
   runoff: Snapshot | null
   lots: RecordedLot[]
+  /** As it stands: resolved now, or, once the election is final, as declared. */
   outcome: Outcome
+  /** The declaration, once the election is final. */
+  declared: FinalOutcome | null
 }
 
 /** What cannot be: a snapshot of the wrong kind, or stored decisions resolve refuses. Never a user error. */
@@ -129,9 +134,11 @@ export function outcomeOf(rulesetId: RulesetId, first: Snapshot, runoff: Snapsho
 /**
  * Every contest of the election, in the configuration's order, with its
  * first-round snapshot, its runoff snapshot where the runoff round has
- * closed, its recorded lots and its outcome as it stands. Read once the
- * regular round has closed, when every contest has its snapshot: one
- * without is a database changed by hand, and an error.
+ * closed, its recorded lots and its outcome as it stands: resolved now,
+ * or the declared one once the election is final, which needs no
+ * resolution by the version running today. Read once the regular round
+ * has closed, when every contest has its snapshot: one without is a
+ * database changed by hand, and an error.
  */
 export async function contestOutcomes(client: pg.ClientBase, electionId: string): Promise<ContestOutcome[]> {
   const { rows } = await client.query<SnapshotRow>(
@@ -144,6 +151,7 @@ export async function contestOutcomes(client: pg.ClientBase, electionId: string)
   )
   const configuration = await readConfiguration(client, electionId)
   const lotsByContest = await lotDecisionsByContest(client, electionId)
+  const declarations = await finalOutcomes(client, electionId)
   const outcomes: ContestOutcome[] = []
   for (const contest of configuration.contests) {
     const first = rows.find((row) => row.contest_id === contest.id && row.kind === 'regular')
@@ -152,7 +160,9 @@ export async function contestOutcomes(client: pg.ClientBase, electionId: string)
     const lots = lotsByContest.get(contest.id) ?? []
     const firstSnapshot = snapshotOf(first)
     const runoff = runoffRow ? snapshotOf(runoffRow) : null
-    outcomes.push({ contestId: contest.id, rulesetId: contest.rulesetId, first: firstSnapshot, runoff, lots, outcome: outcomeOf(contest.rulesetId, firstSnapshot, runoff, decisionsOf(lots)) })
+    const declared = declarations.get(contest.id) ?? null
+    const outcome = declared ? declared.outcome : outcomeOf(contest.rulesetId, firstSnapshot, runoff, decisionsOf(lots))
+    outcomes.push({ contestId: contest.id, rulesetId: contest.rulesetId, first: firstSnapshot, runoff, lots, outcome, declared })
   }
   return outcomes
 }

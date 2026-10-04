@@ -11,7 +11,7 @@ import type { FastifyInstance } from 'fastify'
 import { canShowResults } from '@school-election/election-core'
 import { readSnapshot, type Database } from '../lib/db.ts'
 import { electionAccessOf, requireElectionAccess } from '../lib/election-access.ts'
-import { contestOutcomes, finalizationOf, finalOutcomes } from '../lib/outcome.ts'
+import { contestOutcomes, finalizationOf } from '../lib/outcome.ts'
 import { ErrorResponse } from '../lib/schemas/common.ts'
 import { ElectionResult } from '../lib/schemas/lots.ts'
 
@@ -22,9 +22,8 @@ export function resultRoutes(app: FastifyInstance, { db }: { db: Database }, don
   }, async (request) => readSnapshot(db, async (client) => {
     const { electionId } = electionAccessOf(request)
     const contests = await contestOutcomes(client, electionId)
-    const declared = await finalOutcomes(client, electionId)
     return {
-      contests: contests.map(({ contestId, first, runoff, lots, outcome }) => ({ contestId, first, runoff, lots, outcome: declared.get(contestId)?.outcome ?? outcome })),
+      contests: contests.map(({ contestId, first, runoff, lots, outcome }) => ({ contestId, first, runoff, lots, outcome })),
       finalized: await finalizationOf(client, electionId),
     }
   }))

@@ -10,6 +10,7 @@ import assert from 'node:assert/strict'
 import { TALLY_VERSION } from '@school-election/election-core'
 import { cleanUp } from '../lib/cleanup.ts'
 import type { ExportDocument } from '../lib/export-format.ts'
+import { verifyExport } from '../lib/export-verify.ts'
 import { finalizeElection } from '../lib/finalize.ts'
 import { sqlState } from '../lib/pg-errors.ts'
 import { DB, withClient } from './helpers/db.ts'
@@ -148,4 +149,37 @@ test('a round that changed between the clean-up and the declaration refuses the 
   )
   assert.deepEqual((await lifecycleOf(x.anna, x.base)).lifecycle, { election: 'active', regular: 'closed', runoff: 'closed' })
   assert.equal(ok<{ state: string }>(await finalize(x)).state, 'final')
+})
+
+test('a final election\'s result and export stand on the declaration, not on today\'s resolution: with a recorded lot damaged past the triggers, both still answer, and the verifier sees it', DB, async (t) => {
+  const x = await prepared(t)
+  ok(await x.anna.request('POST', `${x.base}/rounds/regular/open`))
+  const [paula, quirin, renate] = x.contest.candidateIds as [string, string, string]
+  // First places 2, 1, 1; twenty points each: Quirin and Renate tied for the second runoff place, a lot.
+  for (const [index, order] of [[paula, quirin, renate], [paula, renate, quirin], [quirin, renate, paula], [renate, quirin, paula]].entries()) {
+    assert.deepEqual(await vote(x, x.credentialIds[index] ?? '', order), { cast: true })
+  }
+  ok(await x.anna.request('POST', `${x.base}/rounds/regular/close`))
+  const before = ok<{ contests: { outcome: { lots?: { id: string }[] } }[] }>(await x.anna.request('GET', `${x.base}/result`))
+  const lot = before.contests[0]?.outcome.lots?.[0] ?? assert.fail('no lot')
+  ok(await x.anna.request('POST', `${x.base}/lots`, { contestId: x.contest.id, lotId: lot.id, order: [renate, quirin], reason: 'Los gezogen' }))
+  assert.deepEqual(ok<{ contests: { kind: string }[] }>(await finalize(x)).contests, [{ contestId: x.contest.id, kind: 'runoff-required' }])
+
+  // The lot's order damaged, past the trigger that keeps a recorded lot, to what resolve refuses.
+  await withClient(x.s.ownerUrl, async (client) => {
+    await client.query('begin')
+    await client.query('set local session_replication_role = replica')
+    await client.query('update lot_decision set drawn = array[candidates[1], candidates[1]] where election_id = $1', [x.id])
+    await client.query('commit')
+  })
+  const result = ok<Result>(await x.wanda.request('GET', `${x.base}/result`))
+  assert.equal(result.contests[0]?.outcome.kind, 'runoff-required')
+  assert.equal(result.finalized?.reason.startsWith('Ergebnis festgestellt'), true)
+  const exported = await x.wanda.request('POST', `${x.base}/export`)
+  assert.equal(exported.statusCode, 200, exported.body)
+  const document = JSON.parse(exported.body) as ExportDocument
+  assert.equal(document.finalOutcomes[0]?.kind, 'runoff-required')
+  const report = verifyExport(document)
+  assert.equal(report.ok, false)
+  assert.ok(report.checks.some((check) => !check.ok && check.name === 'final outcome: Schulsprecher/in'), 'the declared outcome no longer follows from the file\'s lots')
 })
