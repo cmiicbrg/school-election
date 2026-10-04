@@ -38,7 +38,8 @@ const ids = { confirm: useId(), finalize: useId(), reason: useId() }
 const rules = computed(() => runRules(props.election.lifecycle, props.election.permissions))
 const base = computed(() => `/api/elections/${props.election.id}`)
 
-const turnout = ref<Turnout | null>(null)
+/** The turnout shown, with the round it is of: figures of one round never show under another's label. */
+const turnout = ref<(Turnout & { kind: RoundKind }) | null>(null)
 const result = ref<ElectionResult | null>(null)
 const testResult = ref<RoundResults | null>(null)
 const busy = ref(false)
@@ -74,29 +75,42 @@ const stateLine = computed(() => {
   return lifecycle.runoff === 'closed' ? 'Die Stichwahl ist geschlossen.' : 'Die Wahl ist geschlossen.'
 })
 
-// What the section reads is numbered, per kind of read: an answer that is
-// no longer the newest of its kind changes nothing, so neither a change of
-// state nor two lots recorded close together ever shows a stale answer.
-let turnoutReads = 0
+// The turnout is read once at a time, and its generation changes only
+// with the election's state, never with a tick: a slow answer is still
+// applied (the next tick corrects it within five seconds), a tick while
+// one is on its way is skipped rather than piled up, and an answer from
+// before a change of state is dropped. The result is numbered per read,
+// so two lots recorded close together never bring back the older answer.
+let turnoutGeneration = 0
+let turnoutPending = false
+let statePending = false
 let resultReads = 0
 
 async function readTurnout(kind: RoundKind): Promise<void> {
-  const current = ++turnoutReads
+  if (turnoutPending) return
+  const generation = turnoutGeneration
+  turnoutPending = true
   try {
     const answer = await apiGet<Turnout>(`${base.value}/rounds/${kind}/turnout`)
-    if (current === turnoutReads) turnout.value = answer
+    if (generation === turnoutGeneration) turnout.value = { ...answer, kind }
   } catch {
     // The last figures stay; the next read tries again.
+  } finally {
+    if (generation === turnoutGeneration) turnoutPending = false
   }
 }
 
 /** Whether the election has moved on since the page read it: then the page reads it again. */
 async function followState(): Promise<void> {
+  if (statePending) return
+  statePending = true
   try {
     const detail = await apiGet<ElectionDetail>(base.value)
     if (JSON.stringify(detail.lifecycle) !== JSON.stringify(props.election.lifecycle)) emit('changed')
   } catch {
     // The next tick asks again.
+  } finally {
+    statePending = false
   }
 }
 
@@ -129,8 +143,10 @@ function refresh(): void {
   const { lifecycle } = props.election
   const kind = rules.value.turnoutOf
   stopPolling()
-  if (kind === null) turnout.value = null
-  else void readTurnout(kind)
+  turnoutGeneration += 1
+  turnoutPending = false
+  if (turnout.value?.kind !== kind) turnout.value = null
+  if (kind !== null) void readTurnout(kind)
   const live = kind !== null && accepting(lifecycle)
   const moving = lifecycle.election === 'prepared' || lifecycle.election === 'active'
   if (live || moving) {
@@ -274,11 +290,11 @@ const printPath = (batch: BatchSummary): string => `/elections/${props.election.
     </p>
 
     <div
-      v-if="turnout && rules.turnoutOf"
+      v-if="turnout && turnout.kind === rules.turnoutOf"
       data-testid="turnout"
     >
       <p>
-        {{ ROUND_LABELS[rules.turnoutOf] }}: <strong>{{ turnout.keys.used }} von {{ turnout.keys.issued }} Stimmkarten verwendet</strong>
+        {{ ROUND_LABELS[turnout.kind] }}: <strong>{{ turnout.keys.used }} von {{ turnout.keys.issued }} Stimmkarten verwendet</strong>
       </p>
       <ul
         class="plain"
