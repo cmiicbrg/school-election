@@ -5,6 +5,7 @@
 // may offer comes from the caller's permissions and the lifecycle.
 
 import { computed, onMounted, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import MembersSection from '../components/MembersSection.vue'
 import PrepareSection from '../components/PrepareSection.vue'
 import RunSection from '../components/RunSection.vue'
@@ -91,6 +92,23 @@ function reload(): void {
     <p class="muted">
       {{ STATE_LABELS[election.state] }} · Ihre Rolle: {{ ROLE_LABELS[election.role] }}
     </p>
+    <nav
+      aria-label="Seiten der Wahl"
+      class="pages"
+    >
+      <RouterLink
+        v-if="election.lifecycle.regular === 'closed'"
+        :to="`/wahlen/${election.id}/ergebnis`"
+      >
+        Ergebnis und Herleitung
+      </RouterLink>
+      <RouterLink :to="`/wahlen/${election.id}/protokoll`">
+        Protokoll
+      </RouterLink>
+      <RouterLink to="/hilfe/wahltag">
+        Ablauf am Wahltag
+      </RouterLink>
+    </nav>
     <SetupSection
       :election="election"
       :configuration="configuration"
@@ -134,3 +152,12 @@ function reload(): void {
     Wird geladen …
   </p>
 </template>
+
+<style scoped>
+.pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 0 0 10px;
+}
+</style>
