@@ -166,6 +166,35 @@ export async function tallyRound(client: pg.ClientBase, electionId: string, roun
 }
 
 /**
+ * The count of a test, from the ballots the test has staged so far, in the
+ * configuration's order of the contests: computed on every read, stored
+ * nowhere. The database hands the ballots out only while the round is in
+ * test mode.
+ */
+export async function tallyTest(client: pg.ClientBase, electionId: string, roundId: string, build: BuildInfo): Promise<StoredResult[]> {
+  const boxes = await client.query<{ id: string, contest_id: string }>('select id, contest_id from round_contest where round_id = $1', [roundId])
+  const boxOf = new Map(boxes.rows.map((box) => [box.contest_id, box.id]))
+  const staged = await client.query<BallotRow & { round_contest_id: string }>('select round_contest_id, kind, ranking from test_ballots($1)', [roundId])
+  const results: StoredResult[] = []
+  for (const contest of await contestsOf(client, electionId)) {
+    const boxId = boxOf.get(contest.id)
+    if (boxId === undefined) continue
+    const rows = staged.rows.filter((row) => row.round_contest_id === boxId)
+    const tally = tallyContest(contest, ballotsOf(contest, rows))
+    results.push({
+      contestId: contest.id,
+      inputSha256: tally.inputSha256,
+      tallyVersion: TALLY_VERSION,
+      appVersion: build.version,
+      gitSha: build.gitSha,
+      result: tally.result,
+      outcome: tally.outcome,
+    })
+  }
+  return results
+}
+
+/**
  * The snapshots of a round, in the configuration's order of the contests.
  * A closed round has one per ballot box, written with the seal; a round
  * without them is not a result but a database that was changed by hand,

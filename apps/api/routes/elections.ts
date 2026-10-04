@@ -6,18 +6,20 @@
 //   GET   /api/elections/:id        one election, with the caller's role and permissions
 //   PATCH /api/elections/:id        its title or description, until voting starts
 //   GET   /api/elections/:id/audit  its audit log, and whether the chain verifies
+//   DELETE /api/elections/:id       removes an election nobody used, with everything of it (owner)
 
 import type { FastifyInstance } from 'fastify'
 import { Type, type Static } from 'typebox'
-import { canEditCandidates, ELECTION_STATES, NEW_ELECTION, ROUND_STATES, type ElectionState, type Lifecycle } from '@school-election/election-core'
+import { canDelete, canEditCandidates, ELECTION_STATES, NEW_ELECTION, ROUND_STATES, type ElectionState, type Lifecycle } from '@school-election/election-core'
 import { boundedName } from '../lib/app-user.ts'
 import { appendAudit, readAuditChain } from '../lib/audit.ts'
 import { verifyAuditChain } from '../lib/audit-chain.ts'
 import { callerOf, requireGlobalRole, requireSession } from '../lib/auth.ts'
 import { cleaned, createContest, MAX_TITLE } from '../lib/configuration.ts'
 import type { Database } from '../lib/db.ts'
-import { changeElection, electionAccessOf, requireElectionAccess } from '../lib/election-access.ts'
+import { changeElection, electionAccessOf, Refusal, requireElectionAccess } from '../lib/election-access.ts'
 import { inOrder } from '../lib/in-order.ts'
+import { SQLSTATE, sqlState } from '../lib/pg-errors.ts'
 import { ELECTION_ACTIONS, ELECTION_ROLES, permissionsOf, type ElectionRole } from '../lib/permissions.ts'
 import { PRESET_IDS, PRESETS } from '../lib/presets.ts'
 import { ErrorResponse, Literals, MultiLineText, SingleLineText, StrictObject } from '../lib/schemas/common.ts'
@@ -163,6 +165,24 @@ export function electionRoutes(app: FastifyInstance, { db }: { db: Database }, d
   }, async (request) => {
     const events = await db.tx((client) => readAuditChain(client, electionAccessOf(request).electionId))
     return { events, chain: verifyAuditChain(events) }
+  })
+
+  // An election nobody used goes with everything of it, the audit log
+  // included (migration 0011); the function refuses anything else, which
+  // only a change since the guard looked can be.
+  app.delete('/api/elections/:id', {
+    onRequest: requireElectionAccess(db, 'delete-election', canDelete),
+    schema: { response: { '4xx': ErrorResponse } },
+  }, async (request, reply) => {
+    await changeElection(db, request, async (client, access) => {
+      try {
+        await client.query('select delete_election($1)', [access.electionId])
+      } catch (err) {
+        if (sqlState(err) === SQLSTATE.objectNotInPrerequisiteState) throw new Refusal(409, 'voting_started')
+        throw err
+      }
+    })
+    return reply.code(204).send()
   })
   done()
 }

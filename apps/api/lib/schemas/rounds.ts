@@ -22,6 +22,15 @@ export const RoundClosed = StrictObject({
   })),
 })
 
+export const TestEnded = StrictObject({
+  election: Literals(ELECTION_STATES),
+  round: Literals(ROUND_STATES),
+  /** Ballots the test had staged, all removed. */
+  ballots: Type.Integer(),
+  /** Keys that voted in the test, every entitlement of theirs unused again. */
+  keys: Type.Integer(),
+})
+
 const Counts = {
   issued: Type.Integer(),
   used: Type.Integer(),

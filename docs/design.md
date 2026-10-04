@@ -128,11 +128,11 @@ An election and its rounds follow one state machine (`packages/election-core/src
 
 ```text
 election  draft ⇄ prepared → active → final
-round     planned → open → closed
+round     planned ⇄ testing, planned → open → closed
 ```
 
 - **draft**: the structure (contests, voter groups and their mapping, each contest's ruleset) can change.
-- **prepared**: the structure is fixed and keys can be issued. Unprepare goes back to draft; it is only possible before any round has opened, because prepared always means that none has.
+- **prepared**: the structure is fixed and keys can be issued. Unprepare goes back to draft; it is only possible before any round has opened, because prepared always means that none has. A prepared election's regular round can be put into **test mode** (`testing`): it accepts ballots as an open round does, with the real keys, but has not opened, and the test is ended, not closed, which takes the round back to planned with nothing kept, the test's ballots removed and every entitlement unused again. While a test runs, candidates, the round's keys, unpreparing, deleting and closing wait for it to end (`round-testing`); opening ends it first.
 - **active**: the regular round has opened. The runoff round exists only once it is activated, which opens it, after the regular round has closed; runoff keys can be printed in advance and stay unusable until then.
 - **final**: no round is open, and nothing changes any more.
 
@@ -144,9 +144,10 @@ A closed round never reopens. A state transition and every guard return either a
 | Candidates, title and description | until the regular round opens, so a misspelled name never forces a return to draft |
 | Witnesses and co-admins | until the election is final |
 | Issuing, topping up or replacing a batch of keys | once prepared, until the batch's round opens: regular keys before the regular round, runoff keys until the runoff is activated, also while round 1 is open or closed |
-| Casting a ballot | while its round is open |
-| Closing a round | while it is open, by sealing it (`closeRound`, see Ballot box and seal): a closed round never reopens |
-| A round's result | once the round has closed, for every role; never while it is open |
+| Casting a ballot | while its round is open, or in test mode |
+| Closing a round | while it is open, by sealing it (`closeRound`, see Ballot box and seal): a closed round never reopens; a test is ended, not closed |
+| A round's result | once the round has closed, for every role; never while it is open or testing. The test result, counted from the test's ballots on every read, exactly while the test runs |
+| Deleting an election | a draft, or a prepared one whose round is planned, by the owner: nothing of it remains, the audit log included |
 | Activating the runoff | once, after the regular round has closed |
 | Recording a lot, finalizing | after the regular round has closed, while no round is open |
 
@@ -156,7 +157,7 @@ Opening the regular round (`apps/api/lib/rounds.ts`) is one transaction that mov
 
 The database keeps the same windows (migration `0007`): triggers refuse a change to contests, voter groups or their mapping outside a draft, to candidates, title or description once voting has started, the removal of a prepared contest's last candidate, and any change to a final election, and they let an election move only along the arrows above, back to draft only while no round has opened. The states are rows of `election_state`, `round_kind` and `round_state`, each with what it allows (whether the structure or the candidates may change, which state an election advances or returns to, whether a round has opened), and the triggers read those flags instead of naming states; a test keeps the rows equal to the lifecycle's states, guards and transitions. A trigger reads the election's state with a share lock on its row, so a change of state and a configuration change wait for each other instead of passing each other.
 
-A round's transitions are rows too (`round_transition`, migration `0009`): planned → open → closed, along which alone a round's state changes. The application opens a round itself, and only once the election is active, in the same transaction that makes it so; a round leaves a state that accepts ballots only through the seal, so a closed round is always a sealed one.
+A round's transitions are rows too (`round_transition`, migration `0009`): planned → open → closed, and planned ⇄ testing (migration `0011`), along which alone a round's state changes. The application opens a round itself, and only once the election is active, in the same transaction that makes it so; a round leaves a state that accepts ballots only through a `SECURITY DEFINER` function, the seal for an open round and `end_test` for a test, so a closed round is always a sealed one and an ended test keeps nothing. The `testing` row accepts ballots without being opened, which is all the triggers need to know: the staging and entitlement triggers let a test vote as an open round does, the seal refuses it, and candidates change only while no round of their election is in test mode.
 
 ## Access to an election
 
@@ -165,7 +166,7 @@ Teachers and witnesses sign in with Entra ID. The global teacher role only lets 
 | Role | May |
 | --- | --- |
 | Owner, the teacher who created it | everything |
-| Co-admin (`admin`) | everything but managing members and finalizing |
+| Co-admin (`admin`) | everything but managing members, finalizing and deleting |
 | Witness | read the election, its members and its audit log, and results and a batch's keys once their round has closed |
 
 Every route under `/api/elections/:id` starts with the same guard (`apps/api/lib/election-access.ts`), before the request body is read: a session (401), then membership, looked up on every request (404), then the role (403), then the lifecycle (409, with the lifecycle's refusal as the error code, such as `election_final`). An election the caller is not a member of answers exactly like one that does not exist, so guessing ids reveals nothing, and a removed member loses access with their next request. The app refuses to start if a route under `/api/elections/` does not begin with the guard, and a path under `/api/elections/` that only some other route would match, through a parameter or a wildcard, is answered as not found. A change takes the election's lock and checks access again inside its transaction, so a removal or a state change that happens in between stops it.
@@ -234,7 +235,7 @@ The central privacy invariant (`AGENTS.md`) is that nothing persistent links a b
 - **The physical order.** Rows lie on disk, and in a dump, in the order they were written, which is the order the votes came in, and an entitlement used up at vote time gets a new tuple at that moment. The seal inserts the ballots in the order of their random ids into a table without dead rows, so where a ballot lies follows from its id and from the rows' sizes (a page that is full for a long row still takes a short one later) and says nothing about when it was cast or next to which. The entitlements it writes again in credential order, into whatever space the votes left behind among the dead versions, so the live rows no longer lie in the order the votes used them up; where exactly each lies is PostgreSQL's choice.
 - **Dead tuples and the write-ahead log.** The staged rows the seal deletes, the entitlement versions it replaces and the log of the vote transactions stay on disk until the clean-up after the election (`VACUUM FULL` and a write-ahead log switch, which the application adds once the export exists). Until then a copy of the data directory or a snapshot of the volume could still link ballots to keys, which is why the operator guide keeps backups and snapshots out of that window and allows logical dumps without the ballot box only.
 
-During voting the staging table is write-only for the runtime role: it inserts a ballot and can neither read, change nor remove one, so no code path can show a result or a single ballot before the round is sealed; sealed ballots it can only read. A ballot is staged only while its round accepts ballots, and only one that fits its box: a ranking of one to six candidates for a ranked kind and none for the others (the kinds are rows of `ballot_kind`, with a flag that says which carry a ranking), each candidate once, candidates of its own contest, "Nein" only against a single candidate. Which slots a contest has, and that a ranking fills them, stays the application's to check (election-core); the database keeps the shape.
+During voting the staging table is write-only for the runtime role: it inserts a ballot and can neither read, change nor remove one, so no code path can show a result or a single ballot before the round is sealed; sealed ballots it can only read. The one exception is a test (migration `0011`): `test_ballots` hands a round's staged ballots out only while it is in test mode, for the test result, and `end_test` removes them when the test ends. A test is not secret: its ballots are the teacher's own, cast to try the process out, and nothing of them survives the test. A ballot is staged only while its round accepts ballots, and only one that fits its box: a ranking of one to six candidates for a ranked kind and none for the others (the kinds are rows of `ballot_kind`, with a flag that says which carry a ranking), each candidate once, candidates of its own contest, "Nein" only against a single candidate. Which slots a contest has, and that a ranking fills them, stays the application's to check (election-core); the database keeps the shape.
 
 Sealing is closing. `seal_round` is one `SECURITY DEFINER` function, the only way a round leaves the open state, and it does everything in one transaction: it locks the election's row as a change of the election would, which waits for every vote in flight (each holds the row for share until it commits) and makes a vote that arrives afterwards wait and then find the round closed; it refuses anything but an open round, so a second call refuses as well; it sets the round closed, moves the ballots and rewrites the entitlements. A round is never closed without being sealed, and a sealed round is closed, with no flag to say so and nothing to resume.
 

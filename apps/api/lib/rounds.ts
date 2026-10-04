@@ -1,16 +1,21 @@
-// Opening and closing a round, as the round routes run them inside
-// changeElection: the lifecycle's say, the database's step, and the audit
-// event. Opening is a direct update along the round's transition row,
-// together with the election's step to active, the election first, as
-// the triggers of migration 0009 require. Closing is the seal (0009),
-// which makes the round's ballots unlinkable, followed in the same
-// transaction by the count of every box over the sealed ballots and the
-// snapshot of each result (lib/tally.ts): a close that cannot count rolls
-// back, seal included, and the round stays open until it can. Turnout is
-// the one figure about a round's votes that is read while it is open.
+// Opening, testing and closing a round, as the round routes run them
+// inside changeElection: the lifecycle's say, the database's step, and
+// the audit event. A test puts the regular round of a prepared election
+// into a state that accepts ballots without having opened (migration
+// 0011); ending it, through the owner's function, removes the test's
+// ballots and sets every entitlement unused again. Opening is a direct
+// update along the round's transition row, together with the election's
+// step to active, the election first, as the triggers of migration 0009
+// require; from a test, the opening ends the test first. Closing is the
+// seal (0009), which makes the round's ballots unlinkable, followed in
+// the same transaction by the count of every box over the sealed ballots
+// and the snapshot of each result (lib/tally.ts): a close that cannot
+// count rolls back, seal included, and the round stays open until it
+// can. Turnout is the one figure about a round's votes that is read while
+// it is open.
 
 import type pg from 'pg'
-import { transition, type OutcomeKind, type RoundKind, type RoundState } from '@school-election/election-core'
+import { canOpenRegular, transition, type Lifecycle, type OutcomeKind, type RoundKind, type RoundState } from '@school-election/election-core'
 import { appendAudit } from './audit.ts'
 import { Refusal, type ElectionAccess } from './election-access.ts'
 import { inOrder } from './in-order.ts'
@@ -19,15 +24,65 @@ import { SQLSTATE, sqlState } from './pg-errors.ts'
 import type { BuildInfo } from '../config.ts'
 import { tallyRound } from './tally.ts'
 
+const roundId = async (client: pg.ClientBase, electionId: string, kind: RoundKind): Promise<string | undefined> =>
+  (await client.query<{ id: string }>('select id from round where election_id = $1 and kind = $2', [electionId, kind])).rows[0]?.id
+
+/** Starts a test of the prepared election: the regular round accepts ballots from now on, without having opened. */
+export async function startTest(client: pg.ClientBase, access: ElectionAccess): Promise<void> {
+  if (!isPermitted(access.role, 'run-rounds')) throw new Refusal(403, 'forbidden')
+  const next = transition(access.lifecycle, 'start-test')
+  if (!next.ok) throw new Refusal(409, next.refusal.replaceAll('-', '_'))
+  const started = await client.query(`update round set state = 'testing' where election_id = $1 and kind = 'regular'`, [access.electionId])
+  if (started.rowCount !== 1) throw new Refusal(409, 'not_prepared')
+  await appendAudit(client, access.electionId, { actor: access.actor, action: 'test.started', metadata: { round: 'regular' } })
+}
+
+export interface TestEnded {
+  /** Ballots the test had staged, all removed. */
+  ballots: number
+  /** Keys that voted in the test, every entitlement of theirs unused again. */
+  keys: number
+}
+
+/** Ends the test: nothing of it is kept, and the round is planned again. */
+export async function endTest(client: pg.ClientBase, access: ElectionAccess): Promise<TestEnded> {
+  if (!isPermitted(access.role, 'run-rounds')) throw new Refusal(403, 'forbidden')
+  const next = transition(access.lifecycle, 'end-test')
+  if (!next.ok) throw new Refusal(409, next.refusal.replaceAll('-', '_'))
+  return endTestNow(client, access)
+}
+
+async function endTestNow(client: pg.ClientBase, access: ElectionAccess): Promise<TestEnded> {
+  const round = await roundId(client, access.electionId, 'regular')
+  if (round === undefined) throw new Refusal(409, 'not_prepared')
+  let ended: TestEnded
+  try {
+    const { rows: [row] } = await client.query<{ ballots: number, keys: number }>('select ballots, keys from end_test($1)', [round])
+    ended = { ballots: row?.ballots ?? 0, keys: row?.keys ?? 0 }
+  } catch (err) {
+    if (sqlState(err) === SQLSTATE.objectNotInPrerequisiteState) throw new Refusal(409, 'round_planned')
+    throw err
+  }
+  await appendAudit(client, access.electionId, { actor: access.actor, action: 'test.ended', metadata: { round: 'regular', ...ended } })
+  return ended
+}
+
 /**
  * Opens the regular round: refused by the lifecycle (409 with its reason)
  * unless the election is prepared, by the role unless it may run rounds
- * (403). The election moves to active and the round to open in this
- * transaction.
+ * (403). A running test is ended first, audited as such. The election
+ * moves to active and the round to open in this transaction.
  */
 export async function openRound(client: pg.ClientBase, access: ElectionAccess): Promise<void> {
   if (!isPermitted(access.role, 'run-rounds')) throw new Refusal(403, 'forbidden')
-  const next = transition(access.lifecycle, 'open-regular')
+  const allowed = canOpenRegular(access.lifecycle)
+  if (!allowed.ok) throw new Refusal(409, allowed.refusal.replaceAll('-', '_'))
+  let lifecycle: Lifecycle = access.lifecycle
+  if (lifecycle.regular === 'testing') {
+    await endTestNow(client, access)
+    lifecycle = { ...lifecycle, regular: 'planned' }
+  }
+  const next = transition(lifecycle, 'open-regular')
   if (!next.ok) throw new Refusal(409, next.refusal.replaceAll('-', '_'))
   await client.query(`update election set state = 'active' where id = $1`, [access.electionId])
   const opened = await client.query(`update round set state = 'open' where election_id = $1 and kind = 'regular'`, [access.electionId])

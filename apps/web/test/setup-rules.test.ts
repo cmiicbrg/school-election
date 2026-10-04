@@ -67,7 +67,7 @@ test('every state, role, ruleset, round kind and member status has its German wo
   assert.deepEqual(Object.keys(RULESET_LABELS).sort(), ['at-representative-v1', 'at-school-speaker-v1', 'single-choice-v1'])
   assert.deepEqual(Object.keys(ROUND_LABELS).sort(), ['regular', 'runoff'])
   assert.deepEqual(Object.keys(MEMBER_STATUS_LABELS).sort(), ['bound', 'pending'])
-  for (const code of ['election_final', 'not_draft', 'not_prepared', 'voting_started', 'round_planned', 'round_open', 'round_closed', 'no_runoff', 'runoff_activated']) {
+  for (const code of ['election_final', 'not_draft', 'not_prepared', 'voting_started', 'round_planned', 'round_open', 'round_closed', 'round_testing', 'no_runoff', 'runoff_activated']) {
     assert.ok(ERROR_MESSAGES[code], code)
   }
   assert.equal(errorMessage(new ApiError(409, 'voting_started')), 'Die Wahl hat bereits begonnen.')
