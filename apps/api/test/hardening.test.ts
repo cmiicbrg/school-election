@@ -173,6 +173,16 @@ test('unknown API paths get JSON; other page paths get the web app', async (t) =
   assert.match(page.body, /<title>app<\/title>/)
   assert.equal(page.headers['cache-control'], 'no-cache')
 
+  // The voter page is a page path like any other, with the same policy; a
+  // fragment on it is the browser's alone and never reaches the server.
+  const voter = await app.inject({ method: 'GET', url: '/v' })
+  assert.equal(voter.statusCode, 200)
+  assert.match(String(voter.headers['content-type']), /text\/html/)
+  assert.match(String(voter.headers['content-security-policy']), /default-src 'self'/)
+  assert.match(String(voter.headers['content-security-policy']), /frame-ancestors 'none'/)
+  assert.equal(voter.headers['referrer-policy'], 'no-referrer')
+  assert.equal(voter.headers['x-content-type-options'], 'nosniff')
+
   for (const url of ['/assets/missing.js', '/assets/chunk', '/assets']) {
     const asset = await app.inject({ method: 'GET', url })
     assert.equal(asset.statusCode, 404, url)
