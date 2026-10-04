@@ -20,7 +20,7 @@ import { useDialogFocus } from '../lib/dialog-focus.ts'
 import { fileNameOf } from '../lib/download.ts'
 import { ROUND_LABELS } from '../lib/labels.ts'
 import { countsLine, dateTime, firstPlacesLine, lotText, outcomeLine, positionLines, recordedLotLine, type Names } from '../lib/outcome-text.ts'
-import { accepting, runRules } from '../lib/run-rules.ts'
+import { accepting, runoffState, runRules } from '../lib/run-rules.ts'
 import { voterAddress } from '../lib/sheet.ts'
 import type { BatchSummary, Configuration, ContestResult, ElectionDetail, ElectionFinalized, ElectionResult, RoundResults, RunoffActivated, TestEnded, Turnout } from '../lib/types.ts'
 
@@ -239,9 +239,9 @@ async function download(): Promise<void> {
   }
 }
 
-/** The pairs the first round gave, by contest, while the runoff can be activated. */
-const runoffPairs = computed(() => (result.value?.contests ?? [])
-  .flatMap((contest) => contest.outcome.kind === 'runoff-required' ? [{ contestId: contest.contestId, pair: contest.outcome.runoffCandidates }] : []))
+/** The pairs the first round gave, by contest, and the contests whose runoff entry still waits for a lot. */
+const runoff = computed(() => runoffState(result.value?.contests ?? []))
+const runoffPairs = computed(() => runoff.value.pairs)
 
 /** The classes or groups that vote in a contest of the runoff, each with its issued runoff batches (a top-up is a batch of its own), if any. */
 const runoffSheets = computed(() => props.configuration.voterGroups
@@ -422,7 +422,16 @@ const printPath = (batch: BatchSummary): string => `/elections/${props.election.
           >Für {{ group.name }} gibt es noch keine Stichwahl-Stimmkarten: zuerst unter Stimmkarten erzeugen und drucken.</span>
         </li>
       </ul>
-      <div class="actions">
+      <p
+        v-if="runoff.waiting.length > 0"
+        class="message warning"
+      >
+        Zuerst den Losentscheid eintragen: {{ runoff.waiting.map(contestTitle).join(', ') }}.
+      </p>
+      <div
+        v-else
+        class="actions"
+      >
         <button
           type="button"
           :disabled="busy"

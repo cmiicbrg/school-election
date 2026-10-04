@@ -6,6 +6,7 @@
 // not offered rather than refused.
 
 import {
+  type Outcome,
   canActivateRunoff,
   canCloseRound,
   canEnterLot,
@@ -68,4 +69,23 @@ export function turnoutOf(lifecycle: Lifecycle): RoundKind | null {
 /** Whether a round accepts ballots now, so the turnout is read again every few seconds. */
 export function accepting(lifecycle: Lifecycle): boolean {
   return lifecycle.regular === 'open' || lifecycle.regular === 'testing' || lifecycle.runoff === 'open'
+}
+
+export interface RunoffPair {
+  contestId: string
+  pair: readonly [string, string]
+}
+
+/**
+ * Whether the runoff can be activated from the outcomes as they stand: the
+ * pairs of the contests that need one, and the contests whose runoff entry
+ * still waits for a lot, which the API refuses the activation for (lot_required)
+ * while any remains.
+ */
+export function runoffState(outcomes: readonly { contestId: string, outcome: Outcome }[]): { pairs: RunoffPair[], waiting: string[] } {
+  const pairs = outcomes.flatMap((entry) => entry.outcome.kind === 'runoff-required' ? [{ contestId: entry.contestId, pair: entry.outcome.runoffCandidates }] : [])
+  const waiting = outcomes
+    .filter((entry) => entry.outcome.kind === 'lot-required' && entry.outcome.lots.some((lot) => lot.reason === 'runoff-entry'))
+    .map((entry) => entry.contestId)
+  return { pairs, waiting }
 }
