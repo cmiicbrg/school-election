@@ -62,7 +62,7 @@ test('a genuine export passes every check, and the report names them', DB, async
   for (const expected of [
     'format', 'ballots: regular round, Schulsprecher/in', 'digest: regular round, Schulsprecher/in', 'result: regular round, Schulsprecher/in', 'outcome at close: regular round, Schulsprecher/in',
     'ballots: runoff round, Schulsprecher/in', 'digest: runoff round, Schulsprecher/in', 'result: runoff round, Schulsprecher/in', 'outcome at close: runoff round, Schulsprecher/in',
-    'rows: regular round, Schulsprecher/in', 'order: regular round, Schulsprecher/in',
+    'rows: regular round, Schulsprecher/in', 'order: regular round, Schulsprecher/in', 'snapshots: one per box',
     'outcome: Schulsprecher/in', 'outcomes: one per contest', 'audit chain of this election', 'audit chain', 'audit chain as exported',
     'event for the close of the regular round', 'event for the close of the runoff round', 'event for the activation of the runoff',
     'event for the result: regular round, Schulsprecher/in', 'event for the result: runoff round, Schulsprecher/in', 'no key',
@@ -71,6 +71,7 @@ test('a genuine export passes every check, and the report names them', DB, async
   }
   assert.equal(names.filter((name) => name.startsWith('lot ')).length, 2, 'both lots against their events')
   assert.equal(names.filter((name) => /^event \d+ lot\.recorded/.test(name)).length, 2, 'both events against their lots')
+  assert.equal(names.filter((name) => name.startsWith('batch ')).length, 2, 'both batches against their events')
   assert.ok(names.some((name) => /result\.computed: Schulsprecher/.test(name)))
   assert.ok(names.some((name) => /round\.closed: runoff/.test(name)))
   assert.ok(names.some((name) => /runoff\.pair: Schulsprecher/.test(name)))
@@ -163,6 +164,22 @@ test('each tampering fails the check it breaks, with what differs', DB, async (t
   const issued = clone(document)
   issued.rounds[0]!.boxes[0]!.entitlements.issued = 0
   assert.ok(failed(verifyExport(issued)).includes('ballots: regular round, Schulsprecher/in'))
+
+  // A second snapshot for a box, with a false result; a batch's keys changed, its state flipped, a batch left out.
+  const twice = clone(document)
+  const falseSnapshot = clone(document).snapshots[0] ?? assert.fail('a snapshot')
+  ;(falseSnapshot.result as { statistics: { validBallots: number } }).statistics.validBallots = 99
+  twice.snapshots.push(falseSnapshot)
+  assert.ok(failed(verifyExport(twice)).includes('snapshots: one per box'))
+  const keys = clone(document)
+  keys.batches[0]!.keys = 40
+  assert.ok(failed(verifyExport(keys)).some((name) => name.startsWith(`batch ${keys.batches[0]?.id}`)))
+  const state = clone(document)
+  state.batches[0]!.state = 'void'
+  assert.ok(failed(verifyExport(state)).some((name) => name.startsWith(`batch ${state.batches[0]?.id}`)))
+  const dropped = clone(document)
+  dropped.batches = dropped.batches.slice(1)
+  assert.ok(failed(verifyExport(dropped)).some((name) => /^event \d+ credential-batch\.issued/.test(name)))
 
   // A damaged section is a named failure, never a crash.
   const damaged = clone(document) as unknown as { rounds: unknown[] }

@@ -57,6 +57,12 @@ function runChecks(document: ExportDocument, check: (name: string, ok: boolean, 
     .map((lot) => ({ lotId: lot.lotId, order: lot.drawn }))
   const runoffClosedAt = document.audit.events.find((event) => event.action === 'round.closed' && event.metadata.round === 'runoff')?.at
 
+  // One snapshot per box of a closed round, and none for anything else: the checks below read the one.
+  const closedBoxes = document.rounds.filter((round) => round.state === 'closed').flatMap((round) => round.boxes.map((box) => `${box.contestId}/${round.kind}`))
+  const snapshotKeys = document.snapshots.map((snapshot) => `${snapshot.contestId}/${snapshot.round}`)
+  const oneEach = closedBoxes.every((key) => snapshotKeys.filter((entry) => entry === key).length === 1) && snapshotKeys.length === closedBoxes.length
+  check('snapshots: one per box', oneEach, oneEach ? `${snapshotKeys.length} snapshots for ${closedBoxes.length} boxes of closed rounds` : `${snapshotKeys.length} snapshots for ${closedBoxes.length} boxes of closed rounds`)
+
   // Every box of every closed round: the ballots, the digest, the result, the outcome as of the close.
   const results = new Map<string, FirstRoundResult | RunoffResult>()
   for (const round of document.rounds) {
@@ -161,6 +167,23 @@ function runChecks(document: ExportDocument, check: (name: string, ok: boolean, 
       check(`event ${event.seq} export.generated`, true, `an earlier export, ${field(event.metadata, 'bytes')} bytes, ${field(event.metadata, 'sha256')}`)
     }
   }
+  // Batches and their events, both ways: every batch was issued, or issued as a replacement, with as many keys, for its
+  // group and round, as the log says; a void batch was replaced or voided, an issued one was not; and every issuing
+  // event's batch is in the file.
+  for (const batch of document.batches) {
+    const issued = document.audit.events.find((event) => (event.action === 'credential-batch.issued' && event.metadata.batch === batch.id) || (event.action === 'credential-batch.replaced' && event.metadata.replacement === batch.id))
+    const asIssued = issued !== undefined && issued.metadata.keys === batch.keys && issued.metadata.group === batch.voterGroupId && issued.metadata.round === batch.roundKind
+    const voided = document.audit.events.some((event) => (event.action === 'credential-batch.replaced' || event.action === 'credential-batch.voided') && event.metadata.batch === batch.id)
+    const ok = asIssued && voided === (batch.state === 'void')
+    check(`batch ${batch.id}: ${batch.roundKind}, ${batch.state}`, ok, ok ? `${batch.keys} keys, as event ${issued.seq} says` : asIssued ? 'the log says otherwise about its state' : 'no event issues this batch with these keys for this group and round')
+  }
+  for (const event of document.audit.events) {
+    const id = event.action === 'credential-batch.issued' ? field(event.metadata, 'batch') : event.action === 'credential-batch.replaced' ? field(event.metadata, 'replacement') : undefined
+    if (id === undefined) continue
+    const present = document.batches.some((batch) => batch.id === id)
+    check(`event ${event.seq} ${event.action}`, present, present ? 'the batch it issues is in the file' : 'the batch it issues is not in the file')
+  }
+
   // Lots and their events, both ways: every lot has its event with the same set, order and reason, and every event its lot.
   for (const lot of document.lots) {
     const event = document.audit.events.find((entry) => entry.action === 'lot.recorded' && entry.metadata.lotId === lot.lotId && entry.metadata.contest === lot.contestId)
