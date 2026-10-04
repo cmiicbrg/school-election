@@ -34,7 +34,7 @@ Release images are published to `ghcr.io/cmiicbrg/school-election` when a `v*` t
 
 ## Verifying an export
 
-Once the regular round has closed, every member of an election (the owner, co-admins and witnesses) can export it as one JSON file: the configuration, the sealed ballots of every closed round sorted by content and without ids, the counts of keys and entitlements, the result snapshots, the recorded lots, the outcome as it stands, and the audit log with its hash chain. Nothing in it names a key. The export is recorded in the audit log with the file's SHA-256.
+Once the regular round has closed, every member of an election (the owner, co-admins and witnesses) can export it as one JSON file: the configuration, the sealed ballots of every closed round sorted by content and without ids, the counts of keys and entitlements, the result snapshots, the recorded lots, the outcome as it stands, the outcomes declared at finalization, and the audit log with its hash chain. Nothing in it names a key. The export is recorded in the audit log with the file's SHA-256.
 
 Anyone with the file can recompute everything from it, with no server and no database, from a checkout of this repository on Node 26:
 
@@ -43,7 +43,7 @@ npm ci --ignore-scripts
 npm run verify -- wahl-<id>.json
 ```
 
-The verifier prints the file's SHA-256, to compare with the `export.generated` event in the audit log, and one line per check: every ballot validates for its contest; every snapshot's digest and result are recomputed from the ballots with the same counting code the server uses; the outcome of every contest follows from the results and the recorded lots; the audit chain verifies, and its events name the digests, the counts, the pairs and the lots the file holds. It exits 0 when every check passed and 1 otherwise, naming what differs.
+The verifier prints the file's SHA-256, to compare with the `export.generated` event in the audit log, and one line per check: every ballot validates for its contest; every snapshot's digest and result are recomputed from the ballots with the same counting code the server uses; the outcome of every contest follows from the results and the recorded lots, and so do the outcomes a final election declared; the audit chain verifies, and its events name the digests, the counts, the pairs, the lots and the finalization the file holds. It exits 0 when every check passed and 1 otherwise, naming what differs.
 
 ## Deployment
 
