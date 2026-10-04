@@ -119,9 +119,28 @@ test('a malformed key names its typo; an unknown key and a void batch\'s key get
   await open(x)
   refused(await voter.redeem(key), 404, 'unknown_key')
   ok(await voter.redeem(x.keys['1A']?.[0] ?? ''))
+  const late = voterBrowser(x.s)
+  ok(await late.redeem(x.keys['1A']?.[2] ?? ''))
 
+  // Closing ends the sessions still open: the lifecycle's answer once, the cookie gone with it, and nothing after.
   ok(await x.anna.request('POST', `${x.base}/rounds/regular/close`))
   refused(await voterBrowser(x.s).redeem(x.keys['1A']?.[1] ?? ''), 409, 'round_closed')
+  refused(await late.contests(), 409, 'round_closed')
+  assert.equal(late.jar.values.has('__Secure-voter-session'), false, 'the answer took the cookie with it')
+  const [school] = x.contests
+  assert.ok(school)
+  refused(await voter.ballot(x.boxes.get(school.id) ?? '', { kind: 'ranking', ranking: school.candidateIds }), 409, 'round_closed')
+  refused(await voter.contests(), 401, 'no_session')
+})
+
+test('the contests come in the order of the configuration screens, numbers as numbers', DB, async (t) => {
+  const x = await preparedElection(t, {
+    contests: ['10A', '2A', '1B'].map((label) => ({ title: `Klassensprecher/in ${label}`, rulesetId: 'at-representative-v1' as const, candidates: [['Bauer', 'Lena'], ['Fuchs', 'Max']] })),
+    groups: [{ name: 'Alle', contests: [0, 1, 2], keys: 1 }],
+  })
+  await open(x)
+  const election = ok<VoterElection>(await voterBrowser(x.s).redeem(x.keys.Alle?.[0] ?? ''))
+  assert.deepEqual(election.contests.map((contest) => contest.title), ['Klassensprecher/in 1B', 'Klassensprecher/in 2A', 'Klassensprecher/in 10A'])
 })
 
 test('every refusal of a ballot leaves the entitlement unused, and names positions, never a candidate', DB, async (t) => {
@@ -200,7 +219,7 @@ test('a tampered cookie or an administrator\'s is no voter session, and a cross-
   assert.equal(crossSite.statusCode, 403)
 })
 
-test('the teacher\'s test runs through the same door: a key votes in the test, and again once the round has opened', DB, async (t) => {
+test('the teacher\'s test runs through the same door: a key votes in the test, and again once the round has opened; a session from the test ends with it', DB, async (t) => {
   const x = await prepared(t)
   const [school] = x.contests
   assert.ok(school)
@@ -213,12 +232,23 @@ test('the teacher\'s test runs through the same door: a key votes in the test, a
   assert.deepEqual(ok(await tester.ballot(box, { kind: 'ranking', ranking: [paula, quirin, renate] })), { done: true, remaining: 0 })
   // Redeemed again while the test runs: the key has voted there already.
   assert.equal(ok<VoterElection>(await voterBrowser(x.s).redeem(key)).remaining, 0)
+  // Two sessions of 1A keys from the test: one asks again after the test ended, one not before the election has opened.
+  const [idle, kept] = [voterBrowser(x.s), voterBrowser(x.s)]
+  ok(await idle.redeem(x.keys['1A']?.[0] ?? ''))
+  ok(await kept.redeem(x.keys['1A']?.[1] ?? ''))
   assert.deepEqual(ok<{ ballots: number, keys: number }>(await x.anna.request('POST', `${x.base}/rounds/regular/test/end`)), { election: 'prepared', round: 'planned', ballots: 1, keys: 1 })
   refused(await voterBrowser(x.s).redeem(key), 409, 'round_planned')
+  refused(await idle.contests(), 409, 'round_planned')
+  assert.equal(idle.jar.values.has('__Secure-voter-session'), false, 'the end of the test ended the session')
   await open(x)
+  // A cookie from the test is no vote in the election: the key has to be redeemed again.
+  refused(await kept.ballot(box, { kind: 'ranking', ranking: [paula, quirin, renate] }), 401, 'no_session')
+  assert.equal(kept.jar.values.has('__Secure-voter-session'), false)
+  refused(await kept.contests(), 401, 'no_session')
   const voter = voterBrowser(x.s)
   assert.equal(ok<VoterElection>(await voter.redeem(key)).round, 'open')
   assert.deepEqual(ok(await voter.ballot(box, { kind: 'ranking', ranking: [renate, quirin, paula] })), { done: true, remaining: 0 })
+  assert.equal(ok<VoterElection>(await voterBrowser(x.s).redeem(x.keys['1A']?.[1] ?? '')).remaining, 2, 'the kept cookie cast nothing')
 })
 
 test('a candidate\'s picture reaches the voter by its content, for the voter\'s own contests only', DB, async (t) => {

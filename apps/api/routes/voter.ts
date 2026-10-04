@@ -13,7 +13,7 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { Type, type Static } from 'typebox'
-import { parseKey, validateBallot, type Contest } from '@school-election/election-core'
+import { parseKey, validateBallot, type Contest, type RoundState } from '@school-election/election-core'
 import type { Config } from '../config.ts'
 import { AttemptLimiter } from '../lib/attempt-limiter.ts'
 import { castBallot, type CastRefusal } from '../lib/ballot-box.ts'
@@ -22,7 +22,7 @@ import type { Database } from '../lib/db.ts'
 import { Refusal } from '../lib/election-access.ts'
 import { matchesEtag, pictureEtag } from '../lib/pictures.ts'
 import { BallotBody, BallotCast, SessionBody, VoterElection, VoterRefusal } from '../lib/schemas/voter.ts'
-import { entitledBox, lookUpKey, remainingBoxes, voterElection, voterPicture } from '../lib/voter.ts'
+import { entitledBox, lookUpKey, remainingBoxes, roundStateNow, voterElection, voterPicture, type Queryable, type VotingState } from '../lib/voter.ts'
 import { registerVoterSession, VOTER_SESSION_SECONDS, type Voter } from '../plugins/voter-session.ts'
 
 export interface VoterRoutesOptions {
@@ -44,11 +44,31 @@ const REFUSALS: Readonly<Record<CastRefusal, string>> = {
   'refused': 'round_closed',
 }
 
+/** What a session gets once its round has left the phase it was redeemed in: the lifecycle's answer, or none once the round moved on without it. */
+const PHASE_OVER: Readonly<Partial<Record<RoundState, [number, string]>>> = {
+  closed: [409, 'round_closed'],
+  planned: [409, 'round_planned'],
+}
+
 /** The session's voter, or 401: no cookie, one that does not decode, or one older than its lifetime. */
 function voterOf(request: FastifyRequest): Voter {
   const voter = request.voterSession.get('voter')
   if (!voter || Date.now() - voter.issuedAt > VOTER_SESSION_SECONDS * 1000) throw new Refusal(401, 'no_session')
   return voter
+}
+
+/**
+ * The session holds while its round stays in the phase it was redeemed in. A round that closed, a test
+ * that ended, or the election opened after a test end the session, with the lifecycle's answer: a
+ * cookie from the test never casts a ballot in the election, and no session reports a round as open
+ * that is not. The ballot route asks inside its transaction, the others before their read.
+ */
+async function stillVoting(client: Queryable, request: FastifyRequest, voter: Voter): Promise<void> {
+  const state = await roundStateNow(client, voter.roundId)
+  if (state === voter.round) return
+  request.voterSession.delete()
+  const [statusCode, code] = (state && PHASE_OVER[state]) ?? [401, 'no_session']
+  throw new Refusal(statusCode, code)
 }
 
 async function requireVoter(request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply | undefined> {
@@ -87,8 +107,9 @@ export async function voterRoutes(app: FastifyInstance, { db, config, limiter = 
     if (found.roundId === null || !found.acceptsBallots) {
       return reply.code(409).send({ error: found.roundState === 'closed' ? 'round_closed' : 'round_planned' })
     }
-    request.voterSession.set('voter', { credentialId: found.credentialId, electionId: found.electionId, roundId: found.roundId, issuedAt: Date.now() })
-    return voterElection(db, found.credentialId, found.roundId)
+    const round: VotingState = found.roundState === 'testing' ? 'testing' : 'open'
+    request.voterSession.set('voter', { credentialId: found.credentialId, electionId: found.electionId, roundId: found.roundId, round, issuedAt: Date.now() })
+    return voterElection(db, found.credentialId, found.roundId, round)
   })
 
   app.get('/api/voter/contests', {
@@ -97,7 +118,8 @@ export async function voterRoutes(app: FastifyInstance, { db, config, limiter = 
     schema: { response: { '200': VoterElection, '4xx': VoterRefusal } },
   }, async (request) => {
     const voter = voterOf(request)
-    return voterElection(db, voter.credentialId, voter.roundId)
+    await stillVoting(db, request, voter)
+    return voterElection(db, voter.credentialId, voter.roundId, voter.round)
   })
 
   app.get<{ Params: Static<typeof PictureParams> }>('/api/voter/picture/:sha256', {
@@ -107,6 +129,7 @@ export async function voterRoutes(app: FastifyInstance, { db, config, limiter = 
     schema: { params: PictureParams, response: { '4xx': VoterRefusal } },
   }, async (request, reply) => {
     const voter = voterOf(request)
+    await stillVoting(db, request, voter)
     const { sha256 } = request.params
     const revalidating = matchesEtag(request.headers['if-none-match'], sha256)
     const row = await voterPicture(db, voter.credentialId, voter.roundId, sha256, !revalidating)
@@ -124,6 +147,7 @@ export async function voterRoutes(app: FastifyInstance, { db, config, limiter = 
     const voter = voterOf(request)
     const { roundContestId, ballot } = request.body
     const outcome = await db.tx(async (client) => {
+      await stillVoting(client, request, voter)
       const box = await entitledBox(client, voter.credentialId, voter.roundId, roundContestId)
       if (!box) throw new Refusal(409, 'not_entitled')
       const stored = await readContest(client, box.electionId, box.contestId)

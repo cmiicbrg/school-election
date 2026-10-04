@@ -7,10 +7,13 @@
 import type pg from 'pg'
 import { activeSlots, RULESETS, type RoundState, type RulesetId } from '@school-election/election-core'
 import type { Database } from './db.ts'
-import { compareCandidates } from './names.ts'
+import { compareCandidates, compareLabels } from './names.ts'
 
 /** The pool or a client in a transaction: both answer a query. */
-type Queryable = Pick<Database, 'query'>
+export type Queryable = Pick<Database, 'query'>
+
+/** The phases of a round in which a key votes: the election, or the teacher's test. */
+export type VotingState = 'open' | 'testing'
 
 export interface RedeemedKey {
   credentialId: string
@@ -55,27 +58,35 @@ export interface VoterContest {
 
 export interface VoterElection {
   title: string
-  round: 'open' | 'testing'
+  round: VotingState
   contests: VoterContest[]
   remaining: number
 }
 
-/** The election's title and the contests the key is entitled to in its round, candidates in ballot order, each with whether the key has voted there. */
-export async function voterElection(db: Queryable, credentialId: string, roundId: string): Promise<VoterElection> {
-  const { rows: [round] } = await db.query<{ title: string, state: RoundState }>(
-    'select e.title, r.state from round r join election e on e.id = r.election_id where r.id = $1',
+/** The round's state as it is now, or undefined once the round is gone (its election deleted after a test). */
+export async function roundStateNow(db: Queryable, roundId: string): Promise<RoundState | undefined> {
+  const { rows: [row] } = await db.query<{ state: RoundState }>('select state from round where id = $1', [roundId])
+  return row?.state
+}
+
+/** The election's title and the contests the key is entitled to in its round, in the configuration's order with candidates in ballot order, each with whether the key has voted there. */
+export async function voterElection(db: Queryable, credentialId: string, roundId: string, round: VotingState): Promise<VoterElection> {
+  const { rows: [election] } = await db.query<{ title: string }>(
+    'select e.title from round r join election e on e.id = r.election_id where r.id = $1',
     [roundId],
   )
-  if (!round) throw new Error('the session names a round that is gone')
+  if (!election) throw new Error('the session names a round that is gone')
   const { rows: entitled } = await db.query<{ contest_id: string, box_id: string, title: string, ruleset_id: RulesetId, consumed: boolean }>(
     `select c.id as contest_id, rc.id as box_id, c.title, c.ruleset_id, e.consumed
        from credential_entitlement e
        join round_contest rc on rc.id = e.round_contest_id
        join contest c on c.id = rc.contest_id
       where e.credential_id = $1 and rc.round_id = $2
-      order by c.title, c.id`,
+      order by c.id`,
     [credentialId, roundId],
   )
+  // The order of the configuration screens: numbers as numbers, ids for a tie (the sort is stable).
+  entitled.sort((a, b) => compareLabels(a.title, b.title))
   const { rows: candidates } = await db.query<{ id: string, contest_id: string, surname: string, given_name: string, picture_sha256: string | null }>(
     'select id, contest_id, surname, given_name, picture_sha256 from candidate where contest_id = any($1)',
     [entitled.map((row) => row.contest_id)],
@@ -96,8 +107,8 @@ export async function voterElection(db: Queryable, credentialId: string, roundId
     }
   })
   return {
-    title: round.title,
-    round: round.state === 'testing' ? 'testing' : 'open',
+    title: election.title,
+    round,
     contests,
     remaining: contests.filter((contest) => !contest.done).length,
   }
