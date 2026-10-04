@@ -39,7 +39,7 @@ export function ballotsOf(contest: Contest, rows: readonly BallotRow[]): CastBal
 /** A ballot's place in the content order: the kind, then the ranking as positions on the ballot. */
 function contentKey(contest: Contest, ballot: BallotRow): string {
   const position = new Map(contest.candidateIds.map((id, index) => [id, index]))
-  return `${ballot.kind}:${ballot.ranking.map((id) => position.get(id) ?? -1).join(',')}`
+  return `${ballot.kind}:${ballot.ranking.map((id) => String(position.get(id) ?? -1)).join(',')}`
 }
 
 /** Code unit order, the same on every machine; never the locale's. */

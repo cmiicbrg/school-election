@@ -15,7 +15,7 @@ import type { BuildInfo } from '../config.ts'
 import { readAuditChain } from './audit.ts'
 import { verifyAuditChain } from './audit-chain.ts'
 import { canonicalJson } from './canonical-json.ts'
-import { readConfiguration } from './configuration.ts'
+import { readConfiguration, type Configuration } from './configuration.ts'
 import { lifecycleOf } from './election-access.ts'
 import { EXPORT_FORMAT, EXPORT_VERSION, type ExportDocument, type ExportedBox } from './export-format.ts'
 import { contestOutcomes } from './outcome.ts'
@@ -31,70 +31,38 @@ export interface BuiltExport {
   bytes: number
 }
 
+interface RoundRow {
+  id: string
+  kind: RoundKind
+  state: RoundState
+}
+
+interface BoxRow {
+  id: string
+  round_id: string
+  contest_id: string
+  runoff_pair: string[] | null
+  issued: number
+  used: number
+}
+
 /** The export of the election, read inside the transaction that holds the election's lock. */
 export async function buildExport(client: pg.ClientBase, electionId: string, build: BuildInfo, now: Date = new Date()): Promise<BuiltExport> {
   const { rows: [election] } = await client.query<{ id: string, title: string, description: string, state: ElectionState }>(
     'select id, title, description, state from election where id = $1', [electionId],
   )
   if (!election) throw new Error('the election is gone')
-  const { rows: rounds } = await client.query<{ id: string, kind: RoundKind, state: RoundState }>(
+  const { rows: rounds } = await client.query<RoundRow>(
     `select id, kind, state from round where election_id = $1 order by (kind = 'regular') desc, kind`, [electionId],
   )
   const configuration = await readConfiguration(client, electionId)
-  const contestOf = new Map(configuration.contests.map((contest) => [contest.id, contest]))
   const { rows: batches } = await client.query<{ id: string, voter_group_id: string, round_kind: RoundKind, state: string, keys: number }>(
     `select b.id, b.voter_group_id, b.round_kind, b.state, (select count(*) from credential c where c.batch_id = b.id)::int as keys
        from credential_batch b where b.election_id = $1 order by b.round_kind, b.state, b.id`, [electionId],
   )
-  const exportedRounds: ExportDocument['rounds'] = []
-  for (const round of rounds) {
-    const { rows: boxes } = await client.query<{ id: string, contest_id: string, runoff_pair: string[] | null, issued: number, used: number }>(
-      `select rc.id, rc.contest_id, rc.runoff_pair,
-              (select count(*) from credential_entitlement e join credential c on c.id = e.credential_id join credential_batch b on b.id = c.batch_id
-                where e.round_contest_id = rc.id and b.state = 'issued')::int as issued,
-              (select count(*) from credential_entitlement e join credential c on c.id = e.credential_id join credential_batch b on b.id = c.batch_id
-                where e.round_contest_id = rc.id and b.state = 'issued' and e.consumed)::int as used
-         from round_contest rc where rc.round_id = $1`, [round.id],
-    )
-    const ordered = configuration.contests.flatMap((contest) => boxes.filter((box) => box.contest_id === contest.id))
-    const exportedBoxes: ExportedBox[] = []
-    for (const box of ordered) {
-      const contest = contestOf.get(box.contest_id)
-      if (!contest) throw new Error(`ballot box ${box.id} belongs to no contest of the election`)
-      const candidateIds = box.runoff_pair === null
-        ? contest.candidates.map((candidate) => candidate.id)
-        : contest.candidates.map((candidate) => candidate.id).filter((id) => box.runoff_pair?.includes(id))
-      const ballots = round.state === 'closed'
-        ? (await client.query<BallotRow>('select kind, ranking from ballot where round_contest_id = $1', [box.id])).rows
-        : []
-      const sorted = sortedByContent({ id: contest.id, rulesetId: box.runoff_pair === null ? contest.rulesetId : 'single-choice-v1', candidateIds }, ballots)
-      exportedBoxes.push({
-        id: box.id,
-        contestId: box.contest_id,
-        runoffPair: box.runoff_pair === null ? null : [candidateIds[0] ?? '', candidateIds[1] ?? ''],
-        entitlements: { issued: box.issued, used: box.used },
-        ballots: sorted.map((ballot) => ({ kind: ballot.kind, ranking: [...ballot.ranking] })),
-      })
-    }
-    exportedRounds.push({ kind: round.kind, state: round.state, boxes: exportedBoxes })
-  }
-  const outcomes = round0Closed(rounds) ? await contestOutcomes(client, electionId) : []
-  const { rows: snapshotRows } = await client.query<{ contest_id: string, kind: RoundKind, input_sha256: string, tally_version: number, app_version: string, git_sha: string, result: unknown, outcome: unknown }>(
-    `select rc.contest_id, r.kind, s.input_sha256, s.tally_version, s.app_version, s.git_sha, s.result, s.outcome
-       from result_snapshot s join round_contest rc on rc.id = s.round_contest_id join round r on r.id = rc.round_id
-      where s.election_id = $1`, [electionId],
-  )
-  const snapshots = configuration.contests.flatMap((contest) => (['regular', 'runoff'] as const).flatMap((kind) =>
-    snapshotRows.filter((row) => row.contest_id === contest.id && row.kind === kind).map((row) => ({
-      contestId: row.contest_id,
-      round: kind,
-      inputSha256: row.input_sha256,
-      tallyVersion: row.tally_version,
-      appVersion: row.app_version,
-      gitSha: row.git_sha,
-      result: row.result,
-      outcome: row.outcome,
-    }))))
+  const exportedRounds = await exportRounds(client, electionId, rounds, configuration)
+  const outcomes = rounds.some((round) => round.kind === 'regular' && round.state === 'closed') ? await contestOutcomes(client, electionId) : []
+  const snapshots = await exportSnapshots(client, electionId, configuration)
   const events = await readAuditChain(client, electionId)
   const document: ExportDocument = {
     format: EXPORT_FORMAT,
@@ -129,7 +97,64 @@ export async function buildExport(client: pg.ClientBase, electionId: string, bui
   return { document, text, sha256: createHash('sha256').update(text, 'utf8').digest('hex'), bytes: Buffer.byteLength(text, 'utf8') }
 }
 
-/** Whether the regular round has closed: only then are there snapshots and an outcome to export. */
-function round0Closed(rounds: readonly { kind: RoundKind, state: RoundState }[]): boolean {
-  return rounds.some((round) => round.kind === 'regular' && round.state === 'closed')
+/**
+ * Every round with its boxes in the configuration's order, each with its
+ * counts and, for a closed round, its sealed ballots in content order:
+ * the boxes of every round in one query, the ballots of every closed box
+ * in one more.
+ */
+async function exportRounds(client: pg.ClientBase, electionId: string, rounds: readonly RoundRow[], configuration: Configuration): Promise<ExportDocument['rounds']> {
+  const { rows: boxes } = await client.query<BoxRow>(
+    `select rc.id, rc.round_id, rc.contest_id, rc.runoff_pair,
+            (select count(*) from credential_entitlement e join credential c on c.id = e.credential_id join credential_batch b on b.id = c.batch_id
+              where e.round_contest_id = rc.id and b.state = 'issued')::int as issued,
+            (select count(*) from credential_entitlement e join credential c on c.id = e.credential_id join credential_batch b on b.id = c.batch_id
+              where e.round_contest_id = rc.id and b.state = 'issued' and e.consumed)::int as used
+       from round_contest rc join round r on r.id = rc.round_id where r.election_id = $1`,
+    [electionId],
+  )
+  const closedBoxes = boxes.filter((box) => rounds.some((round) => round.id === box.round_id && round.state === 'closed')).map((box) => box.id)
+  const { rows: ballots } = await client.query<BallotRow & { round_contest_id: string }>(
+    'select round_contest_id, kind, ranking from ballot where round_contest_id = any($1)', [closedBoxes],
+  )
+  return rounds.map((round) => ({
+    kind: round.kind,
+    state: round.state,
+    boxes: configuration.contests
+      .flatMap((contest) => boxes.filter((box) => box.round_id === round.id && box.contest_id === contest.id).map((box) => exportBox(contest, box, ballots.filter((ballot) => ballot.round_contest_id === box.id)))),
+  }))
+}
+
+/** One box with its counts and its ballots in content order, without ids; the pair in ballot order. */
+function exportBox(contest: Configuration['contests'][number], box: BoxRow, rows: readonly BallotRow[]): ExportedBox {
+  const pair = box.runoff_pair
+  const candidateIds = contest.candidates.map((candidate) => candidate.id).filter((id) => pair === null || pair.includes(id))
+  const core = { id: contest.id, rulesetId: pair === null ? contest.rulesetId : 'single-choice-v1' as const, candidateIds }
+  return {
+    id: box.id,
+    contestId: box.contest_id,
+    runoffPair: pair === null ? null : [candidateIds[0] ?? '', candidateIds[1] ?? ''],
+    entitlements: { issued: box.issued, used: box.used },
+    ballots: sortedByContent(core, rows).map((ballot) => ({ kind: ballot.kind, ranking: [...ballot.ranking] })),
+  }
+}
+
+/** The snapshots, in the configuration's order of the contests, the regular round's before the runoff's. */
+async function exportSnapshots(client: pg.ClientBase, electionId: string, configuration: Configuration): Promise<ExportDocument['snapshots']> {
+  const { rows } = await client.query<{ contest_id: string, kind: RoundKind, input_sha256: string, tally_version: number, app_version: string, git_sha: string, result: unknown, outcome: unknown }>(
+    `select rc.contest_id, r.kind, s.input_sha256, s.tally_version, s.app_version, s.git_sha, s.result, s.outcome
+       from result_snapshot s join round_contest rc on rc.id = s.round_contest_id join round r on r.id = rc.round_id
+      where s.election_id = $1`, [electionId],
+  )
+  return configuration.contests.flatMap((contest) => (['regular', 'runoff'] as const).flatMap((kind) =>
+    rows.filter((row) => row.contest_id === contest.id && row.kind === kind).map((row) => ({
+      contestId: row.contest_id,
+      round: kind,
+      inputSha256: row.input_sha256,
+      tallyVersion: row.tally_version,
+      appVersion: row.app_version,
+      gitSha: row.git_sha,
+      result: row.result,
+      outcome: row.outcome,
+    }))))
 }

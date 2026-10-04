@@ -181,6 +181,26 @@ test('each tampering fails the check it breaks, with what differs', DB, async (t
   dropped.batches = dropped.batches.slice(1)
   assert.ok(failed(verifyExport(dropped)).some((name) => /^event \d+ credential-batch\.issued/.test(name)))
 
+  // A lot's own time moved before the runoff's close, which the event's time, covered by the chain, denies.
+  const backdated = clone(document)
+  backdated.lots[1]!.recordedAt = '2000-01-01T00:00:00.000Z'
+  const backdatedReport = verifyExport(backdated)
+  assert.ok(failed(backdatedReport).some((name) => name.startsWith(`lot ${backdated.lots[1]?.lotId}`)))
+  assert.ok(!failed(backdatedReport).includes('outcome at close: runoff round, Schulsprecher/in'), 'the ordering follows the event, not the row')
+  // A round not closed with ballots in a box; a batch in a state the file does not know; a formatted key in a text; an extra property on a row.
+  const open = clone(document)
+  open.rounds[1]!.state = 'open'
+  assert.ok(failed(verifyExport(open)).includes('runoff round, open'))
+  const retired = clone(document)
+  retired.batches[0]!.state = 'retired'
+  assert.ok(failed(verifyExport(retired)).some((name) => name.startsWith(`batch ${retired.batches[0]?.id}`)))
+  const leaked = clone(document)
+  leaked.election.description = (x.keys['1A']?.[0] ?? '').toLowerCase().match(/.{1,4}/g)?.join(' - ') ?? ''
+  assert.ok(failed(verifyExport(leaked)).includes('no key'))
+  const extra = clone(document) as unknown as { rounds: { boxes: { ballots: Record<string, unknown>[] }[] }[] }
+  extra.rounds[0]!.boxes[0]!.ballots[0]!.credential = 'x'
+  assert.match(verifyExport(extra).checks[0]?.detail ?? '', /the rounds section/)
+
   // A damaged section is a named failure, never a crash.
   const damaged = clone(document) as unknown as { rounds: unknown[] }
   damaged.rounds = [{ kind: 'regular', state: 'closed', boxes: [null] }]
