@@ -182,6 +182,9 @@ $$;
 -- whether that happened: true iff no segment on disk sorts at or before
 -- the one that holds `after`. The caller passes the position it read after
 -- its rewrite. Nothing of the directory listing reaches the caller.
+-- CHECKPOINT, unlike VACUUM, runs inside a function (it is no
+-- transaction control); test/db/cleanup.test.ts runs this one and reads
+-- the directory afterwards.
 create function flush_wal(after pg_lsn) returns boolean
   language plpgsql security definer set search_path = pg_catalog as $$
 begin
