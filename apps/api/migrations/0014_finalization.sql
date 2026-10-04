@@ -149,6 +149,9 @@ create function finalize_election(target uuid, outcomes jsonb, tally_version int
   language plpgsql security definer set search_path = pg_catalog as $$
 declare
   active boolean;
+  given integer;
+  distinct_contests integer;
+  known integer;
   declared integer;
 begin
   select not s.candidates_editable and not s.final into active
@@ -164,18 +167,15 @@ begin
   if outcomes is null or jsonb_typeof(outcomes) <> 'array' then
     perform public.refuse('a declaration is a list of outcomes');
   end if;
-  if (select count(*) from jsonb_array_elements(outcomes) as o) <> (select count(*) from public.contest c where c.election_id = target)
-     or (select count(distinct o ->> 'contestId') from jsonb_array_elements(outcomes) as o) <> (select count(*) from jsonb_array_elements(outcomes) as o)
-     or exists (
-       select 1 from jsonb_array_elements(outcomes) as o
-         left join public.contest c on c.id = (o ->> 'contestId')::uuid and c.election_id = target
-        where c.id is null
-     ) then
+  select count(*), count(distinct d."contestId"), count(c.id) into given, distinct_contests, known
+    from jsonb_to_recordset(outcomes) as d ("contestId" uuid, outcome jsonb)
+    left join public.contest c on c.id = d."contestId" and c.election_id = target;
+  if given <> (select count(*) from public.contest c where c.election_id = target) or distinct_contests <> given or known <> given then
     perform public.refuse('a declaration names every contest of the election, once');
   end if;
   insert into public.final_outcome (election_id, contest_id, kind, outcome, tally_version, app_version, git_sha)
-  select target, (o ->> 'contestId')::uuid, o -> 'outcome' ->> 'kind', o -> 'outcome', tally_version, app_version, git_sha
-    from jsonb_array_elements(outcomes) as o;
+  select target, d."contestId", d.outcome ->> 'kind', d.outcome, tally_version, app_version, git_sha
+    from jsonb_to_recordset(outcomes) as d ("contestId" uuid, outcome jsonb);
   get diagnostics declared = row_count;
   update public.election e set state = s.advances_to
     from public.election_state s
