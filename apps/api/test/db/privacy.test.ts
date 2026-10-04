@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { lockElection } from '../../lib/audit.ts'
 import { createDatabase } from '../../lib/db.ts'
-import { closeRound } from '../../lib/rounds.ts'
+import { closeAndTally, closeRound } from '../../lib/rounds.ts'
 import { DB, withClient } from '../helpers/db.ts'
 import { accessAs } from '../helpers/elections.ts'
 import { assertUnlinkable, castBallotCaster, seedPrivacyScenario, sqlCaster, voteInterleaved } from '../helpers/privacy.ts'
@@ -41,4 +41,23 @@ test('the same holds through castBallot and closeRound, the production code', DB
   })
   assert.equal(ballots, scenario.castOrder.length)
   await assertUnlinkable(scenario)
+})
+
+test('and through closeAndTally, which the close route runs: the count reads only what the seal wrote', DB, async (t) => {
+  const scenario = await seedPrivacyScenario(t)
+  const db = createDatabase(scenario.runtimeUrl, () => {})
+  t.after(() => db.close())
+  await voteInterleaved(scenario, castBallotCaster(db, scenario))
+  const access = await accessAs(scenario.ownerUrl, scenario.electionId, 'owner')
+  const closed = await db.tx(async (client) => {
+    await lockElection(client, scenario.electionId)
+    return closeAndTally(client, access, { version: 'dev', gitSha: 'unknown' })
+  })
+  assert.equal(closed.ballots, scenario.castOrder.length)
+  assert.equal(closed.contests.length, scenario.contests.length)
+  await assertUnlinkable(scenario)
+  await withClient(scenario.ownerUrl, async (client) => {
+    const { rows } = await client.query<{ n: number }>('select count(*)::int as n from result_snapshot')
+    assert.equal(rows[0]?.n, scenario.contests.length)
+  })
 })

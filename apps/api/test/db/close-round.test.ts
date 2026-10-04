@@ -86,7 +86,7 @@ test('a round closes once it is open, with its audit event, and the lifecycle re
   assert.deepEqual(await cast(s, s.credentialIds[0] ?? ''), { cast: true })
   assert.deepEqual(await cast(s, s.credentialIds[1] ?? ''), { cast: true })
 
-  assert.deepEqual(await close(s, stale), { ballots: 2 })
+  assert.deepEqual(await close(s, stale), { roundId: ROUND, ballots: 2 })
   await withClient(s.ownerUrl, async (client) => {
     assert.equal((await client.query<{ state: string }>('select state from round where id = $1', [ROUND])).rows[0]?.state, 'closed')
     const chain = await readAuditChain(client, ELECTION)
@@ -104,7 +104,7 @@ test('closing is for the owner and co-admins, and a runoff that was never activa
   await open(s.ownerUrl)
   await assert.rejects(close(s, await as(s, 'witness')), refusedWith(403, 'forbidden'))
   await assert.rejects(close(s, await as(s, 'admin'), 'runoff'), refusedWith(409, 'no_runoff'))
-  assert.deepEqual(await close(s, await as(s, 'admin')), { ballots: 0 })
+  assert.deepEqual(await close(s, await as(s, 'admin')), { roundId: ROUND, ballots: 0 })
 })
 
 test('a close racing the votes still coming in seals every ballot that got in, refuses the rest, and leaves nothing staged', DB, async (t) => {

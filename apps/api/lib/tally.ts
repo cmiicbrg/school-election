@@ -1,0 +1,184 @@
+// The count of a round's contests over its sealed ballots, in the
+// transaction that seals the round (lib/rounds.ts): election-core's result
+// per contest, the outcome as it stands without lots, and a snapshot of
+// both with the digest of what the count saw and the versions that
+// computed it (migration 0010). The count is reproducible by construction:
+// the same configuration and the same ballots, in any order, give the
+// same digest and the same result, and a later run can compare.
+//
+// The ballots come back from the database exactly as the seal wrote them
+// and go through election-core's validation again before they count: a
+// stored ballot that no longer validates is a programming error, and the
+// close fails rather than counting it or skipping it.
+
+import { createHash } from 'node:crypto'
+import type pg from 'pg'
+import {
+  firstRoundResult,
+  pollOutcome,
+  resolve,
+  runoffResult,
+  TALLY_VERSION,
+  validateBallot,
+  type BallotKind,
+  type CastBallot,
+  type Contest,
+  type FirstRoundResult,
+  type Outcome,
+  type RunoffResult,
+} from '@school-election/election-core'
+import type { BuildInfo } from '../config.ts'
+import { canonicalJson } from './canonical-json.ts'
+import { readConfiguration } from './configuration.ts'
+
+export interface ContestTally {
+  contestId: string
+  ballots: number
+  inputSha256: string
+  /** The first round of a ranked contest, or the one round of a single-choice poll. */
+  result: FirstRoundResult | RunoffResult
+  outcome: Outcome
+}
+
+/** A stored snapshot, as the result route returns it. */
+export interface StoredResult {
+  contestId: string
+  inputSha256: string
+  tallyVersion: number
+  appVersion: string
+  gitSha: string
+  result: unknown
+  outcome: unknown
+}
+
+/** The count met what cannot be: a ballot the seal wrote that election-core refuses, or a box without its contest. Never a user error. */
+export class TallyError extends Error {
+  override name = 'TallyError'
+}
+
+interface BallotRow {
+  kind: BallotKind
+  ranking: string[]
+}
+
+/**
+ * The ballots of one box as election-core accepts them, from the rows the
+ * seal wrote: a ranking as stored, "Nein" as such, and an invalid vote as
+ * the confirmed incomplete ranking it was (its content is not kept).
+ */
+export function ballotsOf(contest: Contest, rows: readonly BallotRow[]): CastBallot[] {
+  return rows.map((row, index) => {
+    const input = row.kind === 'invalid'
+      ? { kind: 'ranking', ranking: [], confirmInvalid: true }
+      : { kind: row.kind, ranking: row.ranking }
+    const checked = validateBallot(contest, input)
+    if (!checked.ok) throw new TallyError(`ballot ${index} of contest ${contest.id} does not validate: ${checked.error.kind}`)
+    return checked.ballot
+  })
+}
+
+/**
+ * What the count saw, as canonical JSON: the tally version, the contest
+ * (id, ruleset, candidates in ballot order) and the ballots, the ballots
+ * in an order that depends on their content alone (the kind, then the
+ * ranking as positions on the ballot), so the text is the same however
+ * the rows came back.
+ */
+export function tallyInput(contest: Contest, ballots: readonly CastBallot[]): string {
+  const position = new Map(contest.candidateIds.map((id, index) => [id, index]))
+  const keyOf = (ballot: CastBallot) => `${ballot.kind}:${ballot.ranking.map((id) => position.get(id) ?? -1).join(',')}`
+  const sorted = ballots
+    .map((ballot) => ({ ballot, key: keyOf(ballot) }))
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+    .map(({ ballot }) => ({ kind: ballot.kind, ranking: [...ballot.ranking] }))
+  const input = {
+    tallyVersion: TALLY_VERSION,
+    contest: { id: contest.id, rulesetId: contest.rulesetId, candidateIds: [...contest.candidateIds] },
+    ballots: sorted,
+  }
+  return canonicalJson(input)
+}
+
+/** The SHA-256 of the count's input, in lower-case hex. */
+export function inputDigest(contest: Contest, ballots: readonly CastBallot[]): string {
+  return createHash('sha256').update(tallyInput(contest, ballots), 'utf8').digest('hex')
+}
+
+/** The result of one contest's round and its outcome without lots, with the digest of the input: a ranked contest's first round, or a poll's one round. */
+export function tallyContest(contest: Contest, ballots: readonly CastBallot[]): ContestTally {
+  const inputSha256 = inputDigest(contest, ballots)
+  if (contest.rulesetId === 'single-choice-v1') {
+    const poll = runoffResult(contest, ballots, null)
+    return { contestId: contest.id, ballots: ballots.length, inputSha256, result: poll, outcome: pollOutcome(poll) }
+  }
+  const result = firstRoundResult(contest, ballots)
+  const resolution = resolve(result, undefined, [])
+  // Without decisions nothing can be refused; the type says so anyway.
+  if (!resolution.ok) throw new TallyError(`resolving contest ${contest.id} without decisions was refused: ${resolution.error.kind}`)
+  return { contestId: contest.id, ballots: ballots.length, inputSha256, result, outcome: resolution.outcome }
+}
+
+/** The contests of an election as election-core sees them, in the configuration's order. */
+async function contestsOf(client: pg.ClientBase, electionId: string): Promise<Contest[]> {
+  const configuration = await readConfiguration(client, electionId)
+  return configuration.contests.map((contest) => ({
+    id: contest.id,
+    rulesetId: contest.rulesetId,
+    candidateIds: contest.candidates.map((candidate) => candidate.id),
+  }))
+}
+
+/**
+ * Counts every box of the round over its sealed ballots and writes one
+ * snapshot per box, in the configuration's order of the contests. Runs in
+ * the transaction that sealed the round, holding the election's lock, so
+ * what it reads is what the seal wrote and nothing else.
+ */
+export async function tallyRound(client: pg.ClientBase, electionId: string, roundId: string, build: BuildInfo): Promise<ContestTally[]> {
+  const boxes = await client.query<{ id: string, contest_id: string }>(
+    'select id, contest_id from round_contest where round_id = $1',
+    [roundId],
+  )
+  const boxOf = new Map(boxes.rows.map((box) => [box.contest_id, box.id]))
+  const tallies: ContestTally[] = []
+  for (const contest of await contestsOf(client, electionId)) {
+    const boxId = boxOf.get(contest.id)
+    if (boxId === undefined) continue
+    const rows = await client.query<BallotRow>('select kind, ranking from ballot where round_contest_id = $1 order by id', [boxId])
+    const tally = tallyContest(contest, ballotsOf(contest, rows.rows))
+    await client.query(
+      `insert into result_snapshot (election_id, round_contest_id, input_sha256, tally_version, app_version, git_sha, result, outcome)
+       values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [electionId, boxId, tally.inputSha256, TALLY_VERSION, build.version, build.gitSha, JSON.stringify(tally.result), JSON.stringify(tally.outcome)],
+    )
+    tallies.push(tally)
+  }
+  if (boxOf.size !== tallies.length) throw new TallyError('a ballot box of the round belongs to no contest of the election')
+  return tallies
+}
+
+/** The snapshots of a round, in the configuration's order of the contests. */
+export async function readResults(client: pg.ClientBase, electionId: string, roundId: string): Promise<StoredResult[]> {
+  const stored = await client.query<{ contest_id: string, input_sha256: string, tally_version: number, app_version: string, git_sha: string, result: unknown, outcome: unknown }>(
+    `select rc.contest_id, s.input_sha256, s.tally_version, s.app_version, s.git_sha, s.result, s.outcome
+       from result_snapshot s join round_contest rc on rc.id = s.round_contest_id
+      where rc.round_id = $1`,
+    [roundId],
+  )
+  const byContest = new Map(stored.rows.map((row) => [row.contest_id, row]))
+  const results: StoredResult[] = []
+  for (const contest of await contestsOf(client, electionId)) {
+    const row = byContest.get(contest.id)
+    if (!row) continue
+    results.push({
+      contestId: contest.id,
+      inputSha256: row.input_sha256,
+      tallyVersion: row.tally_version,
+      appVersion: row.app_version,
+      gitSha: row.git_sha,
+      result: row.result,
+      outcome: row.outcome,
+    })
+  }
+  return results
+}

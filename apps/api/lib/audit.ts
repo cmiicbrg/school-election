@@ -10,7 +10,7 @@
 // adds the actions it writes, with their fields, to AUDIT_ACTIONS.
 
 import type pg from 'pg'
-import { ROUND_KINDS, RULESET_IDS } from '@school-election/election-core'
+import { OUTCOME_KINDS, ROUND_KINDS, RULESET_IDS } from '@school-election/election-core'
 import { auditEventHash, MAX_ACTOR_NAME, type AuditActor, type AuditEvent, type AuditMetadata } from './audit-chain.ts'
 import { INVITED_ROLES } from './permissions.ts'
 
@@ -61,9 +61,15 @@ export const AUDIT_ACTIONS = {
   'credential-batch.replaced': { batch: 'uuid', replacement: 'uuid', group: 'uuid', round: ROUND_KINDS, keys: 'count' },
   // Voided by preparing again, because the group's contests had changed.
   'credential-batch.voided': { batch: 'uuid', group: 'uuid', keys: 'count' },
+  // A round opened: voting starts.
+  'round.opened': { round: ROUND_KINDS },
   // A round closed and sealed, with how many ballots it holds: the one
   // figure about a round's votes the log carries, and turnout only.
   'round.closed': { round: ROUND_KINDS, ballots: 'count' },
+  // A contest counted when its round closed: the digest of what the count
+  // saw, the ballots it held and the kind of outcome. The figures are in
+  // the result snapshot, never here.
+  'result.computed': { contest: 'uuid', round: ROUND_KINDS, inputSha256: 'text', ballots: 'count', outcome: OUTCOME_KINDS },
 } as const satisfies Readonly<Record<string, Readonly<Record<string, AuditField>>>>
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS
