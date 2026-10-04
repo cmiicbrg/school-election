@@ -82,6 +82,9 @@ export const AUDIT_ACTIONS = {
   // activated, with how many keys of the issued runoff batches it entitled.
   'runoff.pair': { contest: 'uuid', first: 'uuid', second: 'uuid' },
   'runoff.activated': { round: ROUND_KINDS, contests: 'count', keys: 'count' },
+  // An export of the election: the SHA-256 of the file and its size, so a
+  // file in a committee's hands can be matched to the log.
+  'export.generated': { sha256: 'text', bytes: 'count' },
 } as const satisfies Readonly<Record<string, Readonly<Record<string, AuditField>>>>
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS

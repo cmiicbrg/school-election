@@ -8,6 +8,8 @@ import { validateBallot } from '@school-election/election-core'
 import { lockElection } from '../../lib/audit.ts'
 import { castBallot } from '../../lib/ballot-box.ts'
 import { createDatabase } from '../../lib/db.ts'
+import { buildExport } from '../../lib/export.ts'
+import type { ExportDocument, ExportedBox } from '../../lib/export-format.ts'
 import { closeAndTally, closeRound } from '../../lib/rounds.ts'
 import { DB, withClient } from '../helpers/db.ts'
 import { accessAs } from '../helpers/elections.ts'
@@ -176,3 +178,44 @@ function ranking(box: PrivacyScenario['contests'][number], candidateId: string) 
   assert.ok(checked.ok)
   return checked.ballot
 }
+
+test('the export of the election carries the tracked key\'s ballots by content among the others, in content order, and nothing that names a key or an entitlement', DB, async (t) => {
+  const scenario = await seedPrivacyScenario(t)
+  const db = createDatabase(scenario.runtimeUrl, () => {})
+  t.after(() => db.close())
+  await voteInterleaved(scenario, castBallotCaster(db, scenario))
+  const access = await accessAs(scenario.ownerUrl, scenario.electionId, 'owner')
+  await db.tx(async (client) => {
+    await lockElection(client, scenario.electionId)
+    return closeAndTally(client, access, { version: 'dev', gitSha: 'unknown' })
+  })
+  const built = await db.tx((client) => buildExport(client, scenario.electionId, { version: 'dev', gitSha: 'unknown' }))
+  const { document, text } = built
+  // Every ballot of every box, in content order, with no id and nothing but its kind and ranking.
+  const round: ExportDocument['rounds'][number] | undefined = document.rounds[0]
+  if (!round) assert.fail('no round in the export')
+  assert.deepEqual([round.kind, round.state, document.rounds.length], ['regular', 'closed', 1])
+  for (const box of round.boxes) {
+    assert.equal(box.ballots.length, scenario.credentialIds.length)
+    assert.deepEqual(box.entitlements, { issued: scenario.credentialIds.length, used: scenario.credentialIds.length })
+    for (const ballot of box.ballots) assert.deepEqual(Object.keys(ballot).sort(), ['kind', 'ranking'])
+    const keys = box.ballots.map((ballot) => `${ballot.kind}:${ballot.ranking.join(',')}`)
+    const contest = scenario.contests.find((entry) => entry.boxId === box.id) ?? assert.fail('a box of the scenario')
+    const position = new Map(contest.candidateIds.map((id, index) => [id, index]))
+    const byContent = box.ballots.map((ballot) => `${ballot.kind}:${ballot.ranking.map((id) => position.get(id)).join(',')}`)
+    assert.deepEqual(byContent, [...byContent].sort(), `box ${box.id} is in content order`)
+    assert.equal(new Set(keys).size <= keys.length, true)
+  }
+  // The tracked key's three distinctive ballots are there, by content; which three they are, nothing says.
+  for (const vote of scenario.castOrder.filter((entry) => entry.credentialId === scenario.tracked)) {
+    const box: ExportedBox | undefined = round.boxes.find((entry) => entry.id === vote.boxId)
+    if (!box) assert.fail('the box')
+    assert.ok(box.ballots.some((ballot) => ballot.kind === vote.kind && ballot.ranking.join(',') === vote.ranking.join(',')), `the tracked ${vote.kind} ballot is in its box`)
+  }
+  // No key, no credential id, no entitlement row, nothing of a session.
+  const { rows: keys } = await withClient(scenario.ownerUrl, (client) => client.query<{ key: string }>('select key from credential where election_id = $1', [scenario.electionId]))
+  for (const secret of [...keys.map((row) => row.key), ...scenario.credentialIds, 'consumed', 'credential_id', 'voter-session']) {
+    assert.ok(!text.includes(secret), `the export holds ${secret}`)
+  }
+  assert.deepEqual(Object.keys(document).sort(), ['app', 'audit', 'batches', 'contests', 'election', 'exportedAt', 'format', 'lots', 'outcomes', 'rounds', 'snapshots', 'version', 'voterGroups'])
+})

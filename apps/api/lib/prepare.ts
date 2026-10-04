@@ -15,6 +15,7 @@
 
 import type pg from 'pg'
 import { transition, type LifecycleAction, type RulesetId } from '@school-election/election-core'
+import { BATCHES_WITH_KEYS } from './batch-keys.ts'
 import { appendAudit } from './audit.ts'
 import { readConfiguration, type Configuration } from './configuration.ts'
 import { voidBatches } from './credentials.ts'
@@ -181,7 +182,7 @@ function confirms(confirmation: VoidConfirmation, stale: readonly StaleBatch[]):
 async function staleBatches(client: pg.ClientBase, electionId: string): Promise<StaleBatch[]> {
   const { rows } = await client.query<{ id: string, voter_group_id: string, keys: number }>(
     `with batch as (
-       select b.id, b.voter_group_id from credential_batch b
+       select b.id, b.voter_group_id, b.keys from ${BATCHES_WITH_KEYS} b
         where b.election_id = $1 and b.round_kind = 'regular' and b.state = 'issued'
           and not exists (select 1 from credential c join credential_entitlement e on e.credential_id = c.id where c.batch_id = b.id and e.consumed)
      ), entitled as (
@@ -193,7 +194,7 @@ async function staleBatches(client: pg.ClientBase, electionId: string): Promise<
      ), mapped as (
        select b.id as batch_id, m.contest_id from batch b join voter_group_contest m on m.voter_group_id = b.voter_group_id
      )
-     select b.id, b.voter_group_id, (select count(*) from credential c where c.batch_id = b.id)::int as keys
+     select b.id, b.voter_group_id, b.keys
        from batch b
       where exists (select contest_id from entitled e where e.batch_id = b.id except select contest_id from mapped m where m.batch_id = b.id)
          or exists (select contest_id from mapped m where m.batch_id = b.id except select contest_id from entitled e where e.batch_id = b.id)

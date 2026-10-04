@@ -64,6 +64,7 @@ export {
   canEditCandidates,
   canEditStructure,
   canEnterLot,
+  canExport,
   canFinalize,
   canIssueBatch,
   canManageMembers,

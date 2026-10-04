@@ -7,7 +7,7 @@ import { canManageMembers, type ElectionState, type RoundState } from '@school-e
 import type { EntraIdentity } from './app-user.ts'
 import { appendAudit, lockElections } from './audit.ts'
 import type { Database } from './db.ts'
-import { lifecycleOf, Refusal, ROUND_STATES_SQL, type ElectionAccess } from './election-access.ts'
+import { lifecycleOf, Refusal, ROUND_STATE_COLUMNS, ROUND_STATE_JOINS, type ElectionAccess } from './election-access.ts'
 import { inOrder } from './in-order.ts'
 import type { ElectionRole, InvitedRole } from './permissions.ts'
 
@@ -110,7 +110,7 @@ export async function bindInvitations(client: pg.ClientBase, userId: string, per
   // as they are under the locks.
   await lockElections(client, pending.rows.map((row) => row.election_id))
   const elections = await client.query<{ id: string, state: ElectionState, regular: RoundState | null, runoff: RoundState | null }>(
-    `select e.id, e.state, ${ROUND_STATES_SQL} from election e where e.id = any($1::uuid[])`,
+    `select e.id, e.state, ${ROUND_STATE_COLUMNS} from election e ${ROUND_STATE_JOINS} where e.id = any($1::uuid[])`,
     [pending.rows.map((row) => row.election_id)],
   )
   const open = elections.rows.filter((election) => canManageMembers(lifecycleOf(election.state, election)).ok).map((election) => election.id)

@@ -11,7 +11,6 @@
 // stored ballot that no longer validates is a programming error, and the
 // close fails rather than counting it or skipping it.
 
-import { createHash } from 'node:crypto'
 import type pg from 'pg'
 import {
   firstRoundResult,
@@ -19,8 +18,6 @@ import {
   resolve,
   runoffResult,
   TALLY_VERSION,
-  validateBallot,
-  type BallotKind,
   type CastBallot,
   type Contest,
   type FirstRoundResult,
@@ -28,13 +25,13 @@ import {
   type RunoffResult,
 } from '@school-election/election-core'
 import type { BuildInfo } from '../config.ts'
-import { canonicalJson } from './canonical-json.ts'
 import { readConfiguration } from './configuration.ts'
 import { Refusal } from './election-access.ts'
 import { inOrder } from './in-order.ts'
 import { decisionsOf, lotDecisionsOf } from './outcome.ts'
 import { compareCandidates } from './names.ts'
 import { SQLSTATE, sqlState } from './pg-errors.ts'
+import { ballotsOf, inputDigest, TallyError, type BallotRow } from './tally-digest.ts'
 
 export interface ContestTally {
   contestId: string
@@ -56,65 +53,7 @@ export interface StoredResult {
   outcome: unknown
 }
 
-/** The count met what cannot be: a ballot the seal wrote that election-core refuses, or a box without its contest. Never a user error. */
-export class TallyError extends Error {
-  override name = 'TallyError'
-}
-
-interface BallotRow {
-  kind: BallotKind
-  ranking: string[]
-}
-
-/**
- * The ballots of one box as election-core accepts them, from the rows the
- * seal wrote: a ranking as stored, "Nein" as such, and an invalid vote as
- * the confirmed incomplete ranking it was (its content is not kept).
- */
-export function ballotsOf(contest: Contest, rows: readonly BallotRow[]): CastBallot[] {
-  return rows.map((row, index) => {
-    const input = row.kind === 'invalid'
-      ? { kind: 'ranking', ranking: [], confirmInvalid: true }
-      : { kind: row.kind, ranking: row.ranking }
-    const checked = validateBallot(contest, input)
-    if (!checked.ok) throw new TallyError(`ballot ${index} of contest ${contest.id} does not validate: ${checked.error.kind}`)
-    return checked.ballot
-  })
-}
-
-/**
- * What the count saw, as canonical JSON: the tally version, the contest
- * (id, ruleset, candidates in ballot order) and the ballots, the ballots
- * in an order that depends on their content alone (the kind, then the
- * ranking as positions on the ballot), so the text is the same however
- * the rows came back.
- */
-export function tallyInput(contest: Contest, ballots: readonly CastBallot[]): string {
-  const position = new Map(contest.candidateIds.map((id, index) => [id, index]))
-  const keyOf = (ballot: CastBallot) => `${ballot.kind}:${ballot.ranking.map((id) => position.get(id) ?? -1).join(',')}`
-  const sorted = ballots
-    .map((ballot) => ({ ballot, key: keyOf(ballot) }))
-    .sort((a, b) => compareKeys(a.key, b.key))
-    .map(({ ballot }) => ({ kind: ballot.kind, ranking: [...ballot.ranking] }))
-  const input = {
-    tallyVersion: TALLY_VERSION,
-    contest: { id: contest.id, rulesetId: contest.rulesetId, candidateIds: [...contest.candidateIds] },
-    ballots: sorted,
-  }
-  return canonicalJson(input)
-}
-
-/** Code unit order, the same on every machine; never the locale's. */
-function compareKeys(a: string, b: string): number {
-  if (a < b) return -1
-  if (a > b) return 1
-  return 0
-}
-
-/** The SHA-256 of the count's input, in lower-case hex. */
-export function inputDigest(contest: Contest, ballots: readonly CastBallot[]): string {
-  return createHash('sha256').update(tallyInput(contest, ballots), 'utf8').digest('hex')
-}
+export { ballotsOf, inputDigest, tallyInput, TallyError } from './tally-digest.ts'
 
 /** A ballot box with its contest as election-core sees it: the pair as a single-choice contest for a runoff box, the contest as configured otherwise. */
 export interface BoxContest {

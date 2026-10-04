@@ -16,6 +16,7 @@ import { authRoutes } from './routes/auth.ts'
 import { batchRoutes } from './routes/batches.ts'
 import { configurationRoutes } from './routes/configuration.ts'
 import { electionRoutes } from './routes/elections.ts'
+import { exportRoutes } from './routes/export.ts'
 import { lotRoutes } from './routes/lots.ts'
 import { memberRoutes } from './routes/members.ts'
 import { pictureRoutes } from './routes/pictures.ts'
@@ -132,6 +133,7 @@ export async function buildApp(config: Config, options: AppOptions): Promise<Fas
   await app.register(roundRoutes, { db, config })
   await app.register(lotRoutes, { db })
   await app.register(resultRoutes, { db })
+  await app.register(exportRoutes, { db, config })
 
   app.get('/api/health', { schema: { response: { '200': HealthResponse, '503': HealthResponse, '4xx': ErrorResponse } } }, async (_request, reply) => {
     const { version, gitSha } = config.build
