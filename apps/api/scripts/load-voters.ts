@@ -4,9 +4,10 @@
 // each redeeming its key and casting one ballot; then reports latencies
 // and errors and checks, through the owner connection, that exactly one
 // ballot per key is staged and one entitlement per key used up. No
-// dependency but pg; CI runs it against the built image.
+// dependency but pg; CI runs it against the built image. The owner
+// connection comes from the environment, as the migrator's does.
 //
-//   node apps/api/scripts/load-voters.ts --url http://127.0.0.1:3000 --database-url postgres://postgres:...@127.0.0.1:5432/school_election --keys 500
+//   DATABASE_URL=postgres://postgres:...@127.0.0.1:5432/school_election node apps/api/scripts/load-voters.ts --url http://127.0.0.1:3000 --keys 500
 
 import { randomBytes } from 'node:crypto'
 import { parseArgs } from 'node:util'
@@ -15,16 +16,15 @@ import { generateKey, KEY_RANDOM_BYTES } from '@school-election/election-core'
 
 const { values } = parseArgs({
   options: {
-    'url': { type: 'string', default: 'http://127.0.0.1:3000' },
-    'database-url': { type: 'string' },
-    'keys': { type: 'string', default: '500' },
-    'concurrency': { type: 'string', default: '100' },
+    url: { type: 'string', default: 'http://127.0.0.1:3000' },
+    keys: { type: 'string', default: '500' },
+    concurrency: { type: 'string', default: '100' },
   },
 })
 const url = values.url.replace(/\/$/, '')
-const databaseUrl = values['database-url'] ?? process.env.DATABASE_URL
+const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) {
-  console.error('--database-url (or DATABASE_URL) must name the owner connection, as the migrator uses it')
+  console.error('DATABASE_URL must name the owner connection, as the migrator uses it')
   process.exit(2)
 }
 const keyCount = Number(values.keys)
@@ -86,7 +86,7 @@ async function voter(seeded: Seeded, key: string, index: number): Promise<Outcom
     if (session.status !== 200) return { ms: performance.now() - started, error: `session ${session.status}` }
     const cookie = session.headers.getSetCookie().map((line) => line.split(';')[0]).join('; ')
     const [a, b, c] = seeded.candidateIds
-    const ranking = index % 3 === 0 ? [a, b] : index % 3 === 1 ? [b, c] : [c, a]
+    const ranking = [[a, b], [b, c], [c, a]][index % 3] ?? []
     const ballot = await fetch(`${url}/api/voter/ballot`, {
       method: 'POST',
       headers: { ...headers, cookie },
@@ -99,16 +99,19 @@ async function voter(seeded: Seeded, key: string, index: number): Promise<Outcom
   }
 }
 
+/** One worker: takes the next key, votes, and goes on until the keys are used up. */
+async function work(seeded: Seeded, outcomes: Outcome[], next: { index: number }): Promise<void> {
+  const index = next.index
+  if (index >= seeded.keys.length) return
+  next.index += 1
+  outcomes[index] = await voter(seeded, seeded.keys[index] ?? '', index)
+  await work(seeded, outcomes, next)
+}
+
 async function drive(seeded: Seeded): Promise<Outcome[]> {
   const outcomes: Outcome[] = []
-  let next = 0
-  const workers = Array.from({ length: Math.min(concurrency, seeded.keys.length) }, async () => {
-    while (next < seeded.keys.length) {
-      const index = next++
-      outcomes[index] = await voter(seeded, seeded.keys[index] ?? '', index)
-    }
-  })
-  await Promise.all(workers)
+  const next = { index: 0 }
+  await Promise.all(Array.from({ length: Math.min(concurrency, seeded.keys.length) }, () => work(seeded, outcomes, next)))
   return outcomes
 }
 
@@ -136,7 +139,7 @@ console.log(`${keyCount} voters, ${concurrency} at a time: ${Math.round(elapsed)
 const byError = new Map<string, number>()
 for (const outcome of errors) byError.set(outcome.error ?? '', (byError.get(outcome.error ?? '') ?? 0) + 1)
 for (const [error, count] of byError) console.log(`  ${count} × ${error}`)
-if (errors.length > 0 || written?.staged !== keyCount || written.used !== keyCount) {
+if (errors.length > 0 || !written || written.staged !== keyCount || written.used !== keyCount) {
   console.error('the load run failed')
   process.exit(1)
 }

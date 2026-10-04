@@ -112,7 +112,11 @@ export async function preparedElection(t: TestContext, shape: ElectionShape): Pr
       [id, 'issued'],
     )
     const keys: Record<string, string[]> = {}
-    for (const row of keyRows) (keys[row.name] ??= []).push(row.key)
+    for (const row of keyRows) {
+      const group = keys[row.name] ?? []
+      group.push(row.key)
+      keys[row.name] = group
+    }
     return { boxes: new Map(boxRows.map((row) => [row.contest_id, row.id])), keys }
   })
   const first = shape.groups[0]?.name ?? ''

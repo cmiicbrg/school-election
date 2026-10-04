@@ -11,7 +11,7 @@
 //   POST /api/voter/session/end     ends the session
 
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest, HookHandlerDoneFunction } from 'fastify'
 import { Type, type Static } from 'typebox'
 import { parseKey, validateBallot, type Contest, type RoundState } from '@school-election/election-core'
 import type { Config } from '../config.ts'
@@ -22,7 +22,7 @@ import type { Database } from '../lib/db.ts'
 import { Refusal } from '../lib/election-access.ts'
 import { matchesEtag, pictureEtag } from '../lib/pictures.ts'
 import { BallotBody, BallotCast, SessionBody, VoterElection, VoterRefusal } from '../lib/schemas/voter.ts'
-import { entitledBox, lookUpKey, remainingBoxes, roundNow, voterElection, voterPicture, type Queryable, type VotingState } from '../lib/voter.ts'
+import { entitledBox, lockCredential, lookUpKey, remainingBoxes, roundNow, voterElection, voterPicture, type Queryable, type VotingState } from '../lib/voter.ts'
 import { registerVoterSession, VOTER_SESSION_SECONDS, type Voter } from '../plugins/voter-session.ts'
 
 export interface VoterRoutesOptions {
@@ -73,14 +73,19 @@ async function stillVoting(client: Queryable, request: FastifyRequest, voter: Vo
   throw new Refusal(statusCode, code)
 }
 
-async function requireVoter(request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply | undefined> {
+/** The hook before every route of a session: the refusal answers from here, and then the route is not run (no `done`). */
+function requireVoter(request: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction): void {
   try {
     voterOf(request)
   } catch (err) {
-    if (err instanceof Refusal) return reply.code(err.statusCode).send({ error: err.code })
-    throw err
+    if (err instanceof Refusal) {
+      void reply.code(err.statusCode).send({ error: err.code })
+      return
+    }
+    done(err instanceof Error ? err : new Error(String(err)))
+    return
   }
-  return undefined
+  done()
 }
 
 export async function voterRoutes(app: FastifyInstance, { db, config, limiter = new AttemptLimiter(), wait = sleep }: VoterRoutesOptions): Promise<void> {
@@ -149,6 +154,7 @@ export async function voterRoutes(app: FastifyInstance, { db, config, limiter = 
     const voter = voterOf(request)
     const { roundContestId, ballot } = request.body
     const outcome = await db.tx(async (client) => {
+      await lockCredential(client, voter.credentialId)
       await stillVoting(client, request, voter)
       const box = await entitledBox(client, voter.credentialId, voter.roundId, roundContestId)
       if (!box) throw new Refusal(409, 'not_entitled')
@@ -177,7 +183,7 @@ export async function voterRoutes(app: FastifyInstance, { db, config, limiter = 
   app.post('/api/voter/session/end', {
     ...quiet,
     schema: { response: { '4xx': VoterRefusal } },
-  }, async (request, reply) => {
+  }, (request, reply) => {
     request.voterSession.delete()
     return reply.code(204).send()
   })

@@ -356,9 +356,9 @@ jobs:
           # once, over HTTP, against the running image, every ballot staged
           # and no error. The script runs from the image too, which carries
           # it with its dependencies; the owner connection seeds and checks.
-          docker run --rm --network host school-election:ci node apps/api/scripts/load-voters.ts \
+          docker run --rm --network host -e DATABASE_URL="postgres://postgres:ci-owner-password@127.0.0.1:5432/school_election" \
+            school-election:ci node apps/api/scripts/load-voters.ts \
             --url http://127.0.0.1:3000 \
-            --database-url "postgres://postgres:ci-owner-password@127.0.0.1:5432/school_election" \
             --keys 500 --concurrency 100
 
           # A redeploy: restart the container and run the migrations again,

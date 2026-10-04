@@ -65,6 +65,20 @@ export interface VoterElection {
   remaining: number
 }
 
+/** The advisory lock class of a key's ballots; the election's lock (lib/audit.ts) has its own. */
+const CREDENTIAL_LOCK_CLASS = 2
+
+/**
+ * A key's ballots one after another: a transaction-scoped advisory lock on the credential, taken
+ * before anything else the ballot locks, so two ballots of one key never run side by side, and the
+ * count of what remains, with which the last ballot ends the session, is exact. In memory only.
+ */
+export async function lockCredential(client: Queryable, credentialId: string): Promise<void> {
+  // The first eight hex digits of the id, as the signed 32-bit integer the lock takes.
+  const unsigned = Number.parseInt(credentialId.slice(0, 8), 16)
+  await client.query('select pg_advisory_xact_lock($1, $2)', [CREDENTIAL_LOCK_CLASS, unsigned >= 2 ** 31 ? unsigned - 2 ** 32 : unsigned])
+}
+
 /**
  * The round's state and phase as they are now, or undefined once the round is gone (its election
  * deleted after a test). With `lock`, the row is held for share until the transaction ends: a change

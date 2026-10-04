@@ -195,6 +195,26 @@ test('two submissions of the same key at once cast exactly one ballot', DB, asyn
   assert.equal(staged?.n, 1)
 })
 
+test('the last two ballots of a key at once: both cast, exactly one of them the last, and the cookie goes with that one', DB, async (t) => {
+  const x = await prepared(t)
+  await open(x)
+  const [school, klass] = x.contests
+  assert.ok(school && klass)
+  const voter = voterBrowser(x.s)
+  ok(await voter.redeem(x.keys['1A']?.[0] ?? ''))
+  const [paula, quirin, renate] = school.candidateIds
+  const [lena, max] = klass.candidateIds
+  const answers = await Promise.all([
+    voter.ballot(x.boxes.get(school.id) ?? '', { kind: 'ranking', ranking: [paula, quirin, renate] }),
+    voter.ballot(x.boxes.get(klass.id) ?? '', { kind: 'ranking', ranking: [lena, max] }),
+  ])
+  assert.deepEqual(answers.map((res) => res.statusCode), [200, 200])
+  assert.deepEqual(answers.map((res) => res.json<{ done: boolean, remaining: number }>()).sort((a, b) => a.remaining - b.remaining), [{ done: true, remaining: 0 }, { done: false, remaining: 1 }])
+  assert.equal(voter.jar.values.has('__Secure-voter-session'), false, 'the last ballot took the cookie with it')
+  const { rows: [staged] } = await withClient(x.s.ownerUrl, (client) => client.query<{ n: number }>('select count(*)::int as n from ballot_box'))
+  assert.equal(staged?.n, 2)
+})
+
 test('a tampered cookie or an administrator\'s is no voter session, and a cross-site post is refused before anything', DB, async (t) => {
   const x = await prepared(t)
   await open(x)
