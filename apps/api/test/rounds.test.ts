@@ -173,3 +173,12 @@ test('closing seals and counts: the result for every member from then on, a vote
   await withClient(x.s.ownerUrl, (client) => client.query('begin; set local session_replication_role = replica; delete from result_snapshot; commit'))
   refused(await x.wanda.request('GET', `${x.base}/rounds/regular/result`), 500, 'internal_error')
 })
+
+test('an issued batch stays in turnout when a draft edit removed its keys\' entitlements: the keys are still on paper', DB, async (t) => {
+  const x = await prepared(t)
+  ok(await x.anna.request('POST', `${x.base}/unprepare`))
+  // Removing the contest takes its ballot box and every entitlement to it with it; the batch and its keys stay issued.
+  assert.equal((await x.anna.request('DELETE', `${x.base}/contests/${x.contest.id}`)).statusCode, 204)
+  const turnout = ok<{ round: string | null, keys: { issued: number, used: number }, contests: unknown[] }>(await x.wanda.request('GET', `${x.base}/rounds/regular/turnout`))
+  assert.deepEqual(turnout, { round: 'planned', keys: { issued: 5, used: 0 }, contests: [] })
+})

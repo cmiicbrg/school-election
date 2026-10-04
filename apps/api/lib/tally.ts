@@ -30,6 +30,7 @@ import {
 import type { BuildInfo } from '../config.ts'
 import { canonicalJson } from './canonical-json.ts'
 import { readConfiguration } from './configuration.ts'
+import { inOrder } from './in-order.ts'
 
 export interface ContestTally {
   contestId: string
@@ -89,7 +90,7 @@ export function tallyInput(contest: Contest, ballots: readonly CastBallot[]): st
   const keyOf = (ballot: CastBallot) => `${ballot.kind}:${ballot.ranking.map((id) => position.get(id) ?? -1).join(',')}`
   const sorted = ballots
     .map((ballot) => ({ ballot, key: keyOf(ballot) }))
-    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+    .sort((a, b) => compareKeys(a.key, b.key))
     .map(({ ballot }) => ({ kind: ballot.kind, ranking: [...ballot.ranking] }))
   const input = {
     tallyVersion: TALLY_VERSION,
@@ -97,6 +98,13 @@ export function tallyInput(contest: Contest, ballots: readonly CastBallot[]): st
     ballots: sorted,
   }
   return canonicalJson(input)
+}
+
+/** Code unit order, the same on every machine; never the locale's. */
+function compareKeys(a: string, b: string): number {
+  if (a < b) return -1
+  if (a > b) return 1
+  return 0
 }
 
 /** The SHA-256 of the count's input, in lower-case hex. */
@@ -140,10 +148,11 @@ export async function tallyRound(client: pg.ClientBase, electionId: string, roun
     [roundId],
   )
   const boxOf = new Map(boxes.rows.map((box) => [box.contest_id, box.id]))
+  const contests = (await contestsOf(client, electionId)).filter((contest) => boxOf.has(contest.id))
+  if (contests.length !== boxOf.size) throw new TallyError('a ballot box of the round belongs to no contest of the election')
   const tallies: ContestTally[] = []
-  for (const contest of await contestsOf(client, electionId)) {
-    const boxId = boxOf.get(contest.id)
-    if (boxId === undefined) continue
+  await inOrder(contests, async (contest) => {
+    const boxId = boxOf.get(contest.id) ?? ''
     const rows = await client.query<BallotRow>('select kind, ranking from ballot where round_contest_id = $1 order by id', [boxId])
     const tally = tallyContest(contest, ballotsOf(contest, rows.rows))
     await client.query(
@@ -152,8 +161,7 @@ export async function tallyRound(client: pg.ClientBase, electionId: string, roun
       [electionId, boxId, tally.inputSha256, TALLY_VERSION, build.version, build.gitSha, JSON.stringify(tally.result), JSON.stringify(tally.outcome)],
     )
     tallies.push(tally)
-  }
-  if (boxOf.size !== tallies.length) throw new TallyError('a ballot box of the round belongs to no contest of the election')
+  })
   return tallies
 }
 

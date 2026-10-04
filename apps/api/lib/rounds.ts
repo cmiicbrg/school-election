@@ -13,6 +13,7 @@ import type pg from 'pg'
 import { transition, type OutcomeKind, type RoundKind, type RoundState } from '@school-election/election-core'
 import { appendAudit } from './audit.ts'
 import { Refusal, type ElectionAccess } from './election-access.ts'
+import { inOrder } from './in-order.ts'
 import { isPermitted } from './permissions.ts'
 import { SQLSTATE, sqlState } from './pg-errors.ts'
 import type { BuildInfo } from '../config.ts'
@@ -75,13 +76,11 @@ export interface Closed {
 export async function closeAndTally(client: pg.ClientBase, access: ElectionAccess, build: BuildInfo): Promise<Closed> {
   const { roundId, ballots } = await closeRound(client, access, 'regular')
   const tallies = await tallyRound(client, access.electionId, roundId, build)
-  for (const tally of tallies) {
-    await appendAudit(client, access.electionId, {
-      actor: access.actor,
-      action: 'result.computed',
-      metadata: { contest: tally.contestId, round: 'regular', inputSha256: tally.inputSha256, ballots: tally.ballots, outcome: tally.outcome.kind },
-    })
-  }
+  await inOrder(tallies, (tally) => appendAudit(client, access.electionId, {
+    actor: access.actor,
+    action: 'result.computed',
+    metadata: { contest: tally.contestId, round: 'regular', inputSha256: tally.inputSha256, ballots: tally.ballots, outcome: tally.outcome.kind },
+  }))
   return { ballots, contests: tallies.map((tally) => ({ contestId: tally.contestId, outcome: tally.outcome.kind })) }
 }
 
@@ -113,13 +112,16 @@ export async function readTurnout(client: pg.ClientBase, electionId: string, kin
       group by rc.contest_id`,
     [round.id],
   )
+  // Issued keys count by their batch alone: a key whose entitlements a
+  // draft edit removed is still a key on paper. Used ones by this round's
+  // entitlements.
   const { rows: [keys] } = await client.query<{ issued: number, used: number }>(
     `select count(distinct c.id)::int as issued,
-            count(distinct c.id) filter (where e.consumed)::int as used
+            count(distinct c.id) filter (where rc.id is not null and e.consumed)::int as used
        from credential c
        join credential_batch b on b.id = c.batch_id and b.state = 'issued' and b.round_kind = $2
-       join credential_entitlement e on e.credential_id = c.id
-       join round_contest rc on rc.id = e.round_contest_id and rc.round_id = $1
+       left join credential_entitlement e on e.credential_id = c.id
+       left join round_contest rc on rc.id = e.round_contest_id and rc.round_id = $1
       where c.election_id = $3`,
     [round.id, kind, electionId],
   )
