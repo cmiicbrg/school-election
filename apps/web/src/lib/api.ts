@@ -33,7 +33,25 @@ export async function apiDelete(path: string): Promise<void> {
   await call<undefined>('DELETE', path)
 }
 
+export interface Downloaded {
+  blob: Blob
+  headers: Headers
+}
+
+/** A POST whose answer is a file: the body as a Blob with the headers, for the page to save; refusals and a 401 as for any call. */
+export async function apiDownload(path: string): Promise<Downloaded> {
+  const response = await send('POST', path)
+  return { blob: await response.blob(), headers: response.headers }
+}
+
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const response = await send(method, path, body)
+  if (response.status === 204) return undefined as T
+  return response.json() as Promise<T>
+}
+
+/** The request, with a refusal thrown and a 401 sent to sign-in; the response for the caller to read. */
+async function send(method: string, path: string, body?: unknown): Promise<Response> {
   // A request without a body carries no content type: the API would refuse
   // an empty JSON body, and some routes (replacing a batch, preparing) take none.
   const headers: Record<string, string> = { accept: 'application/json' }
@@ -51,6 +69,5 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   if (!response.ok) {
     throw problemOf(response.status, await response.json().catch(() => ({})))
   }
-  if (response.status === 204) return undefined as T
-  return response.json() as Promise<T>
+  return response
 }
