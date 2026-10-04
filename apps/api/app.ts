@@ -18,6 +18,7 @@ import { electionRoutes } from './routes/elections.ts'
 import { memberRoutes } from './routes/members.ts'
 import { pictureRoutes } from './routes/pictures.ts'
 import { prepareRoutes } from './routes/prepare.ts'
+import { roundRoutes } from './routes/rounds.ts'
 
 export interface AppOptions {
   db: Database
@@ -117,6 +118,7 @@ export async function buildApp(config: Config, options: AppOptions): Promise<Fas
   await app.register(pictureRoutes, { db })
   await app.register(prepareRoutes, { db })
   await app.register(batchRoutes, { db })
+  await app.register(roundRoutes, { db, config })
 
   app.get('/api/health', { schema: { response: { '200': HealthResponse, '503': HealthResponse, '4xx': ErrorResponse } } }, async (_request, reply) => {
     const { version, gitSha } = config.build

@@ -90,13 +90,19 @@ Runoff selection fills the two places by first places. When a group of candidate
 
 A **runoff** or an anonymous single-choice poll (`runoffResult`) ends `elected` (more valid votes; in a poll, the most), `tie` (equal votes at the top: no winner and no lot, settled manually) or `committee-decision` (zero valid ballots, or a poll's single option without "Ja" on more than half of the valid ballots). A runoff always has exactly two candidates; a poll with a single option follows the single-candidate rule. A runoff result names the first-round contest it decides, and a poll names none, so neither a poll nor the runoff of another contest with the same two candidates can be applied as a contest's runoff.
 
+### The snapshot and turnout
+
+When the regular round closes, the API counts every ballot box over the sealed ballots (`apps/api/lib/tally.ts`) and stores one `result_snapshot` per contest (migration `0010`): the first-round result with its statistics and trace, the outcome as it stands without lots, the tally version, the application's version and commit, and the SHA-256 of what the count saw. That input is canonical JSON of the tally version, the contest (id, ruleset, candidates in ballot order) and the ballots, the ballots sorted by their content alone, so the same configuration and the same ballots give the same digest and the same result however the rows came back, and anyone holding the sealed ballots can recount and compare. A snapshot is written once and never changes, for any role; the audit log records per contest the digest, the number of ballots and the outcome's kind, never a figure.
+
+Every member reads the snapshots once the round has closed, and nobody before, the owner included. While a round is open the one thing anyone sees of its votes is turnout: per contest, how many entitlements of keys in issued batches exist and how many are used up, and per key, how many keys have used at least one. Never a candidate, never a key.
+
 ### Derived positions
 
 The ruleset's remaining functions, in order, go to the other candidates by first-round points, without the principal: two Schulsprecher deputies and three SGA substitutes, or the one deputy of a class or department representative. Runoff votes never enter; the runoff only decides whose points are left out, so the runoff loser is not automatically a deputy. Candidates with equal points who would hold different positions, or compete for the last one, form one lot request for those positions; a tie below the last position needs none. Positions with no candidate left stay vacant.
 
 ### Lots and the final outcome
 
-`resolve(firstRound, runoff, decisions)` combines the stored round results with the recorded lot outcomes. It returns `final` with every position, or the state still open: `lot-required`, `runoff-required`, `tie` or `committee-decision`.
+`resolve(firstRound, runoff, decisions)` combines the stored round results with the recorded lot outcomes. It returns `final` with every position, or the state still open: `lot-required`, `runoff-required`, `tie` or `committee-decision`. A poll has neither runoff nor lots, so `pollOutcome` turns its result into its outcome as it is: `final` with the ruleset's one function going to the choice (by majority against a single option, by the most valid votes among several), or `tie` or `committee-decision`.
 
 The election officials draw a lot, and an authorised user records its outcome as a decision: the lot's id and the drawn order of exactly its tied set. A decision for a lot that is not required, a second decision for the same lot, or an order that is not exactly the tied set is refused with a typed error. The software never draws and never carries one draw over to another lot: candidates tied for runoff entry and later again for a deputy position face two lots. `resolve` never changes its inputs, so the first-round statistics stay exactly as counted.
 
@@ -145,6 +151,8 @@ A closed round never reopens. A state transition and every guard return either a
 | Recording a lot, finalizing | after the regular round has closed, while no round is open |
 
 Whether a result actually requires a runoff or a lot is decided by the result (see above), not by the lifecycle.
+
+Opening the regular round (`apps/api/lib/rounds.ts`) is one transaction that moves the election to active and the round to open, the election first, as the database requires. Closing it is the seal followed, in the same transaction, by the count of every ballot box over the sealed ballots and one result snapshot per contest (see Results): a close that cannot count rolls back, seal included, so the round stays open, visibly, until it can. There is no closed-but-uncounted state and nothing to resume.
 
 The database keeps the same windows (migration `0007`): triggers refuse a change to contests, voter groups or their mapping outside a draft, to candidates, title or description once voting has started, the removal of a prepared contest's last candidate, and any change to a final election, and they let an election move only along the arrows above, back to draft only while no round has opened. The states are rows of `election_state`, `round_kind` and `round_state`, each with what it allows (whether the structure or the candidates may change, which state an election advances or returns to, whether a round has opened), and the triggers read those flags instead of naming states; a test keeps the rows equal to the lifecycle's states, guards and transitions. A trigger reads the election's state with a share lock on its row, so a change of state and a configuration change wait for each other instead of passing each other.
 

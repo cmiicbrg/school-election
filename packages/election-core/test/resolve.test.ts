@@ -2,8 +2,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   firstRoundResult,
+  pollOutcome,
   resolve,
   runoffResult,
+  validateBallot,
+  type Contest,
   type FirstRoundResult,
   type LotDecision,
   type Outcome,
@@ -175,4 +178,28 @@ test('a runoff that does not belong to the first round is a programming error', 
   const empty = firstRoundResult(abc, [])
   assert.throws(() => resolve(empty, runoff(['a', 'b'], [1, 0]), []), TypeError)
   assert.deepEqual(outcome(empty, undefined), { kind: 'committee-decision', reason: 'no-valid-ballots', trace: empty.trace })
+})
+
+test('a poll resolves to its result: the choice by majority or by the most votes, a tie, or the committee', () => {
+  const single: Contest = { id: 'p1', rulesetId: 'single-choice-v1', candidateIds: ['yes'] }
+  const several: Contest = { id: 'p2', rulesetId: 'single-choice-v1', candidateIds: ['a', 'b', 'c'] }
+  const cast = (contest: Contest, ...inputs: unknown[]) => inputs.map((input) => {
+    const result = validateBallot(contest, input)
+    assert.ok(result.ok)
+    return result.ballot
+  })
+  const yes = pollOutcome(runoffResult(single, cast(single, { kind: 'ranking', ranking: ['yes'] }, { kind: 'ranking', ranking: ['yes'] }, { kind: 'no' }), null))
+  assert.equal(yes.kind, 'final')
+  assert.deepEqual(yes.kind === 'final' ? yes.positions : [], [{ function: 'choice', candidateId: 'yes', basis: 'majority' }])
+
+  const most = pollOutcome(runoffResult(several, cast(several, { kind: 'ranking', ranking: ['b'] }, { kind: 'ranking', ranking: ['b'] }, { kind: 'ranking', ranking: ['a'] }), null))
+  assert.deepEqual(most.kind === 'final' ? most.positions : [], [{ function: 'choice', candidateId: 'b', basis: 'votes' }])
+
+  const tie = pollOutcome(runoffResult(several, cast(several, { kind: 'ranking', ranking: ['a'] }, { kind: 'ranking', ranking: ['b'] }), null))
+  assert.equal(tie.kind, 'tie')
+  assert.deepEqual(tie.kind === 'tie' ? [...tie.candidates].sort() : [], ['a', 'b'])
+
+  const nobody = pollOutcome(runoffResult(single, [], null))
+  assert.equal(nobody.kind, 'committee-decision')
+  assert.throws(() => pollOutcome(runoffResult({ ...several, candidateIds: ['a', 'b'] }, [], 'first')), TypeError)
 })

@@ -47,9 +47,12 @@ export {
 } from './result.ts'
 
 export {
+  OUTCOME_KINDS,
+  pollOutcome,
   resolve,
   type LotDecisionError,
   type Outcome,
+  type OutcomeKind,
   type Resolution,
 } from './resolve.ts'
 
