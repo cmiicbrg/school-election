@@ -43,7 +43,8 @@ watch(() => props.configuration, () => {
 })
 
 const voidHeading = ref<HTMLElement | null>(null)
-useDialogFocus(stale, voidHeading)
+const prepareButton = ref<HTMLButtonElement | null>(null)
+useDialogFocus(stale, voidHeading, prepareButton)
 
 /**
  * Preparing, with or without a confirmation. A confirmation names the
@@ -239,6 +240,7 @@ const staleKeys = computed(() => (stale.value ?? []).reduce((sum, batch) => sum 
     <div class="actions">
       <button
         v-if="rules.prepare"
+        ref="prepareButton"
         type="button"
         :disabled="busy"
         @click="prepare()"
