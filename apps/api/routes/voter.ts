@@ -62,10 +62,11 @@ function voterOf(request: FastifyRequest): Voter {
  * with every change of state. A round that closed, a test that ended, or a round opened or tested
  * again after that end the session, with the lifecycle's answer: a cookie from a test never casts a
  * ballot in the election or in the next test, and no session reports a round as open that is not.
- * The ballot route asks inside its transaction, the others before their read.
+ * The reads ask before their work; the ballot route asks before its work, for the answer, and again
+ * after the write with the round's row held for share, for the guarantee (see there).
  */
-async function stillVoting(client: Queryable, request: FastifyRequest, voter: Voter): Promise<void> {
-  const now = await roundNow(client, voter.roundId)
+async function stillVoting(client: Queryable, request: FastifyRequest, voter: Voter, lock = false): Promise<void> {
+  const now = await roundNow(client, voter.roundId, lock)
   if (now?.phase === voter.phase) return
   request.voterSession.delete()
   const [statusCode, code] = (now && PHASE_OVER[now.state]) ?? [401, 'no_session']
@@ -156,6 +157,13 @@ export async function voterRoutes(app: FastifyInstance, { db, config, limiter = 
       const validated = validateBallot(contest, ballot)
       if (!validated.ok) return { invalid: validated.error }
       const result = await castBallot(client, { credentialId: voter.credentialId, roundContestId, contest, ballot: validated.ballot })
+      // The phase again, now with the round's row for share, after the entitlement and the election's
+      // row that castBallot took, in the order every change of state takes them (entitlements, the
+      // election, the round): a change in flight commits first and the ballot is refused and rolled
+      // back, or the ballot commits first and the change finds it, and neither waits on the other
+      // crosswise. Without this, a test ended and another started between the check above and the
+      // write would let a cookie from the first test vote in the second.
+      await stillVoting(client, request, voter, true)
       if (!result.cast) throw new Refusal(409, REFUSALS[result.reason])
       const remaining = await remainingBoxes(client, voter.credentialId, voter.roundId)
       return { remaining }

@@ -6,6 +6,7 @@
 import { test, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
+import { setTimeout as sleep } from 'node:timers/promises'
 import type { InjectOptions, LightMyRequestResponse } from 'fastify'
 import sharp from 'sharp'
 import { generateKey, KEY_RANDOM_BYTES } from '@school-election/election-core'
@@ -244,7 +245,34 @@ test('the teacher\'s test runs through the same door: a key votes in the test, a
   // The next test is another phase of the round: a cookie from the first is no vote in it either.
   ok(await x.anna.request('POST', `${x.base}/rounds/regular/test`))
   refused(await again.ballot(box, { kind: 'ranking', ranking: [paula, quirin, renate] }), 401, 'no_session')
-  assert.equal(ok<VoterElection>(await voterBrowser(x.s).redeem(x.keys['1A']?.[1] ?? '')).remaining, 2, 'the key votes in the next test, redeemed again')
+  const racer = voterBrowser(x.s)
+  assert.equal(ok<VoterElection>(await racer.redeem(x.keys['1A']?.[1] ?? '')).remaining, 2, 'the key votes in the next test, redeemed again')
+  // The end of this test and the start of the next, in one transaction held open while a ballot of this
+  // test's session arrives: the ballot waits for the entitlements, finds the round in test mode again,
+  // and is refused all the same, because the phase it was redeemed in is over.
+  const roundId = (await withClient(x.s.ownerUrl, (client) => client.query<{ id: string }>(`select id from round where election_id = $1 and kind = 'regular'`, [x.id]))).rows[0]?.id ?? ''
+  let commit: () => void = () => {}
+  const held = new Promise<void>((resolve) => {
+    commit = resolve
+  })
+  const transition = x.s.db.tx(async (client) => {
+    const { rows: [ended] } = await client.query<{ ballots: number, keys: number }>('select ballots, keys from end_test($1)', [roundId])
+    await client.query(`update round set state = 'testing' where id = $1`, [roundId])
+    await held
+    return ended
+  })
+  const waiting = () => withClient(x.s.ownerUrl, async (client) => (await client.query<{ n: number }>(
+    `select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`,
+  )).rows[0]?.n ?? 0)
+  await sleep(50)
+  const racing = racer.ballot(box, { kind: 'ranking', ranking: [paula, quirin, renate] })
+  for (let i = 0; i < 200 && await waiting() === 0; i += 1) await sleep(25)
+  assert.equal(await waiting(), 1, 'the ballot waits for the transition')
+  commit()
+  assert.deepEqual(await transition, { ballots: 0, keys: 0 })
+  refused(await racing, 401, 'no_session')
+  assert.equal(racer.jar.values.has('__Secure-voter-session'), false)
+  assert.equal(ok<VoterElection>(await voterBrowser(x.s).redeem(x.keys['1A']?.[1] ?? '')).remaining, 2, 'the ballot was rolled back')
   assert.deepEqual(ok<{ ballots: number, keys: number }>(await x.anna.request('POST', `${x.base}/rounds/regular/test/end`)), { election: 'prepared', round: 'planned', ballots: 0, keys: 0 })
   await open(x)
   // A cookie from the test is no vote in the election: the key has to be redeemed again.

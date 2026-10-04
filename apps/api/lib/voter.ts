@@ -65,9 +65,13 @@ export interface VoterElection {
   remaining: number
 }
 
-/** The round's state and phase as they are now, or undefined once the round is gone (its election deleted after a test). */
-export async function roundNow(db: Queryable, roundId: string): Promise<{ state: RoundState, phase: string } | undefined> {
-  const { rows: [row] } = await db.query<{ state: RoundState, phase: string }>('select state, phase from round where id = $1', [roundId])
+/**
+ * The round's state and phase as they are now, or undefined once the round is gone (its election
+ * deleted after a test). With `lock`, the row is held for share until the transaction ends: a change
+ * of state in flight commits first and is seen, or waits for this transaction.
+ */
+export async function roundNow(db: Queryable, roundId: string, lock = false): Promise<{ state: RoundState, phase: string } | undefined> {
+  const { rows: [row] } = await db.query<{ state: RoundState, phase: string }>(`select state, phase from round where id = $1${lock ? ' for share' : ''}`, [roundId])
   return row
 }
 
