@@ -1,10 +1,12 @@
 // Das Protokoll: alles, was die Journey getan hat, steht in der
-// Protokollkette der Wahl, und die Kette stimmt.
+// Protokollkette der Wahl, und die Kette stimmt; die Seite zeigt genau
+// diese Einträge. Und vor dem Schließen gibt es kein Ergebnis zu lesen.
 
 import { expect, test } from '../support/test.ts'
 import { apiGet } from '../support/api.ts'
 import { electionId } from '../support/journey.ts'
 import { ANNA } from '../support/personas.ts'
+import { shot } from '../support/screenshot.ts'
 import { openAs } from '../support/sign-in.ts'
 
 test('die Protokollkette stimmt und zählt genau die Schritte der Journey', async ({ page }) => {
@@ -36,4 +38,21 @@ test('die Protokollkette stimmt und zählt genau die Schritte der Journey', asyn
   expect(audit.events.at(-1)?.action).toBe('election.prepared')
   const actors = new Set(audit.events.map((event) => event.actor.name))
   expect([...actors].toSorted()).toEqual(['Anna Lehrerin', 'Carla Kollegin', 'Wanda Zeugin'])
+
+  // The page shows the same entries, in order, as sentences.
+  await page.getByRole('navigation', { name: 'Seiten der Wahl' }).getByRole('link', { name: 'Protokoll' }).click()
+  await expect(page.getByTestId('chain')).toHaveText(`Die Protokollkette ist vollständig: ${audit.events.length} Einträge, jeder mit der Prüfsumme des vorigen.`)
+  const entries = page.getByRole('list', { name: 'Protokoll' }).getByRole('listitem')
+  await expect(entries).toHaveCount(audit.events.length)
+  await expect(entries.first()).toContainText('Wahl „Schulsprecherwahl 2026/27“ angelegt.')
+  await expect(entries.last()).toContainText('Wahl vorbereitet: 2 Wahlgänge, 2 Klassen oder Gruppen, 5 Kandidat:innen.')
+  await expect(entries.filter({ hasText: 'Paula Berger zu „Schulsprecher/in“ hinzugefügt.' })).toHaveCount(1)
+  await shot(page, '07a-protokoll-vorbereitet')
+})
+
+test('vor dem Schließen gibt es kein Ergebnis zu lesen, und die Wahl verlinkt es noch nicht', async ({ page }) => {
+  await openAs(page, ANNA, `/wahlen/${electionId()}`)
+  await expect(page.getByRole('navigation', { name: 'Seiten der Wahl' }).getByRole('link', { name: 'Ergebnis und Herleitung' })).toHaveCount(0)
+  await page.goto(`/wahlen/${electionId()}/ergebnis`)
+  await expect(page.getByTestId('early')).toHaveText('Das Ergebnis gibt es, sobald die Wahl geschlossen ist. Solange eine Runde läuft, sieht niemand Zwischenstände.')
 })
