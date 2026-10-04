@@ -70,7 +70,7 @@ function flag(on: boolean): void {
 onMounted(async () => {
   window.addEventListener('hashchange', onHashChange)
   const key = pendingKey()
-  if (key !== undefined) await redeemKey(key)
+  if (key !== undefined) enqueue(key)
   else if (flagged()) await resume()
   else go({ kind: 'code' })
 })
@@ -83,8 +83,9 @@ onBeforeUnmount(() => {
  * Another card scanned into this tab: the browser changed the fragment
  * without loading the page again, take-key.ts took the key out of it
  * before this runs, and the router, which heard the navigation first, is
- * told the address is /v again. The page starts over with the new key;
- * its redemption replaces the cookie of the session so far.
+ * told the address is /v again. The page forgets the session so far at
+ * once, whatever step it was on, and starts over with the new key, whose
+ * redemption replaces the cookie.
  */
 function onHashChange(): void {
   const key = pendingKey()
@@ -92,8 +93,36 @@ function onHashChange(): void {
   void router.replace('/v')
   election.value = null
   flag(false)
-  void redeemKey(key)
+  go({ kind: 'loading' })
+  enqueue(key)
 }
+
+// Redemptions one after another: a card that arrives while another is
+// being redeemed waits for that answer, so that the cookie set last is
+// the last card's, and of several cards that arrive meanwhile only the
+// latest is redeemed; an answer to a card that was superseded is dropped.
+let redeeming = false
+let queued: string | undefined
+
+function enqueue(key: string): void {
+  queued = key
+  if (!redeeming) void drain()
+}
+
+async function drain(): Promise<void> {
+  redeeming = true
+  try {
+    while (queued !== undefined) {
+      const key = queued
+      queued = undefined
+      await redeemKey(key)
+    }
+  } finally {
+    redeeming = false
+  }
+}
+
+const superseded = (): boolean => queued !== undefined
 
 /** A code, from the fragment or typed: checked here first, so a malformed one is never sent. */
 async function redeemKey(key: string): Promise<void> {
@@ -105,9 +134,12 @@ async function redeemKey(key: string): Promise<void> {
   message.value = null
   busy.value = true
   try {
-    arrived(await redeem(key))
+    const known = await redeem(key)
+    if (superseded()) return
     flag(true)
+    arrived(known)
   } catch (err) {
+    if (superseded()) return
     go({ kind: 'code' }, messageFor(err))
   } finally {
     busy.value = false
@@ -220,7 +252,7 @@ async function end(): Promise<void> {
       v-else-if="step.kind === 'code'"
       :message="message"
       :busy="busy"
-      @submit="redeemKey"
+      @submit="enqueue"
     />
     <ContestList
       v-else-if="step.kind === 'list' && election"

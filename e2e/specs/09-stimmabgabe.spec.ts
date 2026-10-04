@@ -195,21 +195,43 @@ test('ein zweiter Code läuft über ein Neuladen der Seite weiter; nach dem Ende
   await expect(reloaded.getByRole('status')).toHaveText('Noch 2 Wahlgänge offen.')
   await expect(reloaded).toHaveURL('/v')
 
-  // A third card scanned into the same tab: the browser changes the fragment without loading the page
-  // again; the key leaves the address all the same, and the page starts over with the new session.
-  const third = keys[2] ?? ''
+  // A third card scanned into the same tab, while the page is on a ballot: the browser changes the
+  // fragment without loading the page again; the ballot is gone at once, the key leaves the address
+  // all the same, and the page starts over with the new session.
+  const [third, fourth, fifth] = [keys[2] ?? '', keys[3] ?? '', keys[4] ?? '']
   const cookieOf = async () => (await context.cookies()).find((cookie) => cookie.name === '__Secure-voter-session')?.value
   const before = await cookieOf()
   const urls: string[] = []
-  reloaded.on('request', (request) => urls.push(request.url()))
+  const redeemed: string[] = []
+  reloaded.on('request', (request) => {
+    urls.push(request.url())
+    if (request.url().endsWith('/api/voter/session')) redeemed.push((request.postDataJSON() as { key: string }).key)
+  })
+  await reloaded.getByRole('button', { name: `Stimmzettel ausfüllen: ${SCHOOL}` }).click()
+  await reloaded.getByLabel('6 Punkte · Schulsprecher/in', { exact: true }).selectOption({ label: 'Paula Berger' })
+  // The answer takes a moment, as on a slow network: meanwhile nothing of the ballot is shown.
+  await context.route('**/api/voter/session', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    await route.continue()
+  })
   await reloaded.evaluate((key) => {
     window.location.hash = `#${key}`
   }, third)
+  await expect(reloaded.getByRole('status')).toHaveText('Einen Moment …')
+  await expect(reloaded.getByRole('combobox')).toHaveCount(0)
+  // Two more cards before that answer is in: only the last of them is redeemed, after the third's answer, which is dropped.
+  await expect.poll(() => redeemed).toEqual([third])
+  await reloaded.evaluate(([a, b]) => {
+    window.location.hash = `#${a}`
+    window.location.hash = `#${b}`
+  }, [fourth, fifth])
   await expect(reloaded.getByRole('status')).toHaveText('Noch 2 Wahlgänge offen.')
+  await context.unroute('**/api/voter/session')
+  expect(redeemed).toEqual([third, fifth])
   await expect.poll(cookieOf).not.toBe(before)
   await expect(reloaded).toHaveURL('/v')
   expect(await reloaded.evaluate(() => window.location.hash)).toBe('')
-  expect(urls.filter((url) => url.includes(third))).toEqual([])
+  expect(urls.filter((url) => url.includes(third) || url.includes(fourth) || url.includes(fifth))).toEqual([])
 
   // The test ends: the first key's two ballots, one of them invalid, are gone, its entitlements unused again.
   const ended = await apiPost<{ election: string, round: string, ballots: number, keys: number }>(anna, `${rounds()}/test/end`)
