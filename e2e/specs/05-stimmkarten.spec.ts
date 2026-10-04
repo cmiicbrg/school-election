@@ -102,6 +102,7 @@ test('einen Stapel ersetzen: die alten Codes gelten nicht mehr, bleiben aber zum
   const oldKeys = await keysOf(old)
   await sheets().getByRole('button', { name: 'Stapel ersetzen: 1A, Wahl' }).click()
   const dialog = sheets().getByRole('alertdialog', { name: 'Stapel ersetzen?' })
+  await expect(dialog.getByRole('heading', { name: 'Stapel ersetzen?' })).toBeFocused()
   await expect(dialog).toContainText('Die 25 bisherigen Stimmkarten für 1A (Wahl) werden ungültig.')
   await shot(page, '12-stapel-ersetzen')
   await dialog.getByRole('button', { name: 'Ja, Stapel ersetzen' }).click()

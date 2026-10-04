@@ -32,11 +32,13 @@ test('die 2B wählt nun auch die Klassensprecher:in: ihre Stimmkarten passen nic
   // Preparing is refused until the voiding is confirmed: that refusal is the dialog.
   await refused(page, 409, () => page.getByRole('button', { name: 'Vorbereiten', exact: true }).click())
   const dialog = page.getByRole('alertdialog', { name: 'Stimmkarten werden ungültig' })
+  await expect(dialog.getByRole('heading', { name: 'Stimmkarten werden ungültig' })).toBeFocused()
   await expect(dialog).toContainText('2B: 20 Stimmkarten')
   await expect(page.getByText(/^Entwurf · Ihre Rolle/)).toBeVisible()
   await shot(page, '13-stimmkarten-werden-ungueltig')
   await dialog.getByRole('button', { name: 'Abbrechen' }).click()
   await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Vorbereiten', exact: true })).toBeFocused()
   await expect(page.getByText(/^Entwurf · Ihre Rolle/)).toBeVisible()
 
   await refused(page, 409, () => page.getByRole('button', { name: 'Vorbereiten', exact: true }).click())

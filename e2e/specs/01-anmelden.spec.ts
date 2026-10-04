@@ -2,9 +2,10 @@
 // Anmeldeseite und kommt nach der Anmeldung dorthin, wo er hinwollte.
 
 import { expect, test } from '../support/test.ts'
+import { refused } from '../support/console.ts'
 import { ANNA } from '../support/personas.ts'
 import { shot } from '../support/screenshot.ts'
-import { signInAs, signOut } from '../support/sign-in.ts'
+import { openAs, signInAs, signOut } from '../support/sign-in.ts'
 
 test.describe.configure({ mode: 'serial' })
 
@@ -23,6 +24,17 @@ test('wer nicht angemeldet ist, landet auf der Anmeldeseite und kommt angemeldet
 
 test('ein Link in die App führt nach der Anmeldung dorthin', async ({ page }) => {
   await page.goto('/wahlen/neu')
+  await expect(page).toHaveURL(/\/anmelden\?returnTo=(%2F|\/)wahlen(%2F|\/)neu$/)
+  await signInAs(page, ANNA)
+  await expect(page).toHaveURL(/\/wahlen\/neu$/)
+  await expect(page.getByRole('heading', { name: 'Neue Wahl' })).toBeVisible()
+})
+
+test('eine abgelaufene Sitzung führt zur Anmeldeseite und nach der Anmeldung zurück', async ({ page }) => {
+  await openAs(page, ANNA, '/wahlen/neu')
+  await page.context().clearCookies()
+  await page.getByLabel('Titel', { exact: true }).fill('Probewahl')
+  await refused(page, 401, () => page.getByRole('button', { name: 'Wahl anlegen' }).click())
   await expect(page).toHaveURL(/\/anmelden\?returnTo=(%2F|\/)wahlen(%2F|\/)neu$/)
   await signInAs(page, ANNA)
   await expect(page).toHaveURL(/\/wahlen\/neu$/)

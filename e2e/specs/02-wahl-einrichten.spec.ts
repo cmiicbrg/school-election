@@ -105,10 +105,15 @@ test('die Klassen und was sie wählen', async () => {
     await form.getByRole('button', { name: 'Klasse oder Gruppe hinzufügen' }).click()
     await expect(page.getByRole('article', { name, exact: true })).toBeVisible()
   }
+  // Preparing is refused while a class votes nowhere; what is missing is listed until it is supplied.
+  const missing = page.getByRole('region', { name: 'Vorbereiten' }).getByRole('list', { name: 'Was noch fehlt' })
+  await refused(page, 409, () => page.getByRole('button', { name: 'Vorbereiten', exact: true }).click())
+  await expect(missing).toContainText('Die Klasse oder Gruppe „1A“ wählt in keinem Wahlgang.')
   await assignContest(page, '1A', SCHOOL)
   await assignContest(page, '1A', CLASS_1A)
   await assignContest(page, '2B', SCHOOL)
   await expect(page.getByRole('article', { name: '2B', exact: true }).getByRole('checkbox', { name: CLASS_1A })).not.toBeChecked()
+  await expect(missing).toHaveCount(0)
   await shot(page, '05-klassen')
 
   const { body: configuration } = await apiGet<{ voterGroups: { name: string, contestIds: string[] }[] }>(page, `/api/elections/${electionId()}/configuration`)
