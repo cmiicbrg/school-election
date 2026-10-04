@@ -104,13 +104,18 @@ export async function buildExport(client: pg.ClientBase, electionId: string, bui
  * in one more.
  */
 async function exportRounds(client: pg.ClientBase, electionId: string, rounds: readonly RoundRow[], configuration: Configuration): Promise<ExportDocument['rounds']> {
+  // One pass over the entitlements of every box, as the turnout query reads them: issued batches' keys count, used ones among them.
   const { rows: boxes } = await client.query<BoxRow>(
     `select rc.id, rc.round_id, rc.contest_id, rc.runoff_pair,
-            (select count(*) from credential_entitlement e join credential c on c.id = e.credential_id join credential_batch b on b.id = c.batch_id
-              where e.round_contest_id = rc.id and b.state = 'issued')::int as issued,
-            (select count(*) from credential_entitlement e join credential c on c.id = e.credential_id join credential_batch b on b.id = c.batch_id
-              where e.round_contest_id = rc.id and b.state = 'issued' and e.consumed)::int as used
-       from round_contest rc join round r on r.id = rc.round_id where r.election_id = $1`,
+            count(e.credential_id) filter (where b.state = 'issued')::int as issued,
+            count(e.credential_id) filter (where b.state = 'issued' and e.consumed)::int as used
+       from round_contest rc
+       join round r on r.id = rc.round_id
+       left join credential_entitlement e on e.round_contest_id = rc.id
+       left join credential c on c.id = e.credential_id
+       left join credential_batch b on b.id = c.batch_id
+      where r.election_id = $1
+      group by rc.id, rc.round_id, rc.contest_id, rc.runoff_pair`,
     [electionId],
   )
   const closedBoxes = boxes.filter((box) => rounds.some((round) => round.id === box.round_id && round.state === 'closed')).map((box) => box.id)
