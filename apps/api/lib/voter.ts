@@ -12,7 +12,7 @@ import { compareCandidates, compareLabels } from './names.ts'
 /** The pool or a client in a transaction: both answer a query. */
 export type Queryable = Pick<Database, 'query'>
 
-/** The phases of a round in which a key votes: the election, or the teacher's test. */
+/** The states of a round in which a key votes: the election, or the teacher's test. */
 export type VotingState = 'open' | 'testing'
 
 export interface RedeemedKey {
@@ -21,13 +21,15 @@ export interface RedeemedKey {
   /** The key's round, or null while the batch's round does not exist yet (runoff keys before activation). */
   roundId: string | null
   roundState: RoundState | null
+  /** The round's phase (migration 0012): a fresh id each time its state changes, so a session knows when its phase is over. */
+  phase: string | null
   acceptsBallots: boolean
 }
 
 /** The key as stored, of an issued batch, with its round as it is now; undefined for an unknown key or one of a void batch, alike. */
 export async function lookUpKey(db: Queryable, key: string): Promise<RedeemedKey | undefined> {
-  const { rows: [row] } = await db.query<{ id: string, election_id: string, round_id: string | null, state: RoundState | null, accepts: boolean | null }>(
-    `select c.id, c.election_id, r.id as round_id, r.state, rs.accepts_ballots as accepts
+  const { rows: [row] } = await db.query<{ id: string, election_id: string, round_id: string | null, state: RoundState | null, phase: string | null, accepts: boolean | null }>(
+    `select c.id, c.election_id, r.id as round_id, r.state, r.phase, rs.accepts_ballots as accepts
        from credential c
        join credential_batch b on b.id = c.batch_id and b.state = 'issued'
        left join round r on r.election_id = c.election_id and r.kind = b.round_kind
@@ -36,7 +38,7 @@ export async function lookUpKey(db: Queryable, key: string): Promise<RedeemedKey
     [key],
   )
   if (!row) return undefined
-  return { credentialId: row.id, electionId: row.election_id, roundId: row.round_id, roundState: row.state, acceptsBallots: row.accepts === true }
+  return { credentialId: row.id, electionId: row.election_id, roundId: row.round_id, roundState: row.state, phase: row.phase, acceptsBallots: row.accepts === true }
 }
 
 export interface VoterCandidate {
@@ -63,10 +65,10 @@ export interface VoterElection {
   remaining: number
 }
 
-/** The round's state as it is now, or undefined once the round is gone (its election deleted after a test). */
-export async function roundStateNow(db: Queryable, roundId: string): Promise<RoundState | undefined> {
-  const { rows: [row] } = await db.query<{ state: RoundState }>('select state from round where id = $1', [roundId])
-  return row?.state
+/** The round's state and phase as they are now, or undefined once the round is gone (its election deleted after a test). */
+export async function roundNow(db: Queryable, roundId: string): Promise<{ state: RoundState, phase: string } | undefined> {
+  const { rows: [row] } = await db.query<{ state: RoundState, phase: string }>('select state, phase from round where id = $1', [roundId])
+  return row
 }
 
 /** The election's title and the contests the key is entitled to in its round, in the configuration's order with candidates in ballot order, each with whether the key has voted there. */

@@ -22,7 +22,7 @@ import type { Database } from '../lib/db.ts'
 import { Refusal } from '../lib/election-access.ts'
 import { matchesEtag, pictureEtag } from '../lib/pictures.ts'
 import { BallotBody, BallotCast, SessionBody, VoterElection, VoterRefusal } from '../lib/schemas/voter.ts'
-import { entitledBox, lookUpKey, remainingBoxes, roundStateNow, voterElection, voterPicture, type Queryable, type VotingState } from '../lib/voter.ts'
+import { entitledBox, lookUpKey, remainingBoxes, roundNow, voterElection, voterPicture, type Queryable, type VotingState } from '../lib/voter.ts'
 import { registerVoterSession, VOTER_SESSION_SECONDS, type Voter } from '../plugins/voter-session.ts'
 
 export interface VoterRoutesOptions {
@@ -58,16 +58,17 @@ function voterOf(request: FastifyRequest): Voter {
 }
 
 /**
- * The session holds while its round stays in the phase it was redeemed in. A round that closed, a test
- * that ended, or the election opened after a test end the session, with the lifecycle's answer: a
- * cookie from the test never casts a ballot in the election, and no session reports a round as open
- * that is not. The ballot route asks inside its transaction, the others before their read.
+ * The session holds while its round stays in the phase it was redeemed in, which the database renews
+ * with every change of state. A round that closed, a test that ended, or a round opened or tested
+ * again after that end the session, with the lifecycle's answer: a cookie from a test never casts a
+ * ballot in the election or in the next test, and no session reports a round as open that is not.
+ * The ballot route asks inside its transaction, the others before their read.
  */
 async function stillVoting(client: Queryable, request: FastifyRequest, voter: Voter): Promise<void> {
-  const state = await roundStateNow(client, voter.roundId)
-  if (state === voter.round) return
+  const now = await roundNow(client, voter.roundId)
+  if (now?.phase === voter.phase) return
   request.voterSession.delete()
-  const [statusCode, code] = (state && PHASE_OVER[state]) ?? [401, 'no_session']
+  const [statusCode, code] = (now && PHASE_OVER[now.state]) ?? [401, 'no_session']
   throw new Refusal(statusCode, code)
 }
 
@@ -104,11 +105,11 @@ export async function voterRoutes(app: FastifyInstance, { db, config, limiter = 
         limiter.end(request.ip)
       }
     }
-    if (found.roundId === null || !found.acceptsBallots) {
+    if (found.roundId === null || found.phase === null || !found.acceptsBallots) {
       return reply.code(409).send({ error: found.roundState === 'closed' ? 'round_closed' : 'round_planned' })
     }
     const round: VotingState = found.roundState === 'testing' ? 'testing' : 'open'
-    request.voterSession.set('voter', { credentialId: found.credentialId, electionId: found.electionId, roundId: found.roundId, round, issuedAt: Date.now() })
+    request.voterSession.set('voter', { credentialId: found.credentialId, electionId: found.electionId, roundId: found.roundId, round, phase: found.phase, issuedAt: Date.now() })
     return voterElection(db, found.credentialId, found.roundId, round)
   })
 

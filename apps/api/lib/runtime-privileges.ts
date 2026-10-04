@@ -43,7 +43,8 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   voter_group_contest: { table: ['SELECT', 'INSERT', 'DELETE'] },
   // Preparing creates the regular round and its ballot boxes. A round's
   // state moves along round_transition: opening is a direct update, closing
-  // is the seal's (migration 0009). No round is removed.
+  // is the seal's (migration 0009); its phase is the trigger's (0012). No
+  // round is removed.
   round: { table: ['SELECT', 'INSERT'], updateColumns: ['state'] },
   round_contest: { table: ['SELECT', 'INSERT', 'DELETE'] },
   // Keys are issued in batches and a batch is voided; keys and batches are
