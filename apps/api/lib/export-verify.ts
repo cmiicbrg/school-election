@@ -63,6 +63,7 @@ export function verifyExport(input: unknown): Report {
     }
     checkOutcomes(run)
     checkChain(run)
+    checkImpliedEvents(run)
     checkEvents(run)
     checkBatches(run)
     checkLots(run)
@@ -85,7 +86,10 @@ function checkSnapshotsOnePerBox({ document, check }: Run): void {
 function checkRoundNotClosed({ check }: Run, round: ExportDocument['rounds'][number]): void {
   const known = (ROUND_STATES as readonly string[]).includes(round.state)
   const empty = round.boxes.every((box) => box.ballots.length === 0)
-  check(`${round.kind} round, ${round.state}`, known && empty, known ? (empty ? 'no ballots, as a round not closed has none in the file' : 'a box of a round not closed carries ballots') : 'a state the lifecycle does not know')
+  let detail = 'no ballots, as a round not closed has none in the file'
+  if (!known) detail = 'a state the lifecycle does not know'
+  else if (!empty) detail = 'a box of a round not closed carries ballots'
+  check(`${round.kind} round, ${round.state}`, known && empty, detail)
 }
 
 /** A box of a closed round: the rows as written, the ballots, the digest, the result and the outcome as of the close. */
@@ -170,17 +174,23 @@ function checkOutcomes(run: Run): void {
   }
 }
 
-/** The audit chain: of this election, recomputed, as exported, and not empty; then the events the rounds and the snapshots imply. */
-function checkChain({ document, check, titleOf }: Run): void {
+/** The audit chain: of this election, recomputed, as exported, and not empty. */
+function checkChain({ document, check }: Run): void {
   const { events } = document.audit
   const ofThisElection = events.length > 0 && events.every((event) => event.electionId === document.election.id)
   check('audit chain of this election', ofThisElection, ofThisElection ? `every event names election ${document.election.id}` : 'the events name another election than the file')
   const chain = verifyAuditChain(events)
-  let detail = `broken at event ${chain.valid ? 0 : chain.index}: ${chain.valid ? '' : chain.problem}`
-  if (chain.valid) detail = chain.length > 0 ? `${chain.length} events, head ${chain.head ?? 'none'}` : 'no events: an election has at least its creation'
+  let detail = 'no events: an election has at least its creation'
+  if (!chain.valid) detail = `broken at event ${chain.index}: ${chain.problem}`
+  else if (chain.length > 0) detail = `${chain.length} events, head ${chain.head ?? 'none'}`
   check('audit chain', chain.valid && chain.length > 0, detail)
   const asExported = canonicalJson(chain) === canonicalJson(document.audit.chain)
   check('audit chain as exported', asExported, asExported ? 'the recomputed chain is the one the file states' : 'the file states another chain than its events give')
+}
+
+/** The events the file's rounds and snapshots imply: every close, the runoff's activation, every result with its digest. */
+function checkImpliedEvents({ document, check, titleOf }: Run): void {
+  const { events } = document.audit
   for (const round of document.rounds) {
     if (round.state !== 'closed') continue
     const closed = events.some((event) => event.action === 'round.closed' && event.metadata.round === round.kind)
@@ -250,7 +260,7 @@ function checkBatches({ document, check }: Run): void {
   const { events } = document.audit
   for (const batch of document.batches) {
     const issued = events.find((event) => (event.action === 'credential-batch.issued' && event.metadata.batch === batch.id) || (event.action === 'credential-batch.replaced' && event.metadata.replacement === batch.id))
-    const asIssued = issued !== undefined && issued.metadata.keys === batch.keys && issued.metadata.group === batch.voterGroupId && issued.metadata.round === batch.roundKind
+    const asIssued = issued?.metadata.keys === batch.keys && issued.metadata.group === batch.voterGroupId && issued.metadata.round === batch.roundKind
     const voided = events.some((event) => (event.action === 'credential-batch.replaced' || event.action === 'credential-batch.voided') && event.metadata.batch === batch.id)
     const stated = batch.state === 'issued' || batch.state === 'void'
     const ok = asIssued && stated && voided === (batch.state === 'void')
@@ -284,8 +294,8 @@ function checkLots({ document, check, titleOf }: Run): void {
   const { events } = document.audit
   for (const lot of document.lots) {
     const event = lotEventOf(document, lot.contestId, lot.lotId)
-    const same = event !== undefined && event.metadata.order === lot.drawn.join(',') && event.metadata.candidates === lot.candidates.join(',') && event.metadata.reason === lot.reason && event.actor.name === lot.actorName
-    const timed = event !== undefined && lot.recordedAt <= event.at && Date.parse(event.at) - Date.parse(lot.recordedAt) < 60_000
+    const same = event?.metadata.order === lot.drawn.join(',') && event.metadata.candidates === lot.candidates.join(',') && event.metadata.reason === lot.reason && event.actor.name === lot.actorName
+    const timed = event?.at !== undefined && lot.recordedAt <= event.at && Date.parse(event.at) - Date.parse(lot.recordedAt) < 60_000
     const ok = same && timed
     let detail = 'no event records this lot with this set, order, reason and actor'
     if (ok) detail = `recorded by ${lot.actorName} at ${event.at}, as event ${event.seq} says`
