@@ -1,0 +1,31 @@
+// Voting on a phone as a student does, for the specs that need ballots
+// cast and not the ballot page itself (09 covers that): the card's code
+// in the fragment, one complete ballot per contest given, filled by the
+// candidates' names in the order of the rows, checked and cast; the
+// session ends with the last ballot.
+
+import { expect, type BrowserContext } from '@playwright/test'
+
+export interface Ballot {
+  /** The contest's title, as the list of contests names it. */
+  contest: string
+  /** The candidates' names in the order of the ballot's rows: one for a runoff or a poll. */
+  ranking: readonly string[]
+}
+
+export async function voteOnPhone(context: BrowserContext, key: string, ballots: readonly Ballot[]): Promise<void> {
+  const page = await context.newPage()
+  await page.goto(`/v#${key}`)
+  await expect(page.getByRole('list', { name: 'Wahlgänge' })).toBeVisible()
+  for (const ballot of ballots) {
+    await page.getByRole('button', { name: `Stimmzettel ausfüllen: ${ballot.contest}` }).click()
+    const rows = page.getByRole('combobox')
+    await expect(rows).toHaveCount(ballot.ranking.length)
+    for (const [index, name] of ballot.ranking.entries()) await rows.nth(index).selectOption({ label: name })
+    await page.getByRole('button', { name: 'Prüfen' }).click()
+    await expect(page.getByRole('status')).toHaveText('Gültige Stimme.')
+    await page.getByRole('button', { name: 'Abgeben', exact: true }).click()
+  }
+  await expect(page.getByRole('heading', { name: 'Danke!' })).toBeVisible()
+  await page.close()
+}
