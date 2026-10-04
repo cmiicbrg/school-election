@@ -9,7 +9,8 @@ import { createDatabase } from '../../lib/db.ts'
 import { closeAndTally, closeRound } from '../../lib/rounds.ts'
 import { DB, withClient } from '../helpers/db.ts'
 import { accessAs } from '../helpers/elections.ts'
-import { assertUnlinkable, castBallotCaster, openScenario, seedPrivacyScenario, sqlCaster, voteInterleaved } from '../helpers/privacy.ts'
+import { buildTestApp } from '../helpers/app.ts'
+import { assertUnlinkable, ballotInput, castBallotCaster, openScenario, seedPrivacyScenario, sqlCaster, voteInterleaved, type Caster, type PrivacyScenario } from '../helpers/privacy.ts'
 
 test('one key voting in three contests among fifty others leaves no trace of which ballots were its', DB, async (t) => {
   const scenario = await seedPrivacyScenario(t)
@@ -83,6 +84,49 @@ test('a test before the election leaves nothing of itself: its ballots removed, 
   // The election, over what the test left: the test's transaction ids stay on the list of what the seal must not keep.
   scenario.castOrder.length = 0
   await voteInterleaved(scenario, castBallotCaster(db, scenario))
+  const access = await accessAs(scenario.ownerUrl, scenario.electionId, 'owner')
+  const { ballots } = await db.tx(async (client) => {
+    await lockElection(client, scenario.electionId)
+    return closeRound(client, access, 'regular')
+  })
+  assert.equal(ballots, scenario.castOrder.length)
+  await assertUnlinkable(scenario)
+})
+
+/** Casts through the voter routes, as a browser does: one session per key, redeemed with the key as printed, the ballot as the page sends it. */
+async function httpCaster(scenario: PrivacyScenario, t: Parameters<typeof seedPrivacyScenario>[0]): Promise<Caster> {
+  const db = createDatabase(scenario.runtimeUrl, () => {})
+  t.after(() => db.close())
+  const { app } = await buildTestApp({}, db)
+  t.after(() => app.close())
+  const keys = new Map(await withClient(scenario.ownerUrl, async (client) =>
+    (await client.query<{ id: string, key: string }>('select id, key from credential')).rows.map((row) => [row.id, row.key] as const)))
+  const cookies = new Map<string, string>()
+  const sameOrigin = { 'sec-fetch-site': 'same-origin' }
+  return async (vote) => {
+    let cookie = cookies.get(vote.credentialId)
+    if (cookie === undefined) {
+      const redeemed = await app.inject({ method: 'POST', url: '/api/voter/session', headers: sameOrigin, payload: { key: keys.get(vote.credentialId) } })
+      assert.equal(redeemed.statusCode, 200, redeemed.body)
+      cookie = redeemed.cookies.map((c) => `${c.name}=${encodeURIComponent(c.value)}`).join('; ')
+      cookies.set(vote.credentialId, cookie)
+    }
+    const contest = scenario.contests.find((c) => c.boxId === vote.boxId) ?? assert.fail('no contest for the box')
+    const cast = await app.inject({ method: 'POST', url: '/api/voter/ballot', headers: { ...sameOrigin, cookie }, payload: { roundContestId: vote.boxId, ballot: ballotInput(vote, contest) } })
+    assert.equal(cast.statusCode, 200, cast.body)
+    const { rows: [written] } = await withClient(scenario.ownerUrl, (client) => client.query<{ xid: string }>(
+      'select xmin::text as xid from credential_entitlement where credential_id = $1 and round_contest_id = $2',
+      [vote.credentialId, vote.boxId],
+    ))
+    scenario.voteXids.add(written?.xid ?? assert.fail('the entitlement the vote used up'))
+  }
+}
+
+test('and through the voter routes, the whole way a browser takes: redeemed keys, sealed cookies, ballots as the page sends them', DB, async (t) => {
+  const scenario = await seedPrivacyScenario(t)
+  await voteInterleaved(scenario, await httpCaster(scenario, t))
+  const db = createDatabase(scenario.runtimeUrl, () => {})
+  t.after(() => db.close())
   const access = await accessAs(scenario.ownerUrl, scenario.electionId, 'owner')
   const { ballots } = await db.tx(async (client) => {
     await lockElection(client, scenario.electionId)

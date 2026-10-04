@@ -15,7 +15,16 @@
 import assert from 'node:assert/strict'
 import type { TestContext } from 'node:test'
 import type pg from 'pg'
-import { activeSlots, RULESETS, validateBallot, type BallotKind, type Contest, type RulesetId } from '@school-election/election-core'
+import {
+  activeSlots,
+  generateKey,
+  KEY_ALPHABET,
+  RULESETS,
+  validateBallot,
+  type BallotKind,
+  type Contest,
+  type RulesetId,
+} from '@school-election/election-core'
 import { castBallot } from '../../lib/ballot-box.ts'
 import type { Database } from '../../lib/db.ts'
 import { inOrder } from '../../lib/in-order.ts'
@@ -78,12 +87,20 @@ const CONTESTS: { id: string, boxId: string, title: string, rulesetId: RulesetId
  * PostgreSQL container's log for both once the tests have run
  * (.github/workflows/ci.yml).
  */
-export const CANARY_KEY = 'CANARYKEY00000000000'
+/** A well-formed key (the voter route parses it) that starts with a value no other key does; its check symbol follows. */
+export const CANARY_KEY = generateKey(Uint8Array.from('CANARYKEY0000000000', (symbol) => KEY_ALPHABET.indexOf(symbol)))
 export const CANARY_CANDIDATE_SEGMENT = '0ca0a0a0a0'
 const canaryCandidateId = (contest: number, n: number) => `${contest}a0a0a0a-0a0a-4a0a-8a0a-${CANARY_CANDIDATE_SEGMENT}${String(n).padStart(2, '0')}`
 
 /** A normalised key that is no real key: digits only, numbered. */
-const fakeKey = (n: number) => String(n).padStart(20, '0')
+/** The n-th well-formed key of the others, from n written into its last symbols: the same in every run. */
+function fakeKey(n: number): string {
+  const bytes = new Uint8Array(19)
+  bytes[18] = n & 31
+  bytes[17] = (n >> 5) & 31
+  bytes[16] = (n >> 10) & 31
+  return generateKey(bytes)
+}
 
 /**
  * A prepared election with the three contests, one voter group that votes
@@ -245,7 +262,7 @@ export function sqlCaster(client: pg.Client, scenario: PrivacyScenario): Caster 
 }
 
 /** What the voter would submit for a planned vote, for election-core to validate. */
-function ballotInput(vote: Vote, contest: ScenarioContest): unknown {
+export function ballotInput(vote: Vote, contest: ScenarioContest): unknown {
   switch (vote.kind) {
     case 'no':
       return { kind: 'no' }
