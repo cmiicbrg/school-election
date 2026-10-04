@@ -137,8 +137,8 @@ With linger enabled, `podman-restart.service` starts every container with `resta
 ## Backups
 
 - Logical dumps only, and without the ballot box: `(umask 077 && podman compose exec -T postgres pg_dump -U postgres -d school_election --format=custom --exclude-table-data=ballot_box > school-election-$(date +%F).dump)`. A dump outlives the election, and ballots must not. It still holds names, addresses, candidate pictures and the audit log, hence the umask: only `election` may read it.
-- Never during an election, from opening its first round until the clean-up after its export has finished. In that time, also no file-level copy or snapshot of the PostgreSQL volume or the virtual machine: until the clean-up, deleted rows and the write-ahead log in the data files can still link ballots to keys.
-- No WAL archiving and no point-in-time recovery. `archive_mode` is off, and the app refuses to start otherwise.
+- Never during an election, from opening its first round until the election is final. In that time, also no file-level copy or snapshot of the PostgreSQL volume or the virtual machine: until finalization, whose first step is the clean-up, deleted rows and the write-ahead log in the data files can still link ballots to keys.
+- No WAL archiving, no point-in-time recovery, no replication slot and no standby. `archive_mode` is off, `max_replication_slots` and `max_wal_senders` are 0, and the app refuses to start otherwise. Finalizing an election refuses while something still holds its write-ahead log or an older snapshot (a running dump, for instance), and is simply tried again afterwards.
 
 ## Logs
 

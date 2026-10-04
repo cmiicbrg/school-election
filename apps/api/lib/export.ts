@@ -4,8 +4,9 @@
 // ballots or name a key. Every section is read by named columns, never
 // select *, so a column added to a table never reaches the file. Sealed
 // ballots come without ids and in content order; keys and entitlements
-// as counts; pictures not at all. The document is canonical JSON, so the
-// same election gives the same bytes and one SHA-256, which the audit
+// as counts; pictures not at all; the outcomes as they stand and, once
+// the election is final, as declared. The document is canonical JSON, so
+// the same election gives the same bytes and one SHA-256, which the audit
 // event records.
 
 import { createHash } from 'node:crypto'
@@ -92,6 +93,9 @@ export async function buildExport(client: pg.ClientBase, electionId: string, bui
     snapshots,
     lots: outcomes.flatMap((entry) => entry.lots.map((lot) => ({ contestId: entry.contestId, ...lot }))),
     outcomes: outcomes.map((entry) => ({ contestId: entry.contestId, outcome: entry.outcome })),
+    finalOutcomes: outcomes.flatMap(({ declared }) => declared === null
+      ? []
+      : [{ contestId: declared.contestId, kind: declared.outcome.kind, outcome: declared.outcome, tallyVersion: declared.tallyVersion, appVersion: declared.appVersion, gitSha: declared.gitSha }]),
     audit: { events, chain: verifyAuditChain(events) },
   }
   const text = canonicalJson(document)

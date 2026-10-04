@@ -85,6 +85,11 @@ export const AUDIT_ACTIONS = {
   // An export of the election: the SHA-256 of the file and its size, so a
   // file in a committee's hands can be matched to the log.
   'export.generated': { sha256: 'text', bytes: 'count' },
+  // The election ended, by its owner, with the reason given: how many
+  // contests had a final outcome and how many were left as they stood (a
+  // lot not drawn, a runoff not held, a tie). The outcomes themselves are
+  // in final_outcome, never here.
+  'election.finalized': { reason: 'long-text', resolved: 'count', unresolved: 'count' },
 } as const satisfies Readonly<Record<string, Readonly<Record<string, AuditField>>>>
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS

@@ -51,12 +51,13 @@ test('a co-admin may do everything but manage members; a witness may do nothing'
   }
 })
 
-test('a witness reads keys once the batch\'s round has closed; the owner and co-admins any time', () => {
+test('a witness reads keys once the batch\'s round has closed or the election is final; the owner and co-admins any time', () => {
   assert.equal(mayReadKeys('witness', PREPARED, 'regular'), false)
   assert.equal(mayReadKeys('witness', ACTIVE, 'regular'), false)
   assert.equal(mayReadKeys('witness', CLOSED, 'regular'), true)
   assert.equal(mayReadKeys('witness', CLOSED, 'runoff'), false)
   assert.equal(mayReadKeys('witness', { election: 'active', regular: 'closed', runoff: 'closed' }, 'runoff'), true)
+  assert.equal(mayReadKeys('witness', FINAL, 'runoff'), true, 'the voided runoff keys of an election that held no runoff')
   assert.equal(mayReadKeys('owner', DRAFT, 'regular'), true)
   assert.equal(mayReadKeys('admin', ACTIVE, 'runoff'), true)
 })

@@ -31,6 +31,8 @@ services:
       -c wal_recycle=off
       -c wal_keep_size=0
       -c summarize_wal=off
+      -c max_replication_slots=0
+      -c max_wal_senders=0
       -c log_statement=none
       -c log_error_verbosity=terse
       -c log_min_error_statement=panic

@@ -37,3 +37,13 @@ Out of scope:
 - denial of service through traffic volume;
 - the physical process at the polling place, such as how voting slips are handed out;
 - findings that require an outdated browser or a compromised voter device.
+
+## Residual risks
+
+The privacy model ([`docs/privacy-model.md`](docs/privacy-model.md)) removes what PostgreSQL itself records about a vote: the seal at every round's close and the clean-up at finalization take the transaction ids, the physical order, the dead row versions and the write-ahead log of the votes out of the data directory, and the server refuses to start with settings that would keep, archive, recycle or stream that log. What it does not cover, by design:
+
+- deleted files and segments stay recoverable by disk forensics until the file system overwrites them;
+- a backup, a dump with system columns, or a snapshot of the volume or the machine taken between the opening of the first round and finalization holds the pre-seal pages and the write-ahead log, which is why the operator guide keeps every backup and snapshot out of that window;
+- a root on the running server or a superuser on the database can read the staged ballots while a round is open.
+
+A way to link ballots to keys, or to each other, that does not need one of these is in scope; please report it.

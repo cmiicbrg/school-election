@@ -3,6 +3,7 @@
 import { Type } from 'typebox'
 import { MAX_CANDIDATES } from '../configuration.ts'
 import { MultiLineText, StrictObject, Uuid } from './common.ts'
+import { Finalization } from './finalize.ts'
 import { Snapshot } from './rounds.ts'
 
 /** The most candidates one lot can be drawn among: every candidate of a contest; that many ids, comma-separated, fit the event's long text. */
@@ -32,7 +33,11 @@ export const RecordedLot = StrictObject({
   recordedAt: Type.String(),
 })
 
-/** Per contest: the first-round snapshot, the runoff's once it has closed, the recorded lots, and the outcome as it stands. */
+/**
+ * Per contest: the first-round snapshot, the runoff's once it has closed,
+ * the recorded lots, and the outcome as it stands, or as declared once the
+ * election is final; and the finalization, null before.
+ */
 export const ElectionResult = StrictObject({
   contests: Type.Array(StrictObject({
     contestId: Type.String(),
@@ -41,4 +46,5 @@ export const ElectionResult = StrictObject({
     lots: Type.Array(RecordedLot),
     outcome: Type.Unknown(),
   })),
+  finalized: Type.Union([Finalization, Type.Null()]),
 })

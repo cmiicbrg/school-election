@@ -3,9 +3,13 @@
 // recorded so far, through election-core's resolve (a poll's through
 // pollOutcome). Computed on every read and stored nowhere: the snapshots
 // are the sealed truth, the lots the officials', and the outcome follows
-// from them; the final positions are written once, at finalization. A
-// resolution the stored decisions make refuse is a hard error, like a
-// missing snapshot: the database was changed by hand.
+// from them. At finalization the outcome as it stands is written once,
+// per contest, with the versions that derived it (final_outcome, migration
+// 0014), and from then on the declared outcome is the contest's: a final
+// election shows what was declared, whatever a later version derives, and
+// nothing of it is resolved again. A resolution the stored decisions make
+// refuse is a hard error, like a missing snapshot: the database was
+// changed by hand.
 
 import type pg from 'pg'
 import { pollOutcome, resolve, type FirstRoundResult, type LotDecision, type Outcome, type Resolution, type RulesetId, type RunoffResult } from '@school-election/election-core'
@@ -39,7 +43,10 @@ export interface ContestOutcome {
   first: Snapshot
   runoff: Snapshot | null
   lots: RecordedLot[]
+  /** As it stands: resolved now, or, once the election is final, as declared. */
   outcome: Outcome
+  /** The declaration, once the election is final. */
+  declared: FinalOutcome | null
 }
 
 /** What cannot be: a snapshot of the wrong kind, or stored decisions resolve refuses. Never a user error. */
@@ -127,9 +134,11 @@ export function outcomeOf(rulesetId: RulesetId, first: Snapshot, runoff: Snapsho
 /**
  * Every contest of the election, in the configuration's order, with its
  * first-round snapshot, its runoff snapshot where the runoff round has
- * closed, its recorded lots and its outcome as it stands. Read once the
- * regular round has closed, when every contest has its snapshot: one
- * without is a database changed by hand, and an error.
+ * closed, its recorded lots and its outcome as it stands: resolved now,
+ * or the declared one once the election is final, which needs no
+ * resolution by the version running today. Read once the regular round
+ * has closed, when every contest has its snapshot: one without is a
+ * database changed by hand, and an error.
  */
 export async function contestOutcomes(client: pg.ClientBase, electionId: string): Promise<ContestOutcome[]> {
   const { rows } = await client.query<SnapshotRow>(
@@ -142,6 +151,7 @@ export async function contestOutcomes(client: pg.ClientBase, electionId: string)
   )
   const configuration = await readConfiguration(client, electionId)
   const lotsByContest = await lotDecisionsByContest(client, electionId)
+  const declarations = await finalOutcomes(client, electionId)
   const outcomes: ContestOutcome[] = []
   for (const contest of configuration.contests) {
     const first = rows.find((row) => row.contest_id === contest.id && row.kind === 'regular')
@@ -150,9 +160,43 @@ export async function contestOutcomes(client: pg.ClientBase, electionId: string)
     const lots = lotsByContest.get(contest.id) ?? []
     const firstSnapshot = snapshotOf(first)
     const runoff = runoffRow ? snapshotOf(runoffRow) : null
-    outcomes.push({ contestId: contest.id, rulesetId: contest.rulesetId, first: firstSnapshot, runoff, lots, outcome: outcomeOf(contest.rulesetId, firstSnapshot, runoff, decisionsOf(lots)) })
+    const declared = declarations.get(contest.id) ?? null
+    const outcome = declared ? declared.outcome : outcomeOf(contest.rulesetId, firstSnapshot, runoff, decisionsOf(lots))
+    outcomes.push({ contestId: contest.id, rulesetId: contest.rulesetId, first: firstSnapshot, runoff, lots, outcome, declared })
   }
   return outcomes
+}
+
+/** A final outcome as declared at finalization, with the versions that derived it. */
+export interface FinalOutcome {
+  contestId: string
+  outcome: Outcome
+  tallyVersion: number
+  appVersion: string
+  gitSha: string
+}
+
+/** The declared outcome of every contest of a final election, by contest; empty before finalization. */
+export async function finalOutcomes(client: pg.ClientBase, electionId: string): Promise<Map<string, FinalOutcome>> {
+  const { rows } = await client.query<{ contest_id: string, outcome: Outcome, tally_version: number, app_version: string, git_sha: string }>(
+    'select contest_id, outcome, tally_version, app_version, git_sha from final_outcome where election_id = $1', [electionId],
+  )
+  return new Map(rows.map((row) => [row.contest_id, { contestId: row.contest_id, outcome: row.outcome, tallyVersion: row.tally_version, appVersion: row.app_version, gitSha: row.git_sha }]))
+}
+
+export interface Finalization {
+  reason: string
+  actorName: string
+  at: string
+}
+
+/** When, by whom and why the election was finalized, from its event; null before. */
+export async function finalizationOf(client: pg.ClientBase, electionId: string): Promise<Finalization | null> {
+  const { rows: [row] } = await client.query<{ at: Date, actor_name: string, reason: string }>(
+    `select at, actor_name, metadata ->> 'reason' as reason from audit_event where election_id = $1 and action = 'election.finalized' order by seq desc limit 1`,
+    [electionId],
+  )
+  return row ? { reason: row.reason, actorName: row.actor_name, at: row.at.toISOString() } : null
 }
 
 /** The outcome of one contest as it stands, or undefined for a contest that is not the election's. */

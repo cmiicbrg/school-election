@@ -185,7 +185,12 @@ test('structure changes only in a draft, candidates until voting starts, and not
     `update election set title = 'Später' where id = '${A}'`,
     `update election set description = 'Später' where id = '${A}'`,
   ]))
-  await withClient(ownerUrl, (client) => client.query(`update election set state = 'final' where id = '${A}'`))
+  // Final: made past the triggers, since the step to final needs a sealed
+  // round and the declared outcomes (migration 0014, test/db/finalize.test.ts),
+  // to test this window on its own.
+  await withClient(ownerUrl, (client) => client.query(
+    `begin; set local session_replication_role = replica; update election set state = 'final' where id = '${A}'; commit`,
+  ))
   await withClient(runtimeUrl, (client) => refused(client, '55000', [
     `update election set state = 'active' where id = '${A}'`,
     `update election set state = 'final' where id = '${A}'`,

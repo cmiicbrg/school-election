@@ -81,6 +81,7 @@ const ELECTION_ROUTES = [
   'POST /api/elections/:id/contests',
   'POST /api/elections/:id/contests/:contestId/candidates',
   'POST /api/elections/:id/export',
+  'POST /api/elections/:id/finalize',
   'POST /api/elections/:id/lots',
   'POST /api/elections/:id/members',
   'POST /api/elections/:id/prepare',

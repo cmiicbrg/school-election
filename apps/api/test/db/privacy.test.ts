@@ -217,5 +217,5 @@ test('the export of the election carries the tracked key\'s ballots by content a
   for (const secret of [...keys.map((row) => row.key), ...scenario.credentialIds, 'consumed', 'credential_id', 'voter-session']) {
     assert.ok(!text.includes(secret), `the export holds ${secret}`)
   }
-  assert.deepEqual(Object.keys(document).sort(), ['app', 'audit', 'batches', 'contests', 'election', 'exportedAt', 'format', 'lots', 'outcomes', 'rounds', 'snapshots', 'version', 'voterGroups'])
+  assert.deepEqual(Object.keys(document).sort(), ['app', 'audit', 'batches', 'contests', 'election', 'exportedAt', 'finalOutcomes', 'format', 'lots', 'outcomes', 'rounds', 'snapshots', 'version', 'voterGroups'])
 })

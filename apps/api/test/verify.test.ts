@@ -65,10 +65,11 @@ test('a genuine export passes every check, and the report names them', DB, async
     'rows: regular round, Schulsprecher/in', 'order: regular round, Schulsprecher/in', 'snapshots: one per box',
     'outcome: Schulsprecher/in', 'outcomes: one per contest', 'audit chain of this election', 'audit chain', 'audit chain as exported',
     'event for the close of the regular round', 'event for the close of the runoff round', 'event for the activation of the runoff',
-    'event for the result: regular round, Schulsprecher/in', 'event for the result: runoff round, Schulsprecher/in', 'no key',
+    'event for the result: regular round, Schulsprecher/in', 'event for the result: runoff round, Schulsprecher/in', 'no key', 'finalization', 'lifecycle',
   ]) {
     assert.ok(names.includes(expected), `${expected} among ${names.join('; ')}`)
   }
+  assert.match(report.checks.find((check) => check.name === 'finalization')?.detail ?? '', /^not final/)
   assert.equal(names.filter((name) => name.startsWith('lot ')).length, 2, 'both lots against their events')
   assert.equal(names.filter((name) => /^event \d+ lot\.recorded/.test(name)).length, 2, 'both events against their lots')
   assert.equal(names.filter((name) => name.startsWith('batch ')).length, 2, 'both batches against their events')
@@ -116,10 +117,10 @@ test('each tampering fails the check it breaks, with what differs', DB, async (t
   assert.ok(failed(verifyExport(counts)).includes('ballots: regular round, Schulsprecher/in'))
 
   const version = clone(document) as unknown as { version: number }
-  version.version = 2
+  version.version = 1
   const formatReport = verifyExport(version)
   assert.deepEqual(formatReport.checks.map((check) => [check.name, check.ok]), [['format', false]])
-  assert.match(formatReport.checks[0]?.detail ?? '', /version 2/)
+  assert.match(formatReport.checks[0]?.detail ?? '', /version 1/)
 
   assert.equal(verifyExport('not an object').ok, false)
   assert.equal(verifyExport(null).ok, false)
@@ -208,6 +209,59 @@ test('each tampering fails the check it breaks, with what differs', DB, async (t
   assert.equal(damagedReport.ok, false)
   assert.deepEqual(damagedReport.checks.map((check) => [check.name, check.ok]), [['format', false]])
   assert.match(damagedReport.checks[0]?.detail ?? '', /the rounds section/)
+})
+
+test('a finalized election\'s export passes, with the declaration checked; a declared outcome changed or left out, the event\'s counts changed, the event removed, a change after it, and a final state without the event each fail', DB, async (t) => {
+  const x = await prepared(t)
+  await exportedElection(x)
+  ok(await x.anna.request('POST', `${x.base}/finalize`, { reason: 'Ergebnis festgestellt' }))
+  const res = await x.wanda.request('POST', `${x.base}/export`)
+  const document = JSON.parse(res.body) as ExportDocument
+  const report = verifyExport(document)
+  assert.deepEqual(report.checks.filter((check) => !check.ok), [])
+  const names = report.checks.map((check) => check.name)
+  for (const expected of ['finalization', 'final outcomes: one per contest', 'final outcome: Schulsprecher/in']) assert.ok(names.includes(expected), expected)
+  assert.ok(names.some((name) => /^event \d+ election\.finalized$/.test(name)))
+  assert.match(report.checks.find((check) => check.name === 'finalization')?.detail ?? '', /^declared at .* by Anna Lehrerin, exports only since$/)
+  assert.match(report.checks.find((check) => check.name === 'final outcome: Schulsprecher/in')?.detail ?? '', /^final, declared with tally version \d+ by dev \(unknown\)$/)
+  assert.match(report.checks.find((check) => /election\.finalized$/.test(check.name))?.detail ?? '', /^1 resolved, 0 unresolved; reason: Ergebnis festgestellt$/)
+
+  const changed = clone(document)
+  const stored = changed.finalOutcomes[0]?.outcome as unknown as { positions: { candidateId: string }[] }
+  stored.positions.reverse()
+  assert.deepEqual(failed(verifyExport(changed)), ['final outcome: Schulsprecher/in'])
+  assert.match(verifyExport(changed).checks.find((check) => check.name === 'final outcome: Schulsprecher/in')?.detail ?? '', /differs from the one resolved now/)
+  const kind = clone(document)
+  kind.finalOutcomes[0]!.kind = 'tie'
+  assert.ok(failed(verifyExport(kind)).includes('final outcome: Schulsprecher/in'))
+  const none = clone(document)
+  none.finalOutcomes = []
+  assert.ok(failed(verifyExport(none)).includes('final outcomes: one per contest'))
+  assert.ok(failed(verifyExport(none)).some((name) => /election\.finalized$/.test(name)), 'the event counts one resolved, the file declares none')
+  const counts = clone(document)
+  const declaration = counts.audit.events.find((event) => event.action === 'election.finalized') ?? assert.fail('the declaration')
+  declaration.metadata = { ...declaration.metadata, resolved: 0, unresolved: 1 }
+  assert.ok(failed(verifyExport(counts)).some((name) => /election\.finalized$/.test(name)))
+  assert.ok(failed(verifyExport(counts)).includes('audit chain'), 'the chain covers the counts')
+  const removed = clone(document)
+  removed.audit.events = removed.audit.events.filter((event) => event.action !== 'election.finalized')
+  assert.ok(failed(verifyExport(removed)).includes('finalization'))
+  assert.match(verifyExport(removed).checks.find((check) => check.name === 'finalization')?.detail ?? '', /0 election\.finalized events for a final election/)
+  const later = clone(document)
+  const last = later.audit.events.at(-1) ?? assert.fail('an event')
+  later.audit.events.push({ ...last, seq: last.seq + 1, action: 'lot.recorded', prevHash: last.hash })
+  assert.match(verifyExport(later).checks.find((check) => check.name === 'finalization')?.detail ?? '', /changed after the declaration: lot\.recorded/)
+  const notFinal = clone(document)
+  notFinal.election.state = 'active'
+  notFinal.election.lifecycle = { ...notFinal.election.lifecycle, election: 'active' }
+  assert.match(verifyExport(notFinal).checks.find((check) => check.name === 'finalization')?.detail ?? '', /an election\.finalized event, but the election is not final/)
+  const disagreeing = clone(document)
+  disagreeing.election.state = 'active'
+  assert.match(verifyExport(disagreeing).checks.find((check) => check.name === 'lifecycle')?.detail ?? '', /^the lifecycle says final, closed, closed; the file active/)
+  const declaredEarly = clone(document)
+  declaredEarly.election.state = 'active'
+  declaredEarly.audit.events = declaredEarly.audit.events.filter((event) => event.action !== 'election.finalized')
+  assert.match(verifyExport(declaredEarly).checks.find((check) => check.name === 'finalization')?.detail ?? '', /declared outcomes, but the election is not final/)
 })
 
 test('the script verifies a file from a checkout, with no database and no server, and exits 1 on a tampered one', DB, async (t) => {
