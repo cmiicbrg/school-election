@@ -8,7 +8,12 @@
 
 import { derivePositions, type DerivedPositions, type LotLookup } from './positions.ts'
 import type { FirstRoundResult, RunoffResult } from './result.ts'
+import { RULESETS } from './rulesets.ts'
 import type { CommitteeReason, LotDecision, LotRequest, Position, TraceStep } from './trace.ts'
+
+/** The kinds an outcome can have, for schemas and logs that name one. */
+export const OUTCOME_KINDS = ['final', 'lot-required', 'runoff-required', 'tie', 'committee-decision'] as const
+export type OutcomeKind = typeof OUTCOME_KINDS[number]
 
 export type Outcome
   = | { readonly kind: 'final', readonly positions: readonly Position[], readonly trace: readonly TraceStep[] }
@@ -70,6 +75,28 @@ export function resolve(
   } catch (error) {
     if (error instanceof RefusedDecision) return { ok: false, error: error.refusal }
     throw error
+  }
+}
+
+/**
+ * The outcome of an anonymous single-choice poll, which has no runoff and
+ * no lots: its result as it is. The one function of the ruleset goes to
+ * the choice, by a majority of "Ja" against a single option, or by the
+ * most valid votes among several.
+ */
+export function pollOutcome(poll: RunoffResult): Outcome {
+  if (poll.runoffOf !== null) throw new TypeError('a runoff is resolved with its first round')
+  const trace = [...poll.trace]
+  switch (poll.kind) {
+    case 'elected': {
+      const choice = RULESETS['single-choice-v1'].slots[0]?.function ?? 'choice'
+      const basis = poll.statistics.candidates.length === 1 ? 'majority' : 'votes'
+      return { kind: 'final', positions: [{ function: choice, candidateId: poll.winnerId, basis }], trace }
+    }
+    case 'tie':
+      return { kind: 'tie', candidates: poll.candidates, trace }
+    case 'committee-decision':
+      return { kind: 'committee-decision', reason: poll.reason, trace }
   }
 }
 

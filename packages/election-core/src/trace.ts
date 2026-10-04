@@ -52,7 +52,8 @@ export interface LotDecision {
 export interface Position {
   readonly function: string
   readonly candidateId: string | null
-  readonly basis: 'majority' | 'runoff' | 'points' | 'lot' | 'lot-pending' | 'vacant'
+  /** 'votes': a poll's choice among several options, by the most valid votes. */
+  readonly basis: 'majority' | 'runoff' | 'points' | 'lot' | 'lot-pending' | 'vacant' | 'votes'
 }
 
 export type TraceStep
