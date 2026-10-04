@@ -157,7 +157,12 @@ export async function tallyRound(client: pg.ClientBase, electionId: string, roun
   return tallies
 }
 
-/** The snapshots of a round, in the configuration's order of the contests. */
+/**
+ * The snapshots of a round, in the configuration's order of the contests.
+ * A closed round has one per ballot box, written with the seal; a round
+ * without them is not a result but a database that was changed by hand,
+ * and an error rather than an empty list.
+ */
 export async function readResults(client: pg.ClientBase, electionId: string, roundId: string): Promise<StoredResult[]> {
   const stored = await client.query<{ contest_id: string, input_sha256: string, tally_version: number, app_version: string, git_sha: string, result: unknown, outcome: unknown }>(
     `select rc.contest_id, s.input_sha256, s.tally_version, s.app_version, s.git_sha, s.result, s.outcome
@@ -165,6 +170,8 @@ export async function readResults(client: pg.ClientBase, electionId: string, rou
       where rc.round_id = $1`,
     [roundId],
   )
+  const { rows: [boxes] } = await client.query<{ n: number }>('select count(*)::int as n from round_contest where round_id = $1', [roundId])
+  if (stored.rows.length !== (boxes?.n ?? 0)) throw new TallyError(`round ${roundId} has ${stored.rows.length} snapshots for ${boxes?.n ?? 0} ballot boxes`)
   const byContest = new Map(stored.rows.map((row) => [row.contest_id, row]))
   const results: StoredResult[] = []
   for (const contest of await contestsOf(client, electionId)) {

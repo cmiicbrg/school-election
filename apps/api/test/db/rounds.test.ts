@@ -161,6 +161,15 @@ test('a close that cannot count rolls back, seal included: the round stays open 
   assert.deepEqual(await close(s, await as(s)), { ballots: 1, contests: [{ contestId: CONTEST, outcome: 'final' }] })
 })
 
+test('a closed round without its snapshots is an error, not an empty result', DB, async (t) => {
+  const s = await setup(t)
+  await open(s, await as(s))
+  await close(s, await as(s))
+  assert.equal((await s.db.tx((client) => readResults(client, ELECTION, ROUND))).length, 1)
+  await withClient(s.ownerUrl, (client) => client.query('begin; set local session_replication_role = replica; delete from result_snapshot; commit'))
+  await assert.rejects(s.db.tx((client) => readResults(client, ELECTION, ROUND)), (err) => err instanceof TallyError && /0 snapshots for 1 ballot boxes/.test(err.message))
+})
+
 test('a snapshot is written once: neither the runtime role nor the owner changes or removes it', DB, async (t) => {
   const s = await setup(t)
   await open(s, await as(s))

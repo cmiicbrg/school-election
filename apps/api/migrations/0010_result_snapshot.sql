@@ -5,6 +5,10 @@
 -- Derived from the anonymous ballots and the configuration alone, never
 -- per voter. Written once: a snapshot never changes, for any role, and the
 -- runtime role may only add and read them (lib/runtime-privileges.ts).
+-- Nothing is backfilled: no round was closed before this migration, since
+-- closing had no route (the test fixtures seal one, and their 0010 fixture
+-- adds its snapshot), and from now on a round is never closed without
+-- its snapshots.
 
 create table result_snapshot (
   id uuid primary key default gen_random_uuid(),

@@ -168,4 +168,8 @@ test('closing seals and counts: the result for every member from then on, a vote
   const turnout = ok<{ round: string, keys: { issued: number, used: number } }>(await x.wanda.request('GET', `${x.base}/rounds/regular/turnout`))
   assert.deepEqual([turnout.round, turnout.keys], ['closed', { issued: 5, used: 4 }])
   assert.deepEqual((await auditActions(x.anna, x.id)).slice(-3), ['round.opened', 'round.closed', 'result.computed'])
+
+  // A closed round whose snapshots are gone (a database changed by hand) is an error, never an empty result.
+  await withClient(x.s.ownerUrl, (client) => client.query('begin; set local session_replication_role = replica; delete from result_snapshot; commit'))
+  refused(await x.wanda.request('GET', `${x.base}/rounds/regular/result`), 500, 'internal_error')
 })
