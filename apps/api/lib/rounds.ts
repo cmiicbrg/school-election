@@ -32,6 +32,9 @@ export async function startTest(client: pg.ClientBase, access: ElectionAccess): 
   if (!isPermitted(access.role, 'run-rounds')) throw new Refusal(403, 'forbidden')
   const next = transition(access.lifecycle, 'start-test')
   if (!next.ok) throw new Refusal(409, next.refusal.replaceAll('-', '_'))
+  // The election's row, as opening takes it: a candidate change in flight
+  // holds it for share until it commits, and the next one waits for this.
+  await client.query('select 1 from election where id = $1 for no key update', [access.electionId])
   const started = await client.query(`update round set state = 'testing' where election_id = $1 and kind = 'regular'`, [access.electionId])
   if (started.rowCount !== 1) throw new Refusal(409, 'not_prepared')
   await appendAudit(client, access.electionId, { actor: access.actor, action: 'test.started', metadata: { round: 'regular' } })

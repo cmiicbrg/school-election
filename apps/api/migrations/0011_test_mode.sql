@@ -44,6 +44,57 @@ begin
 end
 $$;
 
+-- Two windows of 0007 read whether a round has opened; a test has not,
+-- but it has ballots staged, so they read whether it accepts ballots as
+-- well: an election does not go back to draft, and a round's ballot
+-- boxes do not change, while a round of it is in test mode (a ballot
+-- box's removal would take the test's ballots with it, past end_test).
+create or replace function election_lifecycle() returns trigger
+  language plpgsql set search_path = pg_catalog as $$
+declare
+  was public.election_state;
+begin
+  select * into was from public.election_state s where s.state = old.state;
+  if was.final then
+    perform public.refuse('a final election never changes');
+  end if;
+  if (new.title, new.description) is distinct from (old.title, old.description) and not was.candidates_editable then
+    perform public.refuse('title and description change only until voting starts');
+  end if;
+  if new.state is distinct from old.state then
+    if new.state is distinct from was.advances_to and new.state is distinct from was.returns_to then
+      perform public.refuse(format('an election does not go from %s to %s', old.state, new.state));
+    end if;
+    if new.state = was.returns_to and exists (
+      select 1 from public.round r join public.round_state rs on rs.state = r.state
+       where r.election_id = new.id and (rs.opened or rs.accepts_ballots)
+    ) then
+      perform public.refuse('an election goes back to draft only before any round has opened, and not while one is in test mode');
+    end if;
+  end if;
+  return new;
+end
+$$;
+
+create or replace function round_contest_window() returns trigger
+  language plpgsql set search_path = pg_catalog as $$
+declare
+  target uuid := coalesce(new.round_id, old.round_id);
+begin
+  if not exists (
+    select 1 from public.round r
+      join public.round_state rs on rs.state = r.state
+      join public.election e on e.id = r.election_id
+      join public.election_state s on s.state = e.state
+     where r.id = target and not rs.opened and not rs.accepts_ballots and s.candidates_editable
+       for share of e
+  ) then
+    perform public.refuse('ballot boxes change only while their round is planned');
+  end if;
+  return coalesce(new, old);
+end
+$$;
+
 -- Ends a test: removes the round's staged ballots, sets every entitlement
 -- of the round unused and takes the round back to planned, in one
 -- transaction, as the owner of the tables (the runtime role may neither

@@ -82,6 +82,10 @@ test('the database keeps a test apart: no seal, no direct way out, and the runti
   for (const statement of ['select seal_round($1)', 'update round set state = \'planned\' where id = $1', 'update round set state = \'open\' where id = $1']) {
     await assert.rejects(s.db.query(statement, [ROUND]), (err) => sqlState(err) === SQLSTATE.objectNotInPrerequisiteState, statement)
   }
+  // Neither back to draft nor a ballot box removed, which would take the test's ballots with it.
+  for (const statement of [`update election set state = 'draft' where id = '${ELECTION}'`, `delete from round_contest where id = '${BOX}'`, `delete from contest where id = '${CONTEST}'`]) {
+    await assert.rejects(s.db.query(statement), (err) => sqlState(err) === SQLSTATE.objectNotInPrerequisiteState, statement)
+  }
   await assert.rejects(s.db.query('select * from ballot_box'), (err) => sqlState(err) === SQLSTATE.insufficientPrivilege)
   await assert.rejects(s.db.query('delete from ballot_box'), (err) => sqlState(err) === SQLSTATE.insufficientPrivilege)
   await assert.rejects(s.db.query('update credential_entitlement set consumed = false'), (err) => sqlState(err) === SQLSTATE.objectNotInPrerequisiteState)
@@ -118,4 +122,28 @@ test('opening from a test ends it first: the test\'s ballots are gone before the
   // The box's ballots after the seal are the real votes alone.
   const { rows } = await withClient(s.ownerUrl, (client) => client.query<{ n: number }>('select count(*)::int as n from ballot where round_contest_id = $1', [BOX]))
   assert.equal(rows[0]?.n, 2)
+})
+
+test('starting a test waits for a candidate change in flight, and a change waits for a test being started', DB, async (t) => {
+  const s = await setup(t)
+  await withClient(s.runtimeUrl, async (editing) => {
+    await editing.query('begin')
+    await editing.query(`update candidate set surname = 'Berger-Huber' where id = '${PAULA}'`)
+    await assert.rejects(s.db.tx(async (client) => {
+      await client.query('set local lock_timeout = 200')
+      await lockElection(client, ELECTION)
+      return startTest(client, await as(s))
+    }), (err) => sqlState(err) === '55P03', 'the start waits for the edit')
+    await editing.query('commit')
+  })
+  assert.equal(await roundState(s), 'planned')
+  await withClient(s.runtimeUrl, async (starting) => {
+    await starting.query('begin')
+    await starting.query(`select 1 from election where id = '${ELECTION}' for no key update`)
+    await withClient(s.runtimeUrl, async (editing) => {
+      await editing.query('set lock_timeout = 200')
+      await assert.rejects(editing.query(`update candidate set surname = 'Anders' where id = '${PAULA}'`), (err) => sqlState(err) === '55P03', 'the edit waits for the start')
+    })
+    await starting.query('rollback')
+  })
 })
