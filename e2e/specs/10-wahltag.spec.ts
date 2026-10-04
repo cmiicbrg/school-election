@@ -118,8 +118,8 @@ test('die Wahl schließen: der Dialog, die Versiegelung, das Ergebnis in Worten;
   await shot(anna, '28-ergebnis-los')
 })
 
-test('die Zeugin sieht das Los ohne Formular; die Wahlleitung trägt die Ziehung ein, und die Stichwahl steht fest', async () => {
-  // The close reached the witness's page by itself; a recorded lot does not, so she reloads for that below.
+test('die Zeugin sieht das Los ohne Formular; die Wahlleitung trägt die Ziehung ein, und die Stichwahl steht fest, auch auf der Seite der Zeugin', async () => {
+  // The close reached the witness's page by itself.
   await expect(run(wanda).getByTestId('state')).toHaveText('Die Wahl ist geschlossen.')
   const theirs = contestResult(wanda, SCHOOL)
   await expect(theirs.getByTestId('lot-runoff-entry')).toContainText('sind gleichauf')
@@ -138,6 +138,9 @@ test('die Zeugin sieht das Los ohne Formular; die Wahlleitung trägt die Ziehung
   await expect(school).toContainText('Stichwahl zwischen Paula Berger und Renate Wagner.')
   await expect(school.getByRole('list', { name: `Losentscheide: ${SCHOOL}` })).toHaveText(/^Los eingetragen von Anna Lehrerin am \d{1,2}\.\d{1,2}\.\d{4}, \d{2}:\d{2}: Renate Wagner, Quirin Huber-Mayer\. Begründung: Los gezogen von der Wahlkommission am 5\. Oktober$/)
   await expect(school.getByRole('form')).toHaveCount(0)
+  // And the recorded lot reaches the witness's page by itself as well.
+  await expect(theirs).toContainText('Stichwahl zwischen Paula Berger und Renate Wagner.')
+  await expect(theirs.getByTestId('lot-runoff-entry')).toHaveCount(0)
 })
 
 test('Stichwahl aktivieren: der Hinweis auf die Stichwahl-Stimmkarten je Klasse, der Dialog, dann läuft sie mit neuen Codes, und die alten gelten nicht', async () => {
@@ -196,8 +199,7 @@ test('drei Stichwahl-Stimmkarten wählen; die Stichwahl schließen: Renate Wagne
   await expect(school.getByRole('list', { name: `Losentscheide: ${SCHOOL}` }).getByRole('listitem')).toHaveCount(2)
   await shot(anna, '31-ergebnis')
 
-  // The witness sees the same, and the runoff batch's codes with their use.
-  await wanda.reload()
+  // The witness sees the same without a reload, and the runoff batch's codes with their use.
   await expect(contestResult(wanda, SCHOOL)).toContainText('Gewählt.')
   await expect(contestResult(wanda, SCHOOL).getByRole('form')).toHaveCount(0)
   const link = wanda.getByRole('region', { name: 'Stimmkarten' }).getByTestId('batch-runoff-issued').getByRole('link', { name: 'Codes anzeigen' })

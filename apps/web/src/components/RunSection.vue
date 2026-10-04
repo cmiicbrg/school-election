@@ -8,8 +8,8 @@
 // and election-core's guards (lib/run-rules.ts), so a witness sees the
 // same section without one; every step that cannot be undone asks first
 // and says what it does. While the election can change, the section asks
-// every five seconds whether it has, so a witness's page follows the
-// teacher's steps without a reload.
+// every five seconds whether it has, the result included, so a witness's
+// page follows the teacher's steps and the lots recorded without a reload.
 
 import { computed, onUnmounted, ref, useId, watch } from 'vue'
 import type { LotRequest, RoundKind, RulesetId } from '@school-election/election-core'
@@ -85,6 +85,7 @@ let turnoutGeneration = 0
 let turnoutPending = false
 let statePending = false
 let resultReads = 0
+let testReads = 0
 
 async function readTurnout(kind: RoundKind): Promise<void> {
   if (turnoutPending) return
@@ -114,21 +115,24 @@ async function followState(): Promise<void> {
   }
 }
 
-async function readResult(): Promise<void> {
+/** The result as it stands; a read of the tick's own is quiet about a failure, the next tick reads again. */
+async function readResult(quiet = false): Promise<void> {
   const current = ++resultReads
   try {
     const answer = await apiGet<ElectionResult>(`${base.value}/result`)
     if (current === resultReads) result.value = answer
   } catch (err) {
-    if (current === resultReads) error.value = errorMessage(err)
+    if (current === resultReads && !quiet) error.value = errorMessage(err)
   }
 }
 
 async function readTestResult(): Promise<void> {
+  const current = ++testReads
   try {
-    testResult.value = await apiGet<RoundResults>(`${base.value}/rounds/regular/test-result`)
+    const answer = await apiGet<RoundResults>(`${base.value}/rounds/regular/test-result`)
+    if (current === testReads) testResult.value = answer
   } catch (err) {
-    error.value = errorMessage(err)
+    if (current === testReads) error.value = errorMessage(err)
   }
 }
 
@@ -149,10 +153,12 @@ function refresh(): void {
   if (kind !== null) void readTurnout(kind)
   const live = kind !== null && accepting(lifecycle)
   const moving = lifecycle.election === 'prepared' || lifecycle.election === 'active'
+  const follows = moving && rules.value.showResult
   if (live || moving) {
     timer = setInterval(() => {
       if (live) void readTurnout(kind)
       if (moving) void followState()
+      if (follows) void readResult(true)
     }, EVERY_MS)
   }
   if (rules.value.showResult) void readResult()
