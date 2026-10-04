@@ -143,7 +143,7 @@ test('die Zeugin sieht das Los ohne Formular; die Wahlleitung trägt die Ziehung
 test('Stichwahl aktivieren: der Hinweis auf die Stichwahl-Stimmkarten je Klasse, der Dialog, dann läuft sie mit neuen Codes, und die alten gelten nicht', async () => {
   const sheets = run(anna).getByRole('list', { name: 'Stichwahl-Stimmkarten' })
   await expect(sheets).toContainText('1A: 10 Stichwahl-Stimmkarten')
-  await expect(sheets.getByRole('link', { name: 'Drucken' })).toHaveAttribute('href', `/elections/${electionId()}/batches/${batchId('1A runoff')}/print`)
+  await expect(sheets.getByRole('link', { name: 'Drucken (10)' })).toHaveAttribute('href', `/elections/${electionId()}/batches/${batchId('1A runoff')}/print`)
   await expect(sheets).toContainText('Für 2B gibt es noch keine Stichwahl-Stimmkarten')
   await run(anna).getByRole('button', { name: 'Stichwahl aktivieren' }).click()
   await expect(dialog('Stichwahl aktivieren?')).toContainText('Die Stimmkarten der ersten Runde gelten nicht mehr.')

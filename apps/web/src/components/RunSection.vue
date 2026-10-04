@@ -74,15 +74,17 @@ const stateLine = computed(() => {
   return lifecycle.runoff === 'closed' ? 'Die Stichwahl ist geschlossen.' : 'Die Wahl ist geschlossen.'
 })
 
-// What the section reads is numbered: a read that is no longer the newest
-// changes nothing, so a change of state never shows a stale answer.
-let reads = 0
+// What the section reads is numbered, per kind of read: an answer that is
+// no longer the newest of its kind changes nothing, so neither a change of
+// state nor two lots recorded close together ever shows a stale answer.
+let turnoutReads = 0
+let resultReads = 0
 
 async function readTurnout(kind: RoundKind): Promise<void> {
-  const current = ++reads
+  const current = ++turnoutReads
   try {
     const answer = await apiGet<Turnout>(`${base.value}/rounds/${kind}/turnout`)
-    if (current === reads) turnout.value = answer
+    if (current === turnoutReads) turnout.value = answer
   } catch {
     // The last figures stay; the next read tries again.
   }
@@ -99,10 +101,12 @@ async function followState(): Promise<void> {
 }
 
 async function readResult(): Promise<void> {
+  const current = ++resultReads
   try {
-    result.value = await apiGet<ElectionResult>(`${base.value}/result`)
+    const answer = await apiGet<ElectionResult>(`${base.value}/result`)
+    if (current === resultReads) result.value = answer
   } catch (err) {
-    error.value = errorMessage(err)
+    if (current === resultReads) error.value = errorMessage(err)
   }
 }
 
@@ -239,10 +243,13 @@ async function download(): Promise<void> {
 const runoffPairs = computed(() => (result.value?.contests ?? [])
   .flatMap((contest) => contest.outcome.kind === 'runoff-required' ? [{ contestId: contest.contestId, pair: contest.outcome.runoffCandidates }] : []))
 
-/** The classes or groups that vote in a contest of the runoff, each with its issued runoff batch, if any. */
+/** The classes or groups that vote in a contest of the runoff, each with its issued runoff batches (a top-up is a batch of its own), if any. */
 const runoffSheets = computed(() => props.configuration.voterGroups
   .filter((group) => runoffPairs.value.some((entry) => group.contestIds.includes(entry.contestId)))
-  .map((group) => ({ group, batch: props.batches.find((batch) => batch.voterGroupId === group.id && batch.roundKind === 'runoff' && batch.state === 'issued') ?? null })))
+  .map((group) => {
+    const batches = props.batches.filter((batch) => batch.voterGroupId === group.id && batch.roundKind === 'runoff' && batch.state === 'issued')
+    return { group, batches, keys: batches.reduce((sum, batch) => sum + batch.keys, 0) }
+  }))
 
 function lotsOf(contest: ContestResult): LotRequest[] {
   return contest.outcome.kind === 'lot-required' ? [...contest.outcome.lots] : []
@@ -396,16 +403,18 @@ const printPath = (batch: BatchSummary): string => `/elections/${props.election.
         aria-label="Stichwahl-Stimmkarten"
       >
         <li
-          v-for="{ group, batch } in runoffSheets"
+          v-for="{ group, batches: issued, keys } in runoffSheets"
           :key="group.id"
         >
-          <template v-if="batch">
-            {{ group.name }}: {{ batch.keys }} Stichwahl-Stimmkarten
+          <template v-if="issued.length > 0">
+            {{ group.name }}: {{ keys }} Stichwahl-Stimmkarten
             <a
+              v-for="batch in issued"
+              :key="batch.id"
               :href="printPath(batch)"
               target="_blank"
               rel="noopener"
-            >Drucken</a>
+            >Drucken ({{ batch.keys }})</a>
           </template>
           <span
             v-else
