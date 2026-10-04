@@ -11,6 +11,7 @@ import type { ElectionState, RoundState } from '@school-election/election-core'
 import { buildTestApp, ORIGIN } from './app.ts'
 import { createTestDatabase, withClient } from './db.ts'
 import { CookieJar, startFakeEntra, type FakeEntra } from './fake-entra.ts'
+import { claimsOf, type Person } from './personas.ts'
 
 export interface ElectionApp {
   app: FastifyInstance
@@ -35,19 +36,7 @@ export async function electionApp(t: TestContext): Promise<ElectionApp> {
   return { app, db, entra, ownerUrl: testDb.ownerUrl, routes, logs }
 }
 
-export interface Person {
-  oid: string
-  name: string
-  /** The email claim; undefined leaves it out. */
-  email?: string
-  preferredUsername?: string
-  roles?: string[]
-}
-
-export const ANNA: Person = { oid: 'a0000000-0000-4000-8000-00000000000a', name: 'Anna Lehrerin', email: 'anna.lehrerin@schule.example.org', roles: ['teacher'] }
-export const BERND: Person = { oid: 'b0000000-0000-4000-8000-00000000000b', name: 'Bernd Lehrer', email: 'bernd.lehrer@schule.example.org', roles: ['teacher'] }
-export const CARLA: Person = { oid: 'c0000000-0000-4000-8000-00000000000c', name: 'Carla Kollegin', email: 'carla.kollegin@schule.example.org', roles: ['teacher'] }
-export const WANDA: Person = { oid: 'd0000000-0000-4000-8000-00000000000d', name: 'Wanda Zeugin', email: 'wanda.zeugin@schule.example.org' }
+export { ANNA, BERND, CARLA, WANDA, type Person } from './personas.ts'
 
 /** A signed-in browser: its requests are same-origin and carry its cookies. */
 export interface Browser {
@@ -59,15 +48,7 @@ export async function signIn(s: ElectionApp, person: Person): Promise<Browser> {
   const login = await s.app.inject({ method: 'GET', url: '/api/auth/login' })
   assert.equal(login.statusCode, 302)
   jar.update(login)
-  const callback = new URL(s.entra.authorize(String(login.headers.location), {
-    claims: {
-      oid: person.oid,
-      name: person.name,
-      email: person.email,
-      preferred_username: person.preferredUsername ?? person.email,
-      roles: person.roles ?? [],
-    },
-  }), ORIGIN)
+  const callback = new URL(s.entra.authorize(String(login.headers.location), { claims: claimsOf(person) }), ORIGIN)
   const res = await s.app.inject({ method: 'GET', url: callback.pathname + callback.search, headers: { cookie: jar.header() } })
   assert.equal(res.statusCode, 303, `sign-in of ${person.name}`)
   jar.update(res)

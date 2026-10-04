@@ -4,6 +4,10 @@ dist/
 coverage/
 *.tsbuildinfo
 
+# Playwright's output and report (npm run e2e)
+test-results/
+playwright-report/
+
 # Local env + editor state
 .env
 .env.*

@@ -17,6 +17,10 @@ npm run lint
 npm test
 ```
 
+### Browser journeys
+
+`npm run e2e` runs the Playwright journeys in `e2e/specs` in Chromium against the real server, started by `e2e/harness/server.ts` with a fresh database and a stand-in for the Microsoft sign-in. It needs `TEST_DATABASE_URL` like the API tests, and Chromium once: `npm run e2e:install`. The specs of a file build on each other and the files on the ones before, so run them in order; `npm run e2e:ui` opens Playwright's UI, and the VS Code Playwright extension finds `playwright.config.ts` at the repository root. `npm run e2e:screenshots` writes the screenshots for the teacher's guide to `docs/anleitung/bilder/`. The browser console must stay clean: a message at warning or error level, or an uncaught exception, in any page of a journey fails the test it happened in; a refusal a spec provokes on purpose is declared with `refused` from `e2e/support/console.ts`.
+
 ## Container image
 
 One image runs the API and serves the built web app as a non-root user (uid 10001).
