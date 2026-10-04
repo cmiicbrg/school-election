@@ -1,7 +1,7 @@
 // Anmelden und Abmelden: wer nicht angemeldet ist, landet auf der
 // Anmeldeseite und kommt nach der Anmeldung dorthin, wo er hinwollte.
 
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../support/test.ts'
 import { ANNA } from '../support/personas.ts'
 import { shot } from '../support/screenshot.ts'
 import { signInAs, signOut } from '../support/sign-in.ts'

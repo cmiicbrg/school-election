@@ -2,7 +2,8 @@
 // Stapel ersetzen. Was auf der Karte steht, ist, was die API speichert:
 // der QR-Code der ersten Karte ergibt den ersten gespeicherten Code.
 
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
+import { expect, test } from '../support/test.ts'
 import { apiGet } from '../support/api.ts'
 import { electionId, journey, remember } from '../support/journey.ts'
 import { ANNA, WANDA } from '../support/personas.ts'

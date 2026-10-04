@@ -2,8 +2,10 @@
 // Stimmkarten einer Klasse ungültig, und die Seite fragt, bevor sie es
 // tut.
 
-import { expect, test, type Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
+import { expect, test } from '../support/test.ts'
 import { assignContest } from '../support/classes.ts'
+import { refused } from '../support/console.ts'
 import { electionId } from '../support/journey.ts'
 import { ANNA } from '../support/personas.ts'
 import { shot } from '../support/screenshot.ts'
@@ -27,7 +29,8 @@ test('die 2B wählt nun auch die Klassensprecher:in: ihre Stimmkarten passen nic
   await expect(page.getByText(/^Entwurf · Ihre Rolle/)).toBeVisible()
   await assignContest(page, '2B', 'Klassensprecher/in 1A')
 
-  await page.getByRole('button', { name: 'Vorbereiten', exact: true }).click()
+  // Preparing is refused until the voiding is confirmed: that refusal is the dialog.
+  await refused(page, 409, () => page.getByRole('button', { name: 'Vorbereiten', exact: true }).click())
   const dialog = page.getByRole('alertdialog', { name: 'Stimmkarten werden ungültig' })
   await expect(dialog).toContainText('2B: 20 Stimmkarten')
   await expect(page.getByText(/^Entwurf · Ihre Rolle/)).toBeVisible()
@@ -36,7 +39,7 @@ test('die 2B wählt nun auch die Klassensprecher:in: ihre Stimmkarten passen nic
   await expect(dialog).toHaveCount(0)
   await expect(page.getByText(/^Entwurf · Ihre Rolle/)).toBeVisible()
 
-  await page.getByRole('button', { name: 'Vorbereiten', exact: true }).click()
+  await refused(page, 409, () => page.getByRole('button', { name: 'Vorbereiten', exact: true }).click())
   await page.getByRole('alertdialog', { name: 'Stimmkarten werden ungültig' }).getByRole('button', { name: 'Trotzdem vorbereiten (20 Stimmkarten werden ungültig)' }).click()
   await expect(page.getByText(/^Vorbereitet · Ihre Rolle/)).toBeVisible()
   const sheets = page.getByRole('region', { name: 'Stimmkarten' })

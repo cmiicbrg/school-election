@@ -1,7 +1,7 @@
 // Das Protokoll: alles, was die Journey getan hat, steht in der
 // Protokollkette der Wahl, und die Kette stimmt.
 
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../support/test.ts'
 import { apiGet } from '../support/api.ts'
 import { electionId } from '../support/journey.ts'
 import { ANNA } from '../support/personas.ts'

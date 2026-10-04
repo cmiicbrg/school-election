@@ -2,7 +2,8 @@
 // nächster Anmeldung, und eine Zeugin sieht dieselben Seiten ohne
 // Bedienelemente.
 
-import { expect, test, type Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
+import { expect, test } from '../support/test.ts'
 import { electionId } from '../support/journey.ts'
 import { ANNA, CARLA, WANDA } from '../support/personas.ts'
 import { shot } from '../support/screenshot.ts'

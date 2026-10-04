@@ -2,9 +2,11 @@
 // anlegen, Kandidat:innen mit einem Foto eintragen, einen zweiten
 // Wahlgang und die Klassen anlegen. Falsche Eingaben werden abgewiesen.
 
-import { expect, test, type Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
+import { expect, test } from '../support/test.ts'
 import { apiGet } from '../support/api.ts'
 import { assignContest } from '../support/classes.ts'
+import { refused } from '../support/console.ts'
 import { electionId, remember } from '../support/journey.ts'
 import { ANNA } from '../support/personas.ts'
 import { photo } from '../support/picture.ts'
@@ -78,7 +80,7 @@ test('falsche Eingaben ändern nichts: ein doppelter Name wird abgewiesen', asyn
   const form = page.getByRole('form', { name: `Kandidat:in hinzufügen: ${SCHOOL}` })
   await form.getByLabel('Nachname').fill('Berger')
   await form.getByLabel('Vorname').fill('Paula')
-  await form.getByRole('button', { name: 'Kandidat:in hinzufügen' }).click()
+  await refused(page, 409, () => form.getByRole('button', { name: 'Kandidat:in hinzufügen' }).click())
   await expect(page.getByRole('alert')).toContainText('Diesen Namen gibt es in diesem Wahlgang schon.')
   expect(await listed(SCHOOL)).toEqual(['Paula Berger', 'Quirin Huber', 'Renate Wagner'])
   await form.getByLabel('Nachname').fill('')

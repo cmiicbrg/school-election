@@ -1,7 +1,8 @@
 // Vorbereiten: die Zusammenfassung, der Schritt, was danach noch geht
 // (Namen), und der Weg zurück zum Entwurf.
 
-import { expect, test, type Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
+import { expect, test } from '../support/test.ts'
 import { electionId } from '../support/journey.ts'
 import { ANNA } from '../support/personas.ts'
 import { shot } from '../support/screenshot.ts'

@@ -1,7 +1,8 @@
 // Am Handy: die Seiten sind in Handybreite benutzbar; die Bilder dafür
 // gehören in die Anleitung.
 
-import { devices, expect, test } from '@playwright/test'
+import { devices } from '@playwright/test'
+import { expect, test } from '../support/test.ts'
 import { batchId, electionId } from '../support/journey.ts'
 import { ANNA } from '../support/personas.ts'
 import { shot } from '../support/screenshot.ts'
