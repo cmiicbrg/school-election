@@ -32,6 +32,19 @@ docker run --rm -p 127.0.0.1:3000:3000 school-election:local
 
 Release images are published to `ghcr.io/cmiicbrg/school-election` when a `v*` tag is pushed. The workflow summary prints the `IMAGE` value, tag and digest, to pin in the deployment's `.env`.
 
+## Verifying an export
+
+Once the regular round has closed, every member of an election (the owner, co-admins and witnesses) can export it as one JSON file: the configuration, the sealed ballots of every closed round sorted by content and without ids, the counts of keys and entitlements, the result snapshots, the recorded lots, the outcome as it stands, and the audit log with its hash chain. Nothing in it names a key. The export is recorded in the audit log with the file's SHA-256.
+
+Anyone with the file can recompute everything from it, with no server and no database, from a checkout of this repository on Node 26:
+
+```bash
+npm ci --ignore-scripts
+npm run verify -- wahl-<id>.json
+```
+
+The verifier prints the file's SHA-256, to compare with the `export.generated` event in the audit log, and one line per check: every ballot validates for its contest; every snapshot's digest and result are recomputed from the ballots with the same counting code the server uses; the outcome of every contest follows from the results and the recorded lots; the audit chain verifies, and its events name the digests, the counts, the pairs and the lots the file holds. It exits 0 when every check passed and 1 otherwise, naming what differs.
+
 ## Deployment
 
 [deploy/README.md](deploy/README.md) is the operator guide: the Entra ID app registration, secret files, a rootless podman compose stack with PostgreSQL, nginx in front, updates, reboots and backups. The examples it uses live next to it.
