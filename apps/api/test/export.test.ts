@@ -89,7 +89,7 @@ test('the file has exactly the keys of the allow-list, ballots without ids in co
   await wholeElection(x)
   const res = await x.anna.request('POST', `${x.base}/export`)
   const document = JSON.parse(res.body) as ExportDocument
-  assert.deepEqual(Object.keys(document).sort(), ['app', 'audit', 'batches', 'contests', 'election', 'exportedAt', 'format', 'lots', 'outcomes', 'rounds', 'snapshots', 'version', 'voterGroups'])
+  assert.deepEqual(Object.keys(document).sort(), ['app', 'audit', 'batches', 'contests', 'election', 'exportedAt', 'finalOutcomes', 'format', 'lots', 'outcomes', 'rounds', 'snapshots', 'version', 'voterGroups'])
   assert.deepEqual(Object.keys(document.app).sort(), ['gitSha', 'tallyVersion', 'version'])
   assert.deepEqual(Object.keys(document.election).sort(), ['description', 'id', 'lifecycle', 'state', 'title'])
   for (const contest of document.contests) {
@@ -110,6 +110,7 @@ test('the file has exactly the keys of the allow-list, ballots without ids in co
   for (const snapshot of document.snapshots) assert.deepEqual(Object.keys(snapshot).sort(), ['appVersion', 'contestId', 'gitSha', 'inputSha256', 'outcome', 'result', 'round', 'tallyVersion'])
   for (const lot of document.lots) assert.deepEqual(Object.keys(lot).sort(), ['actorName', 'candidates', 'contestId', 'drawn', 'id', 'lotId', 'reason', 'recordedAt'])
   for (const outcome of document.outcomes) assert.deepEqual(Object.keys(outcome).sort(), ['contestId', 'outcome'])
+  assert.deepEqual(document.finalOutcomes, [], 'nothing declared before finalization')
   assert.deepEqual(Object.keys(document.audit).sort(), ['chain', 'events'])
   for (const event of document.audit.events) assert.deepEqual(Object.keys(event).sort(), ['action', 'actor', 'at', 'electionId', 'hash', 'metadata', 'prevHash', 'seq'])
   // Ballots in content order: the first round's five by the ballot's positions, the runoff's three by the choice.
@@ -124,4 +125,12 @@ test('the file has exactly the keys of the allow-list, ballots without ids in co
   for (const secret of [...rows.map((row) => row.key), ...rows.map((row) => row.id), 'consumed', 'credential_id', 'voter-session', '127.0.0.1', 'picture']) {
     assert.ok(!res.body.includes(secret), `the export holds ${secret}`)
   }
+  // Finalized: the declared outcome of every contest, with exactly its keys.
+  ok(await x.anna.request('POST', `${x.base}/finalize`, { reason: 'Ergebnis festgestellt' }))
+  const final = JSON.parse((await x.wanda.request('POST', `${x.base}/export`)).body) as ExportDocument
+  assert.equal(final.election.state, 'final')
+  for (const entry of final.finalOutcomes) assert.deepEqual(Object.keys(entry).sort(), ['appVersion', 'contestId', 'gitSha', 'kind', 'outcome', 'tallyVersion'])
+  assert.deepEqual(final.finalOutcomes.map((entry) => [entry.contestId, entry.kind]), [[x.contest.id, 'final']])
+  assert.deepEqual(final.outcomes, document.outcomes, 'the outcome as it stands is the one declared')
+  assert.equal(canonicalJson(final.finalOutcomes[0]?.outcome), canonicalJson(document.outcomes[0]?.outcome))
 })

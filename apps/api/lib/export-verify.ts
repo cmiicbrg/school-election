@@ -1,14 +1,15 @@
 // The offline verifier of an export: from the file alone, recomputes every
 // snapshot's digest and result with election-core, the outcome of every
 // snapshot as of its close and of every contest as it stands with the
-// recorded lots, checks the audit chain and what its events say against
-// the file, and looks for anything that could be a key. Pure, like the
+// recorded lots, the declared outcomes of a final election against them,
+// checks the audit chain and what its events say against the file, and
+// looks for anything that could be a key. Pure, like the
 // audit chain: election-core, canonical JSON, the audit chain, the digest
 // module and the format, and nothing else, which ESLint keeps; the same
 // functions the server tallies with, from a checkout, with no server and
 // no database (scripts/verify.ts).
 
-import { firstRoundResult, parseKey, pollOutcome, resolve, ROUND_STATES, runoffResult, type Contest, type FirstRoundResult, type LotDecision, type Outcome, type RulesetId, type RunoffResult } from '@school-election/election-core'
+import { firstRoundResult, parseKey, pollOutcome, resolve, ROUND_STATES, runoffResult, TALLY_VERSION, type Contest, type FirstRoundResult, type LotDecision, type Outcome, type RulesetId, type RunoffResult } from '@school-election/election-core'
 import { verifyAuditChain, type AuditEvent } from './audit-chain.ts'
 import { canonicalJson } from './canonical-json.ts'
 import { EXPORT_FORMAT, EXPORT_VERSION, type ExportDocument, type ExportedBox, type ExportedSnapshot } from './export-format.ts'
@@ -62,6 +63,7 @@ export function verifyExport(input: unknown): Report {
       }
     }
     checkOutcomes(run)
+    checkFinalization(run)
     checkChain(run)
     checkImpliedEvents(run)
     checkEvents(run)
@@ -172,6 +174,53 @@ function checkOutcomes(run: Run): void {
     const same = outcome !== undefined && canonicalJson(outcome) === canonicalJson(entry.outcome)
     check(`outcome: ${label}`, same, same ? outcome.kind : 'the outcome resolved from the results and the lots differs from the file')
   }
+}
+
+/**
+ * A final election has its declaration: one election.finalized event,
+ * after which only exports follow; the declared outcome of every contest,
+ * once, equal to the outcome resolved now from the results and the lots
+ * (a later election-core deriving differently is named with both
+ * versions); and the event's counts are the declared kinds'. An election
+ * not final has neither.
+ */
+function checkFinalization(run: Run): void {
+  const { document, check, titleOf } = run
+  const final = document.election.state === 'final'
+  const declarations = document.audit.events.filter((event) => event.action === 'election.finalized')
+  const declaration = declarations[0]
+  if (!final || declaration === undefined || declarations.length !== 1) {
+    const none = !final && declarations.length === 0 && document.finalOutcomes.length === 0
+    let detail = 'not final: no declaration and no declared outcome, as it should be'
+    if (final) detail = `${declarations.length} election.finalized events for a final election`
+    else if (declarations.length > 0) detail = 'an election.finalized event, but the election is not final'
+    else if (document.finalOutcomes.length > 0) detail = 'declared outcomes, but the election is not final'
+    check('finalization', none, detail)
+    return
+  }
+  const later = document.audit.events.filter((event) => event.seq > declaration.seq && event.action !== 'export.generated').map((event) => event.action)
+  check('finalization', later.length === 0, later.length === 0 ? `declared at ${declaration.at} by ${declaration.actor.name}, exports only since` : `changed after the declaration: ${later.join(', ')}`)
+  const listed = document.finalOutcomes.map((entry) => entry.contestId)
+  const complete = document.contests.every((contest) => listed.filter((id) => id === contest.id).length === 1) && listed.length === document.contests.length
+  check('final outcomes: one per contest', complete, complete ? `${document.contests.length} contests, ${document.finalOutcomes.length} declared outcomes` : `${document.contests.length} contests, but declared outcomes for ${listed.map(titleOf).join(', ') || 'none'}`)
+  let resolved = 0
+  for (const entry of document.finalOutcomes) {
+    const label = titleOf(entry.contestId)
+    const contest = document.contests.find((candidate) => candidate.id === entry.contestId)
+    const first = run.results.get(`${entry.contestId}/regular`)
+    if (!contest || !first) {
+      check(`final outcome: ${label}`, false, 'no verified first-round result for this contest')
+      continue
+    }
+    const outcome = outcomeOf(contest.rulesetId, first, run.results.get(`${entry.contestId}/runoff`), decisionsOf(document, entry.contestId))
+    const same = outcome !== undefined && entry.kind === entry.outcome.kind && canonicalJson(outcome) === canonicalJson(entry.outcome)
+    const versions = `declared with tally version ${entry.tallyVersion} by ${entry.appVersion} (${entry.gitSha})`
+    check(`final outcome: ${label}`, same, same ? `${entry.kind}, ${versions}` : `the declared outcome differs from the one resolved now: ${versions}, verified with tally version ${TALLY_VERSION}`)
+    if (entry.kind === 'final') resolved += 1
+  }
+  const unresolved = document.finalOutcomes.length - resolved
+  const counted = declaration.metadata.resolved === resolved && declaration.metadata.unresolved === unresolved
+  check(`event ${declaration.seq} election.finalized`, counted, counted ? `${resolved} resolved, ${unresolved} unresolved; reason: ${field(declaration.metadata, 'reason')}` : `says ${field(declaration.metadata, 'resolved')} resolved and ${field(declaration.metadata, 'unresolved')} unresolved, the declared outcomes give ${resolved} and ${unresolved}`)
 }
 
 /** The audit chain: of this election, recomputed, as exported, and not empty. */
@@ -397,6 +446,8 @@ const isSnapshot = (snapshot: unknown): boolean => hasKeys(snapshot, ['contestId
 const isLot = (lot: unknown): boolean => hasKeys(lot, ['id', 'contestId', 'lotId', 'candidates', 'drawn', 'reason', 'actorName', 'recordedAt'])
   && isText(lot.id) && isText(lot.contestId) && isText(lot.lotId) && isTextList(lot.candidates) && isTextList(lot.drawn) && isText(lot.reason) && isText(lot.actorName) && isText(lot.recordedAt)
 const isOutcome = (entry: unknown): boolean => hasKeys(entry, ['contestId', 'outcome']) && isText(entry.contestId) && isObject(entry.outcome) && isText(entry.outcome.kind)
+const isFinalOutcome = (entry: unknown): boolean => hasKeys(entry, ['contestId', 'kind', 'outcome', 'tallyVersion', 'appVersion', 'gitSha'])
+  && isText(entry.contestId) && isText(entry.kind) && isObject(entry.outcome) && isText(entry.outcome.kind) && isNumber(entry.tallyVersion) && isText(entry.appVersion) && isText(entry.gitSha)
 const isEvent = (event: unknown): boolean => hasKeys(event, ['seq', 'electionId', 'at', 'actor', 'action', 'metadata', 'prevHash', 'hash'])
   && isNumber(event.seq) && isText(event.electionId) && isText(event.at) && hasKeys(event.actor, ['tid', 'oid', 'name']) && isText(event.action) && isObject(event.metadata) && (event.prevHash === null || isText(event.prevHash)) && isText(event.hash)
 const isBatch = (batch: unknown): boolean => hasKeys(batch, ['id', 'voterGroupId', 'roundKind', 'state', 'keys']) && isText(batch.id) && isText(batch.voterGroupId) && isText(batch.roundKind) && isText(batch.state) && isNumber(batch.keys)
@@ -411,7 +462,7 @@ function asDocument(input: unknown): Shape {
   const problem = (what: string): Shape => ({ ok: false, problem: `not a ${EXPORT_FORMAT} document of version ${EXPORT_VERSION}: ${what}` })
   if (!isObject(input)) return problem('not an object')
   if (input.format !== EXPORT_FORMAT || input.version !== EXPORT_VERSION) return problem(`format ${String(input.format)}, version ${String(input.version)}`)
-  if (!hasKeys(input, ['format', 'version', 'exportedAt', 'app', 'election', 'contests', 'voterGroups', 'batches', 'rounds', 'snapshots', 'lots', 'outcomes', 'audit'])) return problem('the sections are not exactly the format\'s')
+  if (!hasKeys(input, ['format', 'version', 'exportedAt', 'app', 'election', 'contests', 'voterGroups', 'batches', 'rounds', 'snapshots', 'lots', 'outcomes', 'finalOutcomes', 'audit'])) return problem('the sections are not exactly the format\'s')
   if (!isText(input.exportedAt) || !hasKeys(input.app, ['version', 'gitSha', 'tallyVersion']) || !isText(input.app.version) || !isText(input.app.gitSha) || !isNumber(input.app.tallyVersion)) return problem('the app section')
   if (!hasKeys(input.election, ['id', 'title', 'description', 'state', 'lifecycle']) || !isText(input.election.id) || !isText(input.election.title) || !isText(input.election.description) || !isText(input.election.state)
     || !hasKeys(input.election.lifecycle, ['election', 'regular', 'runoff'])) return problem('the election section')
@@ -423,6 +474,7 @@ function asDocument(input: unknown): Shape {
     ['snapshots', input.snapshots, isSnapshot],
     ['lots', input.lots, isLot],
     ['outcomes', input.outcomes, isOutcome],
+    ['final outcomes', input.finalOutcomes, isFinalOutcome],
   ]
   for (const [name, value, item] of sections) {
     if (!isList(value, item)) return problem(`the ${name} section`)

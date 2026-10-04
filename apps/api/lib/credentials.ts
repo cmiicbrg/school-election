@@ -10,12 +10,14 @@
 // error message.
 //
 // Who sees a batch's keys: the owner and co-admins, to print them; a
-// witness only once the batch's round has closed, with each key used or
-// unused, so the leftover cards can be checked. Nobody sees whether a key
-// was used before then. Voters are not members and see nothing here.
+// witness only once the batch's round has closed, or the election is
+// final (which voids the runoff keys of an election that held no runoff),
+// with each key used or unused, so the leftover cards can be checked.
+// Nobody sees whether a key was used before then. Voters are not members
+// and see nothing here.
 
 import type pg from 'pg'
-import { canIssueBatch, canRotateBatch, generateKey, KEY_RANDOM_BYTES, type RoundKind, type RoundState } from '@school-election/election-core'
+import { canIssueBatch, canRotateBatch, generateKey, KEY_RANDOM_BYTES, type ElectionState, type RoundKind, type RoundState } from '@school-election/election-core'
 import { appendAudit } from './audit.ts'
 import type { Database } from './db.ts'
 import { Refusal, type ElectionAccess } from './election-access.ts'
@@ -44,16 +46,22 @@ export interface BatchKeys {
   batch: BatchSummary
   /**
    * Its keys, normalised, in key order. used says whether a key cast a
-   * ballot: known once the batch's round has closed, null before.
+   * ballot: known once the batch's round has closed or the election is
+   * final, null before.
    */
   keys: { key: string, used: boolean | null }[]
 }
 
 type Queryable = Pick<Database, 'query'>
 
-/** Whether a member in `role` may read the keys of a batch whose round is in `round` (null: a runoff not activated). */
-export function mayReadKeys(role: ElectionRole, round: RoundState | null): boolean {
-  return role !== 'witness' || round === 'closed'
+/** Whether the keys of a batch whose round is in `round` (null: a runoff not activated) are over: nothing of them votes any more. */
+export function keysOver(round: RoundState | null, election: ElectionState): boolean {
+  return round === 'closed' || election === 'final'
+}
+
+/** Whether a member in `role` may read the keys of such a batch. */
+export function mayReadKeys(role: ElectionRole, round: RoundState | null, election: ElectionState): boolean {
+  return role !== 'witness' || keysOver(round, election)
 }
 
 /** Every batch of the election, without keys: by voter group, regular before runoff, issued before void. For every member. */
@@ -76,15 +84,17 @@ export async function listBatches(db: Queryable, electionId: string): Promise<Ba
  * changeElection, or in a repeatable-read transaction.
  */
 export async function readBatchKeys(db: Queryable, access: Pick<ElectionAccess, 'electionId' | 'role'>, batchId: string): Promise<BatchKeys> {
-  const { rows: [row] } = await db.query<BatchRow & { round_state: RoundState | null }>(
-    `select b.id, b.voter_group_id, b.round_kind, b.state, b.keys, r.state as round_state
-       from ${BATCHES_WITH_KEYS} b left join round r on r.election_id = b.election_id and r.kind = b.round_kind
+  const { rows: [row] } = await db.query<BatchRow & { round_state: RoundState | null, election_state: ElectionState }>(
+    `select b.id, b.voter_group_id, b.round_kind, b.state, b.keys, r.state as round_state, e.state as election_state
+       from ${BATCHES_WITH_KEYS} b
+       join election e on e.id = b.election_id
+       left join round r on r.election_id = b.election_id and r.kind = b.round_kind
       where b.id = $1 and b.election_id = $2`,
     [batchId, access.electionId],
   )
   if (!row) throw new Refusal(404, 'not_found')
-  if (!mayReadKeys(access.role, row.round_state)) throw new Refusal(403, 'forbidden')
-  const closed = row.round_state === 'closed'
+  if (!mayReadKeys(access.role, row.round_state, row.election_state)) throw new Refusal(403, 'forbidden')
+  const closed = keysOver(row.round_state, row.election_state)
   const { rows } = await db.query<{ key: string, used: boolean }>(
     `select c.key, coalesce(bool_or(e.consumed), false) as used
        from credential c left join credential_entitlement e on e.credential_id = c.id

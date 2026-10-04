@@ -2,12 +2,12 @@
 // reads it): the format's name and version, and the document's types.
 // Pure, so the verifier can import it: types and constants only.
 
-import type { ElectionState, Lifecycle, Outcome, RoundKind, RoundState, RulesetId } from '@school-election/election-core'
+import type { ElectionState, Lifecycle, Outcome, OutcomeKind, RoundKind, RoundState, RulesetId } from '@school-election/election-core'
 import type { AuditChainStatus, AuditEvent } from './audit-chain.ts'
 import type { BallotRow } from './tally-digest.ts'
 
 export const EXPORT_FORMAT = 'school-election-export'
-export const EXPORT_VERSION = 1
+export const EXPORT_VERSION = 2
 
 export interface ExportedBox {
   id: string
@@ -40,6 +40,16 @@ export interface ExportedLot {
   recordedAt: string
 }
 
+/** The outcome of a contest as declared at finalization, with the versions that derived it. */
+export interface ExportedFinalOutcome {
+  contestId: string
+  kind: OutcomeKind
+  outcome: Outcome
+  tallyVersion: number
+  appVersion: string
+  gitSha: string
+}
+
 export interface ExportDocument {
   format: typeof EXPORT_FORMAT
   version: typeof EXPORT_VERSION
@@ -53,5 +63,7 @@ export interface ExportDocument {
   snapshots: ExportedSnapshot[]
   lots: ExportedLot[]
   outcomes: { contestId: string, outcome: Outcome }[]
+  /** The declared outcomes of a final election; empty before finalization. */
+  finalOutcomes: ExportedFinalOutcome[]
   audit: { events: AuditEvent[], chain: AuditChainStatus }
 }

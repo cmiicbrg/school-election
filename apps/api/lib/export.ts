@@ -4,8 +4,9 @@
 // ballots or name a key. Every section is read by named columns, never
 // select *, so a column added to a table never reaches the file. Sealed
 // ballots come without ids and in content order; keys and entitlements
-// as counts; pictures not at all. The document is canonical JSON, so the
-// same election gives the same bytes and one SHA-256, which the audit
+// as counts; pictures not at all; the outcomes as they stand and, once
+// the election is final, as declared. The document is canonical JSON, so
+// the same election gives the same bytes and one SHA-256, which the audit
 // event records.
 
 import { createHash } from 'node:crypto'
@@ -19,7 +20,7 @@ import { canonicalJson } from './canonical-json.ts'
 import { readConfiguration, type Configuration } from './configuration.ts'
 import { lifecycleOf } from './election-access.ts'
 import { EXPORT_FORMAT, EXPORT_VERSION, type ExportDocument, type ExportedBox } from './export-format.ts'
-import { contestOutcomes } from './outcome.ts'
+import { contestOutcomes, finalOutcomes } from './outcome.ts'
 import { sortedByContent, type BallotRow } from './tally-digest.ts'
 
 export { EXPORT_FORMAT, EXPORT_VERSION, type ExportDocument } from './export-format.ts'
@@ -64,6 +65,7 @@ export async function buildExport(client: pg.ClientBase, electionId: string, bui
   const exportedRounds = await exportRounds(client, electionId, rounds, configuration)
   const outcomes = rounds.some((round) => round.kind === 'regular' && round.state === 'closed') ? await contestOutcomes(client, electionId) : []
   const snapshots = await exportSnapshots(client, electionId, configuration)
+  const declared = await finalOutcomes(client, electionId)
   const events = await readAuditChain(client, electionId)
   const document: ExportDocument = {
     format: EXPORT_FORMAT,
@@ -92,6 +94,10 @@ export async function buildExport(client: pg.ClientBase, electionId: string, bui
     snapshots,
     lots: outcomes.flatMap((entry) => entry.lots.map((lot) => ({ contestId: entry.contestId, ...lot }))),
     outcomes: outcomes.map((entry) => ({ contestId: entry.contestId, outcome: entry.outcome })),
+    finalOutcomes: configuration.contests.flatMap((contest) => {
+      const entry = declared.get(contest.id)
+      return entry ? [{ contestId: entry.contestId, kind: entry.outcome.kind, outcome: entry.outcome, tallyVersion: entry.tallyVersion, appVersion: entry.appVersion, gitSha: entry.gitSha }] : []
+    }),
     audit: { events, chain: verifyAuditChain(events) },
   }
   const text = canonicalJson(document)
