@@ -11,10 +11,9 @@ test('die Protokollkette stimmt und zählt genau die Schritte der Journey', asyn
   await openAs(page, ANNA, `/wahlen/${electionId()}`)
   const { body: audit } = await apiGet<{
     events: { action: string, actor: { name: string } }[]
-    chain: { valid: boolean, length: number }
+    chain: { valid: boolean, length: number, head: string | null }
   }>(page, `/api/elections/${electionId()}/audit`)
-  expect(audit.chain.valid).toBe(true)
-  expect(audit.chain.length).toBe(audit.events.length)
+  expect(audit.chain).toEqual({ valid: true, length: audit.events.length, head: expect.any(String) })
   const counts = new Map<string, number>()
   for (const event of audit.events) counts.set(event.action, (counts.get(event.action) ?? 0) + 1)
   expect(Object.fromEntries([...counts].toSorted())).toEqual({

@@ -39,14 +39,16 @@ let stopping = false
 async function stop(code: number): Promise<never> {
   if (!stopping) {
     stopping = true
-    for (const cleanup of cleanups.reverse()) {
-      try {
-        await cleanup()
-      } catch (err) {
+    // One after the other, last first: the app closes before the pool, the
+    // pool before the database is dropped; a failure is logged and the rest
+    // still runs.
+    await cleanups.toReversed().reduce<Promise<unknown>>(
+      (previous, cleanup) => previous.then(cleanup).catch((err: unknown) => {
         console.error('cleanup failed', err)
         code = 1
-      }
-    }
+      }),
+      Promise.resolve(),
+    )
   }
   process.exit(code)
 }
@@ -59,7 +61,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 
 try {
   const testDb = await createTestDatabase(context)
-  const entra = await startFakeEntra()
+  const entra = await startFakeEntra({ redirectUri: `${ORIGIN}/api/auth/callback` })
   cleanups.push(() => entra.close())
   const db = createDatabase(testDb.runtimeUrl, (err) => console.error('database client failed', err))
   cleanups.push(() => db.close())

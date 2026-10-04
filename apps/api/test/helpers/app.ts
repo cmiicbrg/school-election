@@ -6,9 +6,9 @@ import type { FastifyInstance } from 'fastify'
 import { buildApp, type AppOptions } from '../../app.ts'
 import { loadConfig } from '../../config.ts'
 import type { Database } from '../../lib/db.ts'
-import { SERVER_ENV } from './env.ts'
+import { ORIGIN, SERVER_ENV } from './env.ts'
 
-export const ORIGIN = 'https://wahl.example.org'
+export { ORIGIN }
 
 export interface TestApp {
   app: FastifyInstance

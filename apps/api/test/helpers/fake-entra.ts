@@ -1,17 +1,18 @@
 // A stand-in for Entra ID on a local port: the tenant's signing keys and
-// its token endpoint, so sign-in runs end to end without a real tenant. The
-// token endpoint insists on what Entra insists on and the app must get
-// right: client authentication, the registered redirect URI and a code used
-// once. For a real browser (the Playwright journeys) it also has the
-// authorize page: a form that lists the test personas and sends the
-// browser back to the app's callback with a code and the state, as Entra
-// would after the person signed in.
+// its token endpoint, so sign-in runs end to end without a real tenant. It
+// insists on what Entra insists on and the app must get right: the
+// registered redirect URI, client authentication and a code used once.
+// For a real browser (the Playwright journeys) it also has the authorize
+// page: a form that lists the test personas, keeps the request it answers
+// on the server under a random id, and sends the browser back to the
+// registered callback with a code and the state, as Entra would after the
+// person signed in.
 
 import { randomBytes, randomUUID } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { exportJWK, generateKeyPair, SignJWT } from 'jose'
-import { CLIENT_ID, CLIENT_SECRET, TENANT_ID } from './env.ts'
+import { CLIENT_ID, CLIENT_SECRET, ORIGIN, TENANT_ID } from './env.ts'
 import { claimsOf, PERSONAS } from './personas.ts'
 
 export const ISSUER = `https://login.microsoftonline.com/${TENANT_ID}/v2.0`
@@ -46,7 +47,12 @@ interface PendingCode {
   signWith: NonNullable<AuthorizeOptions['signWith']>
 }
 
-export async function startFakeEntra(): Promise<FakeEntra> {
+export interface FakeEntraOptions {
+  /** The app's registered redirect URI; any other is refused, as Entra refuses it. */
+  redirectUri?: string
+}
+
+export async function startFakeEntra({ redirectUri = `${ORIGIN}/api/auth/callback` }: FakeEntraOptions = {}): Promise<FakeEntra> {
   const kid = 'test-key'
   const tenantKey = await generateKeyPair('RS256')
   const foreignKey = await generateKeyPair('RS256')
@@ -79,14 +85,21 @@ export async function startFakeEntra(): Promise<FakeEntra> {
 
   let authority = ''
 
-  /** Plays the sign-in for an authorization request: a code for the claims, and where the browser goes with it. */
-  function issue(authorizationUrl: string, { claims = {}, signWith = 'tenant' }: AuthorizeOptions): { redirectUri: string, query: string } {
+  /** An authorization request of this tenant's registered client, or an error naming what is wrong. */
+  function checked(authorizationUrl: string): URL {
     const url = new URL(authorizationUrl)
     const param = (name: string) => url.searchParams.get(name) ?? ''
     if (url.origin !== authority || url.pathname !== `/${TENANT_ID}/oauth2/v2.0/authorize`
-      || param('client_id') !== CLIENT_ID || param('response_type') !== 'code') {
-      throw new Error(`not an authorization request for this tenant: ${authorizationUrl}`)
+      || param('client_id') !== CLIENT_ID || param('response_type') !== 'code' || param('redirect_uri') !== redirectUri) {
+      throw new Error(`not an authorization request for this tenant and client: ${authorizationUrl}`)
     }
+    return url
+  }
+
+  /** Plays the sign-in for an authorization request: a code for the claims, and the query the browser goes back with. */
+  function issue(authorizationUrl: string, { claims = {}, signWith = 'tenant' }: AuthorizeOptions): { redirectUri: string, query: string } {
+    const url = checked(authorizationUrl)
+    const param = (name: string) => url.searchParams.get(name) ?? ''
     const now = Math.floor(Date.now() / 1000)
     const merged: Record<string, unknown> = {
       iss: ISSUER,
@@ -105,28 +118,39 @@ export async function startFakeEntra(): Promise<FakeEntra> {
     }
     const code = randomBytes(24).toString('base64url')
     codes.set(code, {
-      redirectUri: param('redirect_uri'),
+      redirectUri,
       claims: Object.fromEntries(Object.entries(merged).filter(([, value]) => value !== undefined)),
       signWith,
     })
-    return { redirectUri: param('redirect_uri'), query: new URLSearchParams({ code, state: param('state'), session_state: randomUUID() }).toString() }
+    return { redirectUri, query: new URLSearchParams({ code, state: param('state'), session_state: randomUUID() }).toString() }
   }
 
-  // The authorize page for a real browser: without a persona, the form;
-  // with one, the sign-in of that persona and the way back to the app.
+  // The authorize page for a real browser: the app's request is kept here
+  // under a random id and the form carries only that id, so nothing of the
+  // request is rendered; the persona chosen signs in for that request, and
+  // the browser goes back to the registered callback.
+  const pendingRequests = new Map<string, string>()
+
   function authorizePage(request: IncomingMessage, response: ServerResponse): void {
     const url = new URL(request.url ?? '/', authority)
     const chosen = url.searchParams.get('persona')
-    if (chosen === null) return html(response, 200, chooser(url))
+    if (chosen === null) {
+      try {
+        checked(url.toString())
+      } catch {
+        return json(response, 400, { error: 'invalid_request' })
+      }
+      const id = randomBytes(12).toString('base64url')
+      pendingRequests.set(id, url.toString())
+      return html(response, 200, chooser(id))
+    }
+    const pending = pendingRequests.get(url.searchParams.get('request') ?? '')
+    pendingRequests.delete(url.searchParams.get('request') ?? '')
+    if (pending === undefined) return json(response, 400, { error: 'invalid_request' })
     const person = PERSONAS.find((persona) => persona.oid === chosen)
     if (!person) return json(response, 404, { error: 'unknown_persona' })
-    url.searchParams.delete('persona')
-    try {
-      const { redirectUri, query } = issue(url.toString(), { claims: claimsOf(person) })
-      response.writeHead(302, { location: `${redirectUri}?${query}` }).end()
-    } catch {
-      json(response, 400, { error: 'invalid_request' })
-    }
+    const { query } = issue(pending, { claims: claimsOf(person) })
+    response.writeHead(302, { location: `${redirectUri}?${query}` }).end()
   }
 
   const server = createServer((request, response) => {
@@ -154,13 +178,10 @@ export async function startFakeEntra(): Promise<FakeEntra> {
   }
 }
 
-/** The sign-in page of the stand-in: every parameter of the request kept, and one button per persona. */
-function chooser(url: URL): string {
-  const hidden = [...url.searchParams]
-    .map(([name, value]) => `<input type="hidden" name="${escape(name)}" value="${escape(value)}">`)
-    .join('\n')
+/** The sign-in page of the stand-in: the pending request's id, and one button per persona. */
+function chooser(requestId: string): string {
   const buttons = PERSONAS
-    .map((person) => `<button type="submit" name="persona" value="${escape(person.oid)}">${escape(person.name)}</button>`)
+    .map((person) => `<button type="submit" name="persona" value="${person.oid}">${person.name}</button>`)
     .join('\n')
   return `<!doctype html>
 <html lang="de"><head><meta charset="utf-8"><title>Anmeldung (Test)</title>
@@ -168,15 +189,11 @@ function chooser(url: URL): string {
 </head><body>
 <h1>Anmeldung (Test)</h1>
 <p>Ein Stand-in für Microsoft Entra ID, nur für Tests. Als wer möchten Sie sich anmelden?</p>
-<form method="get" action="${escape(url.pathname)}">
-${hidden}
+<form method="get" action="/${TENANT_ID}/oauth2/v2.0/authorize">
+<input type="hidden" name="request" value="${requestId}">
 ${buttons}
 </form>
 </body></html>`
-}
-
-function escape(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
 }
 
 /** The Authorization header of a client using client_secret_basic (RFC 6749, appendix B encoding). */

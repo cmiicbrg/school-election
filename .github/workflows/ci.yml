@@ -160,7 +160,8 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
-      - run: npx playwright install --with-deps chromium
+      # The installed Playwright, at the lock file's version, not whatever npx would fetch.
+      - run: node_modules/.bin/playwright install --with-deps chromium
 
       - name: Start PostgreSQL
         run: |

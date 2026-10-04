@@ -17,7 +17,7 @@ export async function signInAs(page: Page, person: Person): Promise<void> {
 export async function openAs(page: Page, person: Person, path: string): Promise<void> {
   await page.goto(path)
   await signInAs(page, person)
-  await expect(page).toHaveURL(new RegExp(`${path.replaceAll('/', '\\/')}$`))
+  await expect(page).toHaveURL(path)
 }
 
 export async function signOut(page: Page): Promise<void> {

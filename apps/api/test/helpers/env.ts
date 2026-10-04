@@ -18,6 +18,9 @@ export const DB_ENV = {
   DATABASE_PASSWORD_FILE: secretFile('db-password', 'test-password\n'),
 }
 
+/** The origin the tests' app is configured with. */
+export const ORIGIN = 'https://wahl.example.org'
+
 export const TENANT_ID = '3f2b8c1d-6e4a-4b7f-9c2d-8a1e5f6b7c90'
 export const CLIENT_ID = 'a7c3e9f1-2b4d-4e6f-8a0b-1c3d5e7f9a2b'
 export const CLIENT_SECRET = 'test~client.secret_value'
