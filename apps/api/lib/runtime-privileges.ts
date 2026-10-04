@@ -62,6 +62,9 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   ballot_box: { table: ['INSERT'] },
   // Sealed ballots are read for the count; the seal alone writes them.
   ballot: { table: ['SELECT'] },
+  // The count writes one snapshot per ballot box when the round closes,
+  // and members read them; a trigger refuses any change (migration 0010).
+  result_snapshot: { table: ['SELECT', 'INSERT'] },
 }
 
 /** Functions the runtime role may execute, by their signature. */
