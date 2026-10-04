@@ -10,7 +10,9 @@
 // way the application's ballot transaction does, and castBallotCaster()
 // through castBallot itself. The assertions read the database as the
 // owner, including what the runtime role never sees: the staging table,
-// and each row's transaction id (xmin) and position (ctid).
+// and each row's transaction id (xmin) and position (ctid); and, for the
+// clean-up, every tuple of a page, dead ones included (pageinspect), and
+// every record of the write-ahead log on disk (pg_walinspect).
 
 import assert from 'node:assert/strict'
 import type { TestContext } from 'node:test'
@@ -485,5 +487,62 @@ export async function assertUnlinkable(scenario: PrivacyScenario): Promise<void>
       const { rowCount } = await client.query('select 1 from ballot where round_contest_id = $1 and kind = $2 and ranking = $3::uuid[]', [vote.boxId, vote.kind, vote.ranking])
       assert.ok((rowCount ?? 0) >= 1, `the tracked ${vote.kind} ballot is in its box`)
     })
+  })
+}
+
+/**
+ * Installs pageinspect and pg_walinspect in the test database, as the
+ * owner (the image CI and development run ships both), and keeps
+ * autovacuum off the three tables, so what the seal leaves behind stays
+ * where the scan below can count it until the clean-up under test removes
+ * it. PostgreSQL prunes dead tuples opportunistically on later scans of a
+ * page as well, so a count of them is taken right after the seal, before
+ * anything else reads the tables.
+ */
+export async function installInspection(ownerUrl: string): Promise<void> {
+  await withClient(ownerUrl, (client) => client.query(
+    `create extension if not exists pageinspect; create extension if not exists pg_walinspect;
+     alter table ballot_box set (autovacuum_enabled = off); alter table ballot set (autovacuum_enabled = off); alter table credential_entitlement set (autovacuum_enabled = off)`,
+  ))
+}
+
+export interface VoteTraces {
+  /** Tuples of the three ballot and entitlement tables, live or dead, whose xmin or xmax is a vote's transaction id. */
+  tuples: number
+  /** Records of the write-ahead log on disk written by a vote's transaction. */
+  records: number
+}
+
+/**
+ * What the data directory still holds of the scenario's votes, read as the
+ * owner: every tuple of every page of the three tables, the dead ones the
+ * runtime role never sees included, and every record of every segment of
+ * the write-ahead log still on disk, from the oldest segment on.
+ */
+export async function voteTraces(scenario: PrivacyScenario): Promise<VoteTraces> {
+  const xids = [...scenario.voteXids]
+  return withClient(scenario.ownerUrl, async (client) => {
+    let tuples = 0
+    for (const table of ['ballot_box', 'ballot', 'credential_entitlement']) {
+      const { rows: [row] } = await client.query<{ n: number }>(
+        `select count(*)::int as n
+           from generate_series(0, pg_relation_size($1::text::regclass) / current_setting('block_size')::int - 1) as b (blk)
+           cross join lateral heap_page_items(get_raw_page($1::text, b.blk)) as t
+          where t.t_xmin::text = any($2) or t.t_xmax::text = any($2)`,
+        [table, xids],
+      )
+      tuples += row?.n ?? 0
+    }
+    const { rows: [oldest] } = await client.query<{ lsn: string }>(
+      `select ('0/0'::pg_lsn + s.segment_number * i.bytes_per_wal_segment)::text as lsn
+         from (select min(w.name) as name from pg_ls_waldir() as w where w.name ~ '^[0-9A-F]{24}$') as first
+         cross join lateral pg_split_walfile_name(first.name) as s
+         cross join pg_control_init() as i`,
+    )
+    const { rows: [records] } = await client.query<{ n: number }>(
+      'select count(*)::int as n from pg_get_wal_records_info($1::pg_lsn, pg_current_wal_flush_lsn()) as r where r.xid::text = any($2)',
+      [oldest?.lsn ?? assert.fail('no write-ahead log on disk'), xids],
+    )
+    return { tuples, records: records?.n ?? 0 }
   })
 }

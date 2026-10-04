@@ -15,9 +15,10 @@ const NO_ORDERING = 'would record when each transaction committed, which orders 
 // PostgreSQL writes every change to the write-ahead log for crash recovery,
 // votes included, whatever these settings say. They only stop that log from
 // being archived, kept beyond what recovery needs, reused under another file
-// name or summarised, so that the clean-up after an election can remove what
-// is left.
-const KEEPS_WAL = 'would keep or copy write-ahead log beyond what crash recovery needs, and that log can link ballots to entitlements'
+// name, summarised, held by a replication slot or streamed to a standby, so
+// that the clean-up at finalization (lib/cleanup.ts) can remove what is
+// left and nothing else holds a copy.
+const KEEPS_WAL = 'would keep, copy or stream write-ahead log beyond what crash recovery needs, and that log can link ballots to entitlements'
 const NO_STATEMENT_LOGS = 'would let the server log statements or their parameters'
 
 export const REQUIRED_SETTINGS: readonly Requirement[] = [
@@ -26,6 +27,8 @@ export const REQUIRED_SETTINGS: readonly Requirement[] = [
   { name: 'wal_recycle', expected: 'off', why: KEEPS_WAL },
   { name: 'wal_keep_size', expected: '0', why: KEEPS_WAL },
   { name: 'summarize_wal', expected: 'off', why: KEEPS_WAL },
+  { name: 'max_replication_slots', expected: '0', why: KEEPS_WAL },
+  { name: 'max_wal_senders', expected: '0', why: KEEPS_WAL },
   { name: 'log_statement', expected: 'none', why: NO_STATEMENT_LOGS },
   // terse applies to the text formats only; log_destination is checked below.
   { name: 'log_error_verbosity', expected: 'terse', why: 'would log error detail, which can quote values' },
