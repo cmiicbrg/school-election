@@ -4,7 +4,7 @@
 //   GET  /api/auth/login?returnTo=/path  start sign-in at Entra
 //   GET  /api/auth/callback              Entra sends the browser back here
 //   POST /api/auth/logout
-//   GET  /api/auth/me
+//   GET  /api/auth/me                   who is signed in; 204 when nobody is
 //
 // The callback is the one GET that changes state: it records the person,
 // binds the election invitations sent to their address, and starts the
@@ -21,7 +21,7 @@ import rateLimit from '@fastify/rate-limit'
 import { Type, type Static } from 'typebox'
 import type { Config } from '../config.ts'
 import { upsertAppUser } from '../lib/app-user.ts'
-import { callerOf, GLOBAL_ROLES, requireSession, withinSeconds } from '../lib/auth.ts'
+import { authenticate, GLOBAL_ROLES, withinSeconds } from '../lib/auth.ts'
 import type { Database } from '../lib/db.ts'
 import { registerEntra, SIGN_IN_SECONDS, SignInError } from '../lib/entra.ts'
 import { bindInvitations } from '../lib/members.ts'
@@ -127,12 +127,15 @@ export async function authRoutes(app: FastifyInstance, { config, db, entraAuthor
     void reply.code(204).send()
   })
 
+  // The app's shell asks this on every page. Nobody signed in is an answer
+  // (204), not a refusal: a browser logs every error status it gets, and a
+  // signed-out visit is not an error.
   app.get('/api/auth/me', {
-    preHandler: requireSession,
     schema: { response: { '200': MeResponse, '4xx': ErrorResponse } },
-  }, (request) => {
-    const { id, displayName, roles } = callerOf(request)
-    return { id, displayName, roles }
+  }, (request, reply) => {
+    const user = authenticate(request)
+    if (!user) return reply.code(204).send()
+    return { id: user.id, displayName: user.displayName, roles: user.roles }
   })
 }
 

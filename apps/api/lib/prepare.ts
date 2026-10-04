@@ -110,14 +110,20 @@ async function warnings(db: Pick<Database, 'query'>, electionId: string): Promis
   ]
 }
 
+/** true confirms whatever is stale; a list confirms exactly those batches, and nothing if the stale ones differ. */
+export type VoidConfirmation = boolean | readonly string[]
+
 /**
  * Prepares the election, inside changeElection: unless something blocks
  * it, creates the regular round or adds the ballot boxes of contests
  * created since, moves the election to prepared and records it. Batches
- * whose keys no longer fit are voided, each recorded, if confirmVoid is
- * set; without it, preparing stops and names them.
+ * whose keys no longer fit are voided, each recorded, if confirmVoid
+ * confirms them: true confirms whatever is stale, a list of batch ids
+ * confirms exactly those, so what a person was shown is what is voided,
+ * and a change in between makes preparing stop and name the batches
+ * again. Without a confirmation, preparing stops and names them.
  */
-export async function prepareElection(client: pg.ClientBase, access: ElectionAccess, { confirmVoid = false } = {}): Promise<PrepareResult> {
+export async function prepareElection(client: pg.ClientBase, access: ElectionAccess, { confirmVoid = false }: { confirmVoid?: VoidConfirmation } = {}): Promise<PrepareResult> {
   // The configuration triggers hold a share lock on the election's row
   // until their change commits. Taking the row first waits for those and
   // keeps new ones out, so what is read here is what gets prepared, even
@@ -126,7 +132,7 @@ export async function prepareElection(client: pg.ClientBase, access: ElectionAcc
   const { problems, warnings, summary } = await readPreparation(client, access.electionId)
   if (problems.length > 0) return { prepared: false, problems }
   const stale = await staleBatches(client, access.electionId)
-  if (stale.length > 0 && !confirmVoid) return { prepared: false, problems: [], staleBatches: stale }
+  if (stale.length > 0 && !confirms(confirmVoid, stale)) return { prepared: false, problems: [], staleBatches: stale }
   await voidBatches(client, stale.map((batch) => batch.id))
   await inOrder(stale, (batch) => appendAudit(client, access.electionId, {
     actor: access.actor,
@@ -157,6 +163,12 @@ export async function prepareElection(client: pg.ClientBase, access: ElectionAcc
     },
   })
   return { prepared: true, summary, warnings }
+}
+
+function confirms(confirmation: VoidConfirmation, stale: readonly StaleBatch[]): boolean {
+  if (typeof confirmation === 'boolean') return confirmation
+  const confirmed = new Set(confirmation.map((id) => id.toLowerCase()))
+  return confirmed.size === stale.length && stale.every((batch) => confirmed.has(batch.id))
 }
 
 /**

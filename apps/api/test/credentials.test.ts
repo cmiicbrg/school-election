@@ -266,8 +266,13 @@ test('preparing again voids only the unused batches of groups whose contests cha
   assert.deepEqual(refusal.json(), { error: 'void_required', batches: [{ id: batch2b.batch.id, voterGroupId: g2b, keys: 2 }] })
   assert.equal(ok<{ state: string }>(await anna.request('GET', base)).state, 'draft')
   assert.equal(ok<{ error: string }>(await anna.request('POST', `${base}/prepare`, { confirmVoid: false }), 409).error, 'void_required')
+  // A confirmation names the batches it approves: any other list is no confirmation.
+  assert.equal(ok<{ error: string }>(await anna.request('POST', `${base}/prepare`, { confirmVoid: [batch1a.batch.id] }), 409).error, 'void_required')
+  assert.equal(ok<{ error: string }>(await anna.request('POST', `${base}/prepare`, { confirmVoid: [batch2b.batch.id, batch1a.batch.id] }), 409).error, 'void_required')
+  assert.equal(ok<{ error: string }>(await anna.request('POST', `${base}/prepare`, { confirmVoid: [] }), 409).error, 'void_required')
+  assert.equal(ok<{ state: string }>(await anna.request('GET', base)).state, 'draft')
 
-  ok(await anna.request('POST', `${base}/prepare`, { confirmVoid: true }))
+  ok(await anna.request('POST', `${base}/prepare`, { confirmVoid: [batch2b.batch.id.toUpperCase()] }))
   assert.deepEqual(
     (await listBatches(s.db, id)).map((b) => [b.id, b.state]).toSorted(),
     [[batch1a.batch.id, 'issued'], [batch2b.batch.id, 'void'], [runoff2b.batch.id, 'issued']].toSorted(),
