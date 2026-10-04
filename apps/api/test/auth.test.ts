@@ -172,7 +172,7 @@ test('every failed check ends without a session and without an app_user row', DB
     assert.equal(res.statusCode, 401, name)
     assert.deepEqual(res.json(), { error: 'sign_in_failed' }, name)
     assert.match(s.logs().slice(logged), new RegExp(`"code":"${reason}".*"msg":"sign-in refused"`), name)
-    assert.equal((await me(s.app, jar)).statusCode, 401, name)
+    assert.equal((await me(s.app, jar)).statusCode, 204, name)
   }
   assert.deepEqual(await appUsers(s.db), [])
   // A missing or forged state, a missing code, an Entra error and a missing
@@ -234,7 +234,7 @@ test('a callback works once', DB, async (t) => {
   const res = await s.app.inject({ method: 'GET', url, headers: { cookie: replay.header() } })
   assert.equal(res.statusCode, 401)
   replay.update(res)
-  assert.equal((await me(s.app, replay)).statusCode, 401)
+  assert.equal((await me(s.app, replay)).statusCode, 204)
 })
 
 test('roles come through an allow-list; signing in without one grants nothing', DB, async (t) => {
@@ -308,8 +308,8 @@ test('a sealed session is accepted only as issued, by this key, within its lifet
   const get = (cookie?: string) => app.inject({ method: 'GET', url: '/api/auth/me', headers: cookie ? { cookie } : {} })
 
   const none = await get()
-  assert.equal(none.statusCode, 401)
-  assert.deepEqual(none.json(), { error: 'unauthenticated' })
+  assert.equal(none.statusCode, 204)
+  assert.equal(none.body, '')
 
   const valid = sealed(app, { user: user() })
   assert.equal((await get(valid)).statusCode, 200)
@@ -323,20 +323,20 @@ test('a sealed session is accepted only as issued, by this key, within its lifet
     ['without nonce', cipher],
     ['garbage', 'x'],
   ] as const) {
-    assert.equal((await get(`${ADMIN_SESSION_COOKIE}=${encodeURIComponent(forged)}`)).statusCode, 401, name)
+    assert.equal((await get(`${ADMIN_SESSION_COOKIE}=${encodeURIComponent(forged)}`)).statusCode, 204, name)
   }
 
   const other = await buildTestApp({ SESSION_KEY_FILE: secretFile('other-session-key', randomBytes(32).toString('hex')) })
   t.after(() => other.app.close())
-  assert.equal((await get(sealed(other.app, { user: user() }))).statusCode, 401, 'sealed with another key')
+  assert.equal((await get(sealed(other.app, { user: user() }))).statusCode, 204, 'sealed with another key')
 
   const expiredAt = Date.now() - ADMIN_SESSION_SECONDS * 1000 - 1000
-  assert.equal((await get(sealed(app, { user: user(expiredAt) }))).statusCode, 401, 'signed in more than 8 hours ago')
+  assert.equal((await get(sealed(app, { user: user(expiredAt) }))).statusCode, 204, 'signed in more than 8 hours ago')
   for (const issuedAt of [undefined, null, 'now', Number.NaN]) {
-    assert.equal((await get(sealed(app, { user: { ...user(), issuedAt } }))).statusCode, 401, `issuedAt ${String(issuedAt)}`)
+    assert.equal((await get(sealed(app, { user: { ...user(), issuedAt } }))).statusCode, 204, `issuedAt ${String(issuedAt)}`)
   }
-  assert.equal((await get(sealed(app, { __ts: Math.floor(expiredAt / 1000), user: user() }))).statusCode, 401, 'cookie sealed more than 8 hours ago')
-  assert.equal((await get(sealed(app, { signIn: { nonce: 'n', returnTo: '/', startedAt: Date.now() } }))).statusCode, 401, 'a pending sign-in is no session')
+  assert.equal((await get(sealed(app, { __ts: Math.floor(expiredAt / 1000), user: user() }))).statusCode, 204, 'cookie sealed more than 8 hours ago')
+  assert.equal((await get(sealed(app, { signIn: { nonce: 'n', returnTo: '/', startedAt: Date.now() } }))).statusCode, 204, 'a pending sign-in is no session')
 })
 
 test('a request the guard let through keeps its caller, even if the session expires meanwhile', async (t) => {
@@ -388,7 +388,7 @@ test('sign-in is rate-limited per client address, and nothing else is', async (t
     assert.ok(Number(limited.headers['retry-after']) > 0)
     assert.notEqual((await from('203.0.113.9', url)).statusCode, 429, `${url} from another address`)
   }
-  for (let i = 0; i < 70; i++) assert.equal((await from('198.51.100.7', '/api/auth/me')).statusCode, 401)
+  for (let i = 0; i < 70; i++) assert.equal((await from('198.51.100.7', '/api/auth/me')).statusCode, 204)
   assert.ok(!logs().includes('198.51.100.7'))
 })
 

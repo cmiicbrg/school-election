@@ -2,14 +2,9 @@
 // browser's cookies, every body as JSON (the API refuses other bodies),
 // and the same handling of a refusal everywhere. A 401 means the session
 // is gone: the browser goes to the sign-in page and comes back to this
-// one, unless the caller asked for null instead (the session check).
+// one. A 204 is an answer without content, undefined to the caller.
 
 import { ApiError, problemOf, signInUrl } from './api-rules.ts'
-
-export interface CallOptions {
-  /** On 401, resolve to null instead of going to sign-in. */
-  optional?: boolean
-}
 
 let goToSignIn: () => void = () => window.location.assign(signInUrl(window.location.pathname + window.location.search))
 
@@ -18,29 +13,27 @@ export function onUnauthenticated(handler: () => void): void {
   goToSignIn = handler
 }
 
-export async function apiGet<T>(path: string): Promise<T>
-export async function apiGet<T>(path: string, options: { optional: true }): Promise<T | null>
-export async function apiGet<T>(path: string, options: CallOptions = {}): Promise<T | null> {
-  return call<T>('GET', path, undefined, options)
+export async function apiGet<T>(path: string): Promise<T> {
+  return call<T>('GET', path)
 }
 
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
-  return call<T>('POST', path, body) as Promise<T>
+  return call<T>('POST', path, body)
 }
 
 export async function apiPut<T>(path: string, body: unknown): Promise<T> {
-  return call<T>('PUT', path, body) as Promise<T>
+  return call<T>('PUT', path, body)
 }
 
 export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
-  return call<T>('PATCH', path, body) as Promise<T>
+  return call<T>('PATCH', path, body)
 }
 
 export async function apiDelete(path: string): Promise<void> {
   await call<undefined>('DELETE', path)
 }
 
-async function call<T>(method: string, path: string, body?: unknown, options: CallOptions = {}): Promise<T | null> {
+async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   // A request without a body carries no content type: the API would refuse
   // an empty JSON body, and some routes (replacing a batch, preparing) take none.
   const headers: Record<string, string> = { accept: 'application/json' }
@@ -52,7 +45,6 @@ async function call<T>(method: string, path: string, body?: unknown, options: Ca
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   if (response.status === 401) {
-    if (options.optional) return null
     goToSignIn()
     throw new ApiError(401, 'unauthenticated')
   }

@@ -1,6 +1,7 @@
 // Who is signed in, for the shell and the pages: loaded once from the
-// API, null when nobody is. Signing out ends the session on the server
-// and brings the browser to the sign-in page.
+// API, null when nobody is (the API answers that with no content).
+// Signing out ends the session on the server and brings the browser to
+// the sign-in page.
 
 import { computed, ref } from 'vue'
 import { apiGet, apiPost } from './api.ts'
@@ -17,7 +18,7 @@ export const session = ref<Me | null | undefined>(undefined)
 export const isTeacher = computed(() => session.value?.roles.includes('teacher') ?? false)
 
 export async function loadSession(): Promise<Me | null> {
-  session.value = await apiGet<Me>('/api/auth/me', { optional: true })
+  session.value = (await apiGet<Me>('/api/auth/me')) ?? null
   return session.value
 }
 
