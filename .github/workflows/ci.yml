@@ -284,10 +284,11 @@ jobs:
           docker run --rm school-election:ci test -s third-party-notices/LGPL-3.0.txt -a -s third-party-notices/GPL-3.0.txt -a -s third-party-notices/README.md
 
           # Sessions are sealed with the native libsodium binding, which has
-          # to load in the image: without a session cookie /me is a 401.
+          # to load in the image: the session check runs on every request to
+          # /me, and without a session cookie the answer is 204, nobody.
           status="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/auth/me)"
-          if [ "$status" != 401 ]; then
-            echo "Expected /api/auth/me without a session to answer 401, got $status" >&2
+          if [ "$status" != 204 ]; then
+            echo "Expected /api/auth/me without a session to answer 204, got $status" >&2
             exit 1
           fi
           # Sign-in starts at the configured tenant, with a nonce, and needs
