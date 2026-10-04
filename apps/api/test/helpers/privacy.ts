@@ -28,6 +28,7 @@ import {
 import { castBallot } from '../../lib/ballot-box.ts'
 import type { Database } from '../../lib/db.ts'
 import { inOrder } from '../../lib/in-order.ts'
+import { contestOutcomes } from '../../lib/outcome.ts'
 import { createTestDatabase, withClient, type TestDatabase } from './db.ts'
 
 export interface ScenarioContest {
@@ -222,12 +223,62 @@ function randomVote(credentialId: string, contest: ScenarioContest, random: () =
   return { credentialId, boxId: contest.boxId, kind, ranking: kind === 'ranking' ? [...contest.candidateIds] : [] }
 }
 
-/** Casts every planned vote through `cast`, one after the other. */
-export async function voteInterleaved(scenario: PrivacyScenario, cast: Caster, seed = 2026): Promise<void> {
-  await inOrder(plannedVotes(scenario, seed), async (vote) => {
+/** Casts every planned vote through `cast`, one after the other; `plan` is the first round's unless the runoff's is given. */
+export async function voteInterleaved(scenario: PrivacyScenario, cast: Caster, seed = 2026, plan: (scenario: PrivacyScenario, seed: number) => Vote[] = plannedVotes): Promise<void> {
+  await inOrder(plan(scenario, seed), async (vote) => {
     await cast(vote)
     scenario.castOrder.push(vote)
   })
+}
+
+const RUNOFF_BATCH = '5e6f7081-92a3-4fbf-8ad1-4c5d6e7f8092'
+
+/**
+ * The runoff of the scenario, after its regular round was closed and
+ * counted: a runoff batch of the tracked key and `others` more, issued as
+ * the owner, and the round activated as the runtime role for every contest
+ * whose outcome requires one, with the pair the outcome names (the seeded
+ * votes give one for both ranked contests). What comes back is the
+ * scenario as the runoff round sees it, so the same assertions run over
+ * it: its boxes, its keys, its votes; the keys' rows of the whole
+ * election, for the check that none was touched.
+ */
+export async function runoffScenario(scenario: PrivacyScenario, db: Database, { others = 50 } = {}): Promise<PrivacyScenario> {
+  assert.ok(others >= 50, 'the anonymity set is at least fifty other voters')
+  const outcomes = await db.tx((client) => contestOutcomes(client, scenario.electionId))
+  const pairs = outcomes.flatMap((entry) => entry.outcome.kind === 'runoff-required' ? [{ contestId: entry.contestId, candidates: [...entry.outcome.runoffCandidates] }] : [])
+  assert.ok(pairs.length >= 1, `the seeded first round needs a runoff somewhere; it gave ${outcomes.map((entry) => entry.outcome.kind).join(', ')}`)
+  const { keys, credentialXmins } = await withClient(scenario.ownerUrl, async (client) => {
+    await client.query('insert into credential_batch (id, election_id, voter_group_id, round_kind) values ($1, $2, $3, $4)', [RUNOFF_BATCH, scenario.electionId, GROUP, 'runoff'])
+    const { rows: keys } = await client.query<{ id: string }>(
+      `insert into credential (election_id, batch_id, key) select $1, $2, k.key from unnest($3::text[]) as k (key) returning id`,
+      [scenario.electionId, RUNOFF_BATCH, Array.from({ length: others + 1 }, (_, n) => fakeKey(1000 + n))],
+    )
+    const { rows: all } = await client.query<{ id: string, xmin: string }>('select id, xmin::text from credential where election_id = $1', [scenario.electionId])
+    return { keys: keys.map((row) => row.id), credentialXmins: new Map(all.map((row) => [row.id, row.xmin])) }
+  })
+  const { rows: [activated] } = await db.query<{ activate_runoff: string }>('select activate_runoff($1, $2::jsonb)', [scenario.electionId, JSON.stringify(pairs)])
+  const roundId = activated?.activate_runoff ?? assert.fail('no runoff round')
+  const { rows: boxes } = await withClient(scenario.ownerUrl, (client) => client.query<{ id: string, contest_id: string }>('select id, contest_id from round_contest where round_id = $1', [roundId]))
+  const contests: ScenarioContest[] = pairs.map((pair) => ({
+    contestId: pair.contestId,
+    boxId: boxes.find((box) => box.contest_id === pair.contestId)?.id ?? assert.fail('no runoff box'),
+    rulesetId: 'single-choice-v1',
+    candidateIds: pair.candidates,
+    slots: 1,
+  }))
+  const tracked = keys[0] ?? assert.fail('no runoff key')
+  return { ...scenario, roundId, contests, credentialIds: keys, tracked, voteXids: new Set(), castOrder: [], credentialXmins }
+}
+
+/** Every runoff key's choice in every runoff box, one of the pair each, in one seeded, shuffled order. */
+export function plannedRunoffVotes(scenario: PrivacyScenario, seed = 2027): Vote[] {
+  const random = seeded(seed)
+  const votes = scenario.credentialIds.flatMap((credentialId) => scenario.contests.map((contest) => {
+    const choice = contest.candidateIds[Math.floor(random() * contest.candidateIds.length)] ?? assert.fail('an empty pair')
+    return { credentialId, boxId: contest.boxId, kind: 'ranking' as const, ranking: [choice] }
+  }))
+  return shuffled(votes, random)
 }
 
 /** The current transaction's id as xmin will show it: the low 32 bits. */
@@ -428,7 +479,9 @@ export async function assertUnlinkable(scenario: PrivacyScenario): Promise<void>
       [boxes],
     )
     for (const row of counts) assert.equal(row.ballots, row.used, row.box)
-    await inOrder(trackedVotes(scenario), async (vote) => {
+    const cast = scenario.castOrder.filter((vote) => vote.credentialId === scenario.tracked)
+    assert.equal(cast.length, boxes.length, 'the tracked key voted in every box')
+    await inOrder(cast, async (vote) => {
       const { rowCount } = await client.query('select 1 from ballot where round_contest_id = $1 and kind = $2 and ranking = $3::uuid[]', [vote.boxId, vote.kind, vote.ranking])
       assert.ok((rowCount ?? 0) >= 1, `the tracked ${vote.kind} ballot is in its box`)
     })

@@ -162,6 +162,8 @@ export interface ContestInput {
 // The longest title or name, in code points, as the database holds them.
 export const MAX_TITLE = 200
 const MAX_NAME = 100
+/** Candidates one contest can have: far beyond any school contest, and what a lot among all of them can be recorded with. */
+export const MAX_CANDIDATES = 50
 
 /**
  * A title or name as it is stored (cleanName), refused with 400 too_long
@@ -235,6 +237,7 @@ export async function addCandidate(client: pg.ClientBase, access: ElectionAccess
   const contest = await readContest(client, access.electionId, contestId)
   const name = cleanCandidateName(input)
   refuseTakenName(contest, name, null)
+  if (contest.candidates.length >= MAX_CANDIDATES) throw new Refusal(409, 'too_many_candidates')
   const { rows: [row] } = await client.query<{ id: string }>(
     'insert into candidate (election_id, contest_id, surname, given_name) values ($1, $2, $3, $4) returning id',
     [access.electionId, contestId, name.surname, name.givenName],

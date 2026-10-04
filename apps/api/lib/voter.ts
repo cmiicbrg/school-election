@@ -96,8 +96,8 @@ export async function voterElection(db: Queryable, credentialId: string, roundId
     [roundId],
   )
   if (!election) throw new Error('the session names a round that is gone')
-  const { rows: entitled } = await db.query<{ contest_id: string, box_id: string, title: string, ruleset_id: RulesetId, consumed: boolean }>(
-    `select c.id as contest_id, rc.id as box_id, c.title, c.ruleset_id, e.consumed
+  const { rows: entitled } = await db.query<{ contest_id: string, box_id: string, title: string, ruleset_id: RulesetId, runoff_pair: string[] | null, consumed: boolean }>(
+    `select c.id as contest_id, rc.id as box_id, c.title, c.ruleset_id, rc.runoff_pair, e.consumed
        from credential_entitlement e
        join round_contest rc on rc.id = e.round_contest_id
        join contest c on c.id = rc.contest_id
@@ -111,17 +111,19 @@ export async function voterElection(db: Queryable, credentialId: string, roundId
     'select id, contest_id, surname, given_name, picture_sha256 from candidate where contest_id = any($1)',
     [entitled.map((row) => row.contest_id)],
   )
+  // A runoff box is for its pair alone, one choice between the two (migration 0013).
   const contests = entitled.map((row) => {
     const listed = candidates
-      .filter((candidate) => candidate.contest_id === row.contest_id)
+      .filter((candidate) => candidate.contest_id === row.contest_id && (row.runoff_pair === null || row.runoff_pair.includes(candidate.id)))
       .map((candidate) => ({ id: candidate.id, surname: candidate.surname, givenName: candidate.given_name, picture: candidate.picture_sha256 }))
       .sort(compareCandidates)
+    const rulesetId: RulesetId = row.runoff_pair === null ? row.ruleset_id : 'single-choice-v1'
     return {
       id: row.contest_id,
       roundContestId: row.box_id,
       title: row.title,
-      rulesetId: row.ruleset_id,
-      activeSlots: listed.length === 0 ? 0 : activeSlots(RULESETS[row.ruleset_id], listed.length).length,
+      rulesetId,
+      activeSlots: listed.length === 0 ? 0 : activeSlots(RULESETS[rulesetId], listed.length).length,
       done: row.consumed,
       candidates: listed,
     }
@@ -163,7 +165,7 @@ export async function voterPicture(db: Queryable, credentialId: string, roundId:
        from candidate c
        join round_contest rc on rc.contest_id = c.contest_id and rc.round_id = $2
        join credential_entitlement e on e.round_contest_id = rc.id and e.credential_id = $1
-      where c.picture_sha256 = $3
+      where c.picture_sha256 = $3 and (rc.runoff_pair is null or c.id = any (rc.runoff_pair))
       limit 1`,
     [credentialId, roundId, sha256],
   )

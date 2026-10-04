@@ -13,15 +13,15 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { FastifyInstance, FastifyReply, FastifyRequest, HookHandlerDoneFunction } from 'fastify'
 import { Type, type Static } from 'typebox'
-import { parseKey, validateBallot, type Contest, type RoundState } from '@school-election/election-core'
+import { parseKey, validateBallot, type RoundState } from '@school-election/election-core'
 import type { Config } from '../config.ts'
 import { AttemptLimiter } from '../lib/attempt-limiter.ts'
 import { castBallot, type CastRefusal } from '../lib/ballot-box.ts'
-import { readContest } from '../lib/configuration.ts'
 import type { Database } from '../lib/db.ts'
 import { Refusal } from '../lib/election-access.ts'
 import { matchesEtag, pictureEtag } from '../lib/pictures.ts'
 import { BallotBody, BallotCast, SessionBody, VoterElection, VoterRefusal } from '../lib/schemas/voter.ts'
+import { contestOfBox } from '../lib/tally.ts'
 import { entitledBox, lockCredential, lookUpKey, remainingBoxes, roundNow, voterElection, voterPicture, type Queryable, type VotingState } from '../lib/voter.ts'
 import { registerVoterSession, VOTER_SESSION_SECONDS, type Voter } from '../plugins/voter-session.ts'
 
@@ -158,8 +158,10 @@ export async function voterRoutes(app: FastifyInstance, { db, config, limiter = 
       await stillVoting(client, request, voter)
       const box = await entitledBox(client, voter.credentialId, voter.roundId, roundContestId)
       if (!box) throw new Refusal(409, 'not_entitled')
-      const stored = await readContest(client, box.electionId, box.contestId)
-      const contest: Contest = { id: stored.id, rulesetId: stored.rulesetId, candidateIds: stored.candidates.map((candidate) => candidate.id) }
+      // The box's contest: the pair as a single-choice contest in a runoff, the contest as configured otherwise.
+      const ofBox = await contestOfBox(client, roundContestId)
+      if (!ofBox) throw new Refusal(409, 'not_entitled')
+      const { contest } = ofBox
       const validated = validateBallot(contest, ballot)
       if (!validated.ok) return { invalid: validated.error }
       const result = await castBallot(client, { credentialId: voter.credentialId, roundContestId, contest, ballot: validated.ballot })

@@ -42,15 +42,30 @@ export const Turnout = StrictObject({
   contests: Type.Array(StrictObject({ contestId: Type.String(), ...Counts })),
 })
 
+/** A stored snapshot: election-core's result and the outcome as of the close, with the digest and the versions. */
+export const Snapshot = StrictObject({
+  contestId: Type.String(),
+  inputSha256: Type.String({ pattern: '^[0-9a-f]{64}$' }),
+  tallyVersion: Type.Integer(),
+  appVersion: Type.String(),
+  gitSha: Type.String(),
+  result: Type.Unknown(),
+  outcome: Type.Unknown(),
+})
+
 export const RoundResults = StrictObject({
   round: Literals(ROUND_STATES),
+  contests: Type.Array(Snapshot),
+})
+
+export const RunoffActivated = StrictObject({
+  election: Literals(ELECTION_STATES),
+  round: Literals(ROUND_STATES),
+  /** The pair of every contest in the runoff, in ballot order. */
   contests: Type.Array(StrictObject({
     contestId: Type.String(),
-    inputSha256: Type.String({ pattern: '^[0-9a-f]{64}$' }),
-    tallyVersion: Type.Integer(),
-    appVersion: Type.String(),
-    gitSha: Type.String(),
-    result: Type.Unknown(),
-    outcome: Type.Unknown(),
+    candidates: Type.Array(Type.String(), { minItems: 2, maxItems: 2 }),
   })),
+  /** Keys of the issued runoff batches entitled to vote. */
+  keys: Type.Integer(),
 })

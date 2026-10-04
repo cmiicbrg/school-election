@@ -23,6 +23,9 @@ export const BATCH = 'a091f385-c1b4-45d6-8ce1-7d8e9fa0b1c2'
 export const PAULA = 'c2b315a7-e3d6-47f8-8ea3-9fa0b1c2d3e4'
 export const QUIRIN = 'd3c426b8-f4e7-4809-9fb4-a0b1c2d3e4f5'
 export const CONTEST_OF: Contest = { id: CONTEST, rulesetId: 'at-representative-v1', candidateIds: [PAULA, QUIRIN] }
+export const RUNOFF_BATCH = 'b1a2f496-d2c5-46e7-9df2-8e9fa0b1c2d3'
+/** The runoff of the contest between its two candidates, as election-core sees it. */
+export const RUNOFF_OF: Contest = { id: CONTEST, rulesetId: 'single-choice-v1', candidateIds: [PAULA, QUIRIN] }
 
 export interface Setup {
   db: Database
@@ -76,3 +79,33 @@ export const as = (s: Setup, role: ElectionRole = 'owner'): Promise<ElectionAcce
 
 export const refusedWith = (statusCode: number, code: string) => (err: unknown): boolean =>
   err instanceof Refusal && err.statusCode === statusCode && err.code === code
+
+/** Seals the regular round as the runtime role, as the close route does, without the count. */
+export async function sealDirectly(s: Setup): Promise<void> {
+  await s.db.query('select seal_round($1)', [ROUND])
+}
+
+/** A runoff batch of `keys` keys for the class, made as the owner past the API; its keys' credential ids in key order. */
+export async function issueRunoffBatch(ownerUrl: string, keys = 2, batchId = RUNOFF_BATCH): Promise<string[]> {
+  const prefix = batchId.slice(0, 4).toUpperCase().replaceAll(/[^0-9A-HJKMNP-TV-Z]/g, '0')
+  return withClient(ownerUrl, async (client) => {
+    await client.query(`insert into credential_batch (id, election_id, voter_group_id, round_kind) values ($1, $2, $3, 'runoff')`, [batchId, ELECTION, GROUP])
+    await client.query(
+      `insert into credential (election_id, batch_id, key) select $2, $1, $3 || lpad(n::text, 16, '0') from generate_series(1, $4::int) as n`,
+      [batchId, ELECTION, prefix, keys],
+    )
+    const { rows } = await client.query<{ id: string }>('select id from credential where batch_id = $1 order by key', [batchId])
+    return rows.map((row) => row.id)
+  })
+}
+
+export interface Pair {
+  contestId: string
+  candidates: [string, string]
+}
+
+/** activate_runoff as the runtime role calls it; the runoff round's id. */
+export async function activateDirectly(s: Setup, pairs: Pair[] = [{ contestId: CONTEST, candidates: [PAULA, QUIRIN] }]): Promise<string> {
+  const { rows: [row] } = await s.db.query<{ activate_runoff: string }>('select activate_runoff($1, $2::jsonb)', [ELECTION, JSON.stringify(pairs)])
+  return row?.activate_runoff ?? assert.fail('no runoff round')
+}

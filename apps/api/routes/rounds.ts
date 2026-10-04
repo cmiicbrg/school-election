@@ -8,15 +8,19 @@
 //   POST /api/elections/:id/rounds/regular/close        the seal and the count, in one transaction
 //   GET  /api/elections/:id/rounds/regular/turnout      counts by contest and by key, in every state (any member)
 //   GET  /api/elections/:id/rounds/regular/result       the snapshots, once the round has closed; 409 before, for every role
+//   POST /api/elections/:id/rounds/runoff/activate      the runoff round, open, with the pairs the outcomes name
+//   POST /api/elections/:id/rounds/runoff/close         the seal and the count of the runoff, in one transaction
+//   GET  /api/elections/:id/rounds/runoff/turnout       as the regular round's
+//   GET  /api/elections/:id/rounds/runoff/result        the runoff's snapshots, once it has closed
 
 import type { FastifyInstance } from 'fastify'
-import { canOpenRegular, canShowResults, canShowTestResult } from '@school-election/election-core'
+import { canActivateRunoff, canOpenRegular, canShowResults, canShowTestResult, type RoundKind } from '@school-election/election-core'
 import type { Config } from '../config.ts'
 import { readSnapshot, type Database } from '../lib/db.ts'
 import { canTransition, changeElection, electionAccessOf, requireElectionAccess } from '../lib/election-access.ts'
-import { closeAndTally, endTest, openRound, readTurnout, startTest } from '../lib/rounds.ts'
+import { activateRunoff, closeAndTally, endTest, openRound, readTurnout, startTest } from '../lib/rounds.ts'
 import { ErrorResponse } from '../lib/schemas/common.ts'
-import { RoundClosed, RoundResults, RoundStates, TestEnded, Turnout } from '../lib/schemas/rounds.ts'
+import { RoundClosed, RoundResults, RoundStates, RunoffActivated, TestEnded, Turnout } from '../lib/schemas/rounds.ts'
 import { readResults, tallyTest } from '../lib/tally.ts'
 
 export function roundRoutes(app: FastifyInstance, { db, config }: { db: Database, config: Config }, done: (err?: Error) => void): void {
@@ -63,18 +67,36 @@ export function roundRoutes(app: FastifyInstance, { db, config }: { db: Database
     return { election: 'active' as const, round: 'closed' as const, ...closed }
   })
 
-  app.get('/api/elections/:id/rounds/regular/turnout', {
-    onRequest: requireElectionAccess(db, 'view'),
-    schema: { response: { '200': Turnout, '4xx': ErrorResponse } },
-  }, async (request) => readSnapshot(db, (client) => readTurnout(client, electionAccessOf(request).electionId, 'regular')))
+  app.post('/api/elections/:id/rounds/runoff/activate', {
+    onRequest: requireElectionAccess(db, 'run-rounds', canActivateRunoff),
+    schema: { response: { '200': RunoffActivated, '4xx': ErrorResponse } },
+  }, async (request) => {
+    const activated = await changeElection(db, request, (client, access) => activateRunoff(client, access))
+    return { election: 'active' as const, round: 'open' as const, contests: activated.contests, keys: activated.keys }
+  })
 
-  app.get('/api/elections/:id/rounds/regular/result', {
-    onRequest: requireElectionAccess(db, 'view-results', (lifecycle) => canShowResults(lifecycle, 'regular')),
-    schema: { response: { '200': RoundResults, '4xx': ErrorResponse } },
-  }, async (request) => readSnapshot(db, async (client) => {
-    const { electionId } = electionAccessOf(request)
-    const { rows: [round] } = await client.query<{ id: string }>(`select id from round where election_id = $1 and kind = 'regular'`, [electionId])
-    return { round: 'closed' as const, contests: round ? await readResults(client, electionId, round.id) : [] }
-  }))
+  app.post('/api/elections/:id/rounds/runoff/close', {
+    onRequest: requireElectionAccess(db, 'run-rounds', canTransition('close-runoff')),
+    schema: { response: { '200': RoundClosed, '4xx': ErrorResponse } },
+  }, async (request) => {
+    const closed = await changeElection(db, request, (client, access) => closeAndTally(client, access, build, 'runoff'))
+    return { election: 'active' as const, round: 'closed' as const, ...closed }
+  })
+
+  for (const kind of ['regular', 'runoff'] as const satisfies readonly RoundKind[]) {
+    app.get(`/api/elections/:id/rounds/${kind}/turnout`, {
+      onRequest: requireElectionAccess(db, 'view'),
+      schema: { response: { '200': Turnout, '4xx': ErrorResponse } },
+    }, async (request) => readSnapshot(db, (client) => readTurnout(client, electionAccessOf(request).electionId, kind)))
+
+    app.get(`/api/elections/:id/rounds/${kind}/result`, {
+      onRequest: requireElectionAccess(db, 'view-results', (lifecycle) => canShowResults(lifecycle, kind)),
+      schema: { response: { '200': RoundResults, '4xx': ErrorResponse } },
+    }, async (request) => readSnapshot(db, async (client) => {
+      const { electionId } = electionAccessOf(request)
+      const { rows: [round] } = await client.query<{ id: string }>('select id from round where election_id = $1 and kind = $2', [electionId, kind])
+      return { round: 'closed' as const, contests: round ? await readResults(client, electionId, round.id) : [] }
+    }))
+  }
   done()
 }

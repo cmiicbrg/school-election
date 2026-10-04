@@ -4,13 +4,15 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { validateBallot } from '@school-election/election-core'
 import { lockElection } from '../../lib/audit.ts'
+import { castBallot } from '../../lib/ballot-box.ts'
 import { createDatabase } from '../../lib/db.ts'
 import { closeAndTally, closeRound } from '../../lib/rounds.ts'
 import { DB, withClient } from '../helpers/db.ts'
 import { accessAs } from '../helpers/elections.ts'
 import { buildTestApp } from '../helpers/app.ts'
-import { assertUnlinkable, ballotInput, castBallotCaster, openScenario, seedPrivacyScenario, sqlCaster, voteInterleaved, type Caster, type PrivacyScenario } from '../helpers/privacy.ts'
+import { assertUnlinkable, ballotInput, castBallotCaster, openScenario, plannedRunoffVotes, runoffScenario, seedPrivacyScenario, sqlCaster, voteInterleaved, type Caster, type PrivacyScenario } from '../helpers/privacy.ts'
 
 test('one key voting in three contests among fifty others leaves no trace of which ballots were its', DB, async (t) => {
   const scenario = await seedPrivacyScenario(t)
@@ -135,3 +137,42 @@ test('and through the voter routes, the whole way a browser takes: redeemed keys
   assert.equal(ballots, scenario.castOrder.length)
   await assertUnlinkable(scenario)
 })
+
+test('and through the runoff: fresh keys, one choice between the pair, a seal of its own, and nothing linkable in either round', DB, async (t) => {
+  const scenario = await seedPrivacyScenario(t)
+  const db = createDatabase(scenario.runtimeUrl, () => {})
+  t.after(() => db.close())
+  await voteInterleaved(scenario, castBallotCaster(db, scenario))
+  const access = await accessAs(scenario.ownerUrl, scenario.electionId, 'owner')
+  await db.tx(async (client) => {
+    await lockElection(client, scenario.electionId)
+    return closeAndTally(client, access, { version: 'dev', gitSha: 'unknown' })
+  })
+  await assertUnlinkable(scenario)
+
+  // The runoff: its own keys, its own boxes for the pairs the outcomes give, through castBallot as the voter route casts it.
+  const runoff = await runoffScenario(scenario, db)
+  assert.ok(runoff.contests.length >= 1)
+  await voteInterleaved(runoff, castBallotCaster(db, runoff), 2027, plannedRunoffVotes)
+  // A first-round key has no say in the runoff, before and after its seal.
+  const [box] = runoff.contests
+  assert.ok(box)
+  const first = await db.tx((client) => castBallot(client, {
+    credentialId: scenario.tracked, roundContestId: box.boxId,
+    contest: { id: box.contestId, rulesetId: 'single-choice-v1', candidateIds: box.candidateIds },
+    ballot: ranking(box, box.candidateIds[0] ?? ''),
+  }))
+  assert.deepEqual(first, { cast: false, reason: 'not-entitled' })
+  await withClient(scenario.runtimeUrl, (client) => client.query('select seal_round($1)', [runoff.roundId]))
+  await assertUnlinkable(runoff)
+  // The first round's rows are as the first seal left them; the keys of both rounds were never touched.
+  scenario.credentialXmins = runoff.credentialXmins
+  await assertUnlinkable(scenario)
+})
+
+/** One choice of the pair, as election-core accepts it for the runoff box. */
+function ranking(box: PrivacyScenario['contests'][number], candidateId: string) {
+  const checked = validateBallot({ id: box.contestId, rulesetId: 'single-choice-v1', candidateIds: box.candidateIds }, { kind: 'ranking', ranking: [candidateId] })
+  assert.ok(checked.ok)
+  return checked.ballot
+}
