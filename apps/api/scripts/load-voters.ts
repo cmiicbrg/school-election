@@ -139,7 +139,7 @@ console.log(`${keyCount} voters, ${concurrency} at a time: ${Math.round(elapsed)
 const byError = new Map<string, number>()
 for (const outcome of errors) byError.set(outcome.error ?? '', (byError.get(outcome.error ?? '') ?? 0) + 1)
 for (const [error, count] of byError) console.log(`  ${count} × ${error}`)
-if (errors.length > 0 || !written || written.staged !== keyCount || written.used !== keyCount) {
+if (errors.length > 0 || written?.staged !== keyCount || written?.used !== keyCount) {
   console.error('the load run failed')
   process.exit(1)
 }
