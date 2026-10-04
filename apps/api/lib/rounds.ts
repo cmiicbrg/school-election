@@ -19,6 +19,7 @@ import { canOpenRegular, transition, type Lifecycle, type OutcomeKind, type Roun
 import { appendAudit } from './audit.ts'
 import { Refusal, type ElectionAccess } from './election-access.ts'
 import { inOrder } from './in-order.ts'
+import { contestOutcomes } from './outcome.ts'
 import { isPermitted } from './permissions.ts'
 import { SQLSTATE, sqlState } from './pg-errors.ts'
 import type { BuildInfo } from '../config.ts'
@@ -126,20 +127,74 @@ export interface Closed {
 }
 
 /**
- * Closes the regular round and counts it: the seal, then every box over
+ * Closes the round of that kind and counts it: the seal, then every box over
  * the sealed ballots, one snapshot and one audit event per contest, all in
  * this transaction. The audit event names the contest, the digest of what
- * was counted and the outcome's kind; the figures are in the snapshot.
+ * was counted and the outcome's kind; the figures are in the snapshot. A
+ * runoff box is counted over its pair, and its outcome is the first round's
+ * with the runoff and the recorded lots (lib/tally.ts).
  */
-export async function closeAndTally(client: pg.ClientBase, access: ElectionAccess, build: BuildInfo): Promise<Closed> {
-  const { roundId, ballots } = await closeRound(client, access, 'regular')
+export async function closeAndTally(client: pg.ClientBase, access: ElectionAccess, build: BuildInfo, kind: RoundKind = 'regular'): Promise<Closed> {
+  const { roundId, ballots } = await closeRound(client, access, kind)
   const tallies = await tallyRound(client, access.electionId, roundId, build)
   await inOrder(tallies, (tally) => appendAudit(client, access.electionId, {
     actor: access.actor,
     action: 'result.computed',
-    metadata: { contest: tally.contestId, round: 'regular', inputSha256: tally.inputSha256, ballots: tally.ballots, outcome: tally.outcome.kind },
+    metadata: { contest: tally.contestId, round: kind, inputSha256: tally.inputSha256, ballots: tally.ballots, outcome: tally.outcome.kind },
   }))
   return { ballots, contests: tallies.map((tally) => ({ contestId: tally.contestId, outcome: tally.outcome.kind })) }
+}
+
+export interface Activated {
+  roundId: string
+  /** The pair of every contest in the runoff, in ballot order. */
+  contests: { contestId: string, candidates: [string, string] }[]
+  /** Keys of the issued runoff batches entitled to vote. */
+  keys: number
+}
+
+/**
+ * Activates the runoff: refused by the lifecycle unless the regular round
+ * has closed and no runoff exists (409 with its reason), by the role unless
+ * it may run rounds (403), with 409 lot_required while a contest's runoff
+ * entry waits for a lot, and with 409 no_runoff when no contest needs one.
+ * The pairs come from the outcomes as they stand; the database creates the
+ * round open with its boxes and the entitlements of every issued runoff
+ * batch (activate_runoff, migration 0013). One event per pair, then the
+ * activation with how many keys it entitled.
+ */
+export async function activateRunoff(client: pg.ClientBase, access: ElectionAccess): Promise<Activated> {
+  if (!isPermitted(access.role, 'run-rounds')) throw new Refusal(403, 'forbidden')
+  const next = transition(access.lifecycle, 'activate-runoff')
+  if (!next.ok) throw new Refusal(409, next.refusal.replaceAll('-', '_'))
+  const outcomes = await contestOutcomes(client, access.electionId)
+  if (outcomes.some((entry) => entry.outcome.kind === 'lot-required' && entry.outcome.lots.some((lot) => lot.reason === 'runoff-entry'))) {
+    throw new Refusal(409, 'lot_required')
+  }
+  const contests = outcomes.flatMap((entry) => entry.outcome.kind === 'runoff-required'
+    ? [{ contestId: entry.contestId, candidates: [...entry.outcome.runoffCandidates] as [string, string] }]
+    : [])
+  if (contests.length === 0) throw new Refusal(409, 'no_runoff')
+  let roundId: string
+  try {
+    const { rows: [row] } = await client.query<{ activate_runoff: string }>('select activate_runoff($1, $2::jsonb)', [access.electionId, JSON.stringify(contests)])
+    roundId = row?.activate_runoff ?? ''
+  } catch (err) {
+    if (sqlState(err) === SQLSTATE.objectNotInPrerequisiteState) throw new Refusal(409, 'runoff_activated')
+    throw err
+  }
+  const { rows: [entitled] } = await client.query<{ n: number }>(
+    'select count(distinct e.credential_id)::int as n from credential_entitlement e join round_contest rc on rc.id = e.round_contest_id where rc.round_id = $1',
+    [roundId],
+  )
+  const keys = entitled?.n ?? 0
+  await inOrder(contests, (contest) => appendAudit(client, access.electionId, {
+    actor: access.actor,
+    action: 'runoff.pair',
+    metadata: { contest: contest.contestId, first: contest.candidates[0], second: contest.candidates[1] },
+  }))
+  await appendAudit(client, access.electionId, { actor: access.actor, action: 'runoff.activated', metadata: { round: 'runoff', contests: contests.length, keys } })
+  return { roundId, contests, keys }
 }
 
 export interface Turnout {

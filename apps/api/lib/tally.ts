@@ -32,6 +32,8 @@ import { canonicalJson } from './canonical-json.ts'
 import { readConfiguration } from './configuration.ts'
 import { Refusal } from './election-access.ts'
 import { inOrder } from './in-order.ts'
+import { decisionsOf, lotDecisionsOf } from './outcome.ts'
+import { compareCandidates } from './names.ts'
 import { SQLSTATE, sqlState } from './pg-errors.ts'
 
 export interface ContestTally {
@@ -114,6 +116,56 @@ export function inputDigest(contest: Contest, ballots: readonly CastBallot[]): s
   return createHash('sha256').update(tallyInput(contest, ballots), 'utf8').digest('hex')
 }
 
+/** A ballot box with its contest as election-core sees it: the pair as a single-choice contest for a runoff box, the contest as configured otherwise. */
+export interface BoxContest {
+  boxId: string
+  electionId: string
+  roundId: string
+  contest: Contest
+  /** The first-round contest a runoff box decides, or null for a first-round box. */
+  runoffOf: string | null
+}
+
+/**
+ * The contest of a ballot box, as election-core sees it: for a runoff box
+ * the pair, in ballot order, as a single-choice contest naming the first
+ * round it decides; for any other box the contest as configured, its
+ * candidates in ballot order. Undefined for a box that is not there.
+ */
+export async function contestOfBox(client: pg.ClientBase, boxId: string): Promise<BoxContest | undefined> {
+  const { rows: [box] } = await client.query<{ election_id: string, round_id: string, contest_id: string, ruleset_id: Contest['rulesetId'], runoff_pair: string[] | null }>(
+    `select rc.election_id, rc.round_id, rc.contest_id, c.ruleset_id, rc.runoff_pair
+       from round_contest rc join contest c on c.id = rc.contest_id where rc.id = $1`,
+    [boxId],
+  )
+  if (!box) return undefined
+  const { rows: candidates } = await client.query<{ id: string, surname: string, given_name: string }>(
+    'select id, surname, given_name from candidate where contest_id = $1',
+    [box.contest_id],
+  )
+  const listed = candidates
+    .filter((candidate) => box.runoff_pair === null || box.runoff_pair.includes(candidate.id))
+    .map((candidate) => ({ id: candidate.id, surname: candidate.surname, givenName: candidate.given_name }))
+    .sort(compareCandidates)
+  const contest: Contest = box.runoff_pair === null
+    ? { id: box.contest_id, rulesetId: box.ruleset_id, candidateIds: listed.map((candidate) => candidate.id) }
+    : { id: box.contest_id, rulesetId: 'single-choice-v1', candidateIds: listed.map((candidate) => candidate.id) }
+  return { boxId, electionId: box.election_id, roundId: box.round_id, contest, runoffOf: box.runoff_pair === null ? null : box.contest_id }
+}
+
+/**
+ * The result of a runoff box over its sealed ballots, and the outcome as it
+ * stands with it: the first round's stored result, this runoff and the
+ * decisions recorded so far, through resolve.
+ */
+export function tallyRunoff(contest: Contest, ballots: readonly CastBallot[], first: FirstRoundResult, decisions: readonly { lotId: string, order: readonly string[] }[]): ContestTally {
+  const inputSha256 = inputDigest(contest, ballots)
+  const result = runoffResult(contest, ballots, first.contestId)
+  const resolution = resolve(first, result, decisions)
+  if (!resolution.ok) throw new TallyError(`resolving contest ${contest.id} with its runoff was refused: ${resolution.error.kind} (${resolution.error.lotId})`)
+  return { contestId: contest.id, ballots: ballots.length, inputSha256, result, outcome: resolution.outcome }
+}
+
 /** The result of one contest's round and its outcome without lots, with the digest of the input: a ranked contest's first round, or a poll's one round. */
 export function tallyContest(contest: Contest, ballots: readonly CastBallot[]): ContestTally {
   const inputSha256 = inputDigest(contest, ballots)
@@ -153,10 +205,16 @@ export async function tallyRound(client: pg.ClientBase, electionId: string, roun
   const contests = (await contestsOf(client, electionId)).filter((contest) => boxOf.has(contest.id))
   if (contests.length !== boxOf.size) throw new TallyError('a ballot box of the round belongs to no contest of the election')
   const tallies: ContestTally[] = []
-  await inOrder(contests, async (contest) => {
-    const boxId = boxOf.get(contest.id) ?? ''
+  await inOrder(contests, async (configured) => {
+    const boxId = boxOf.get(configured.id) ?? ''
+    const box = await contestOfBox(client, boxId)
+    if (!box) throw new TallyError(`ballot box ${boxId} is gone`)
+    const { contest } = box
     const rows = await client.query<BallotRow>('select kind, ranking from ballot where round_contest_id = $1 order by id', [boxId])
-    const tally = tallyContest(contest, ballotsOf(contest, rows.rows))
+    const ballots = ballotsOf(contest, rows.rows)
+    const tally = box.runoffOf === null
+      ? tallyContest(contest, ballots)
+      : tallyRunoff(contest, ballots, await firstRoundOf(client, electionId, box.runoffOf), decisionsOf(await lotDecisionsOf(client, electionId, box.runoffOf)))
     await client.query(
       `insert into result_snapshot (election_id, round_contest_id, input_sha256, tally_version, app_version, git_sha, result, outcome)
        values ($1, $2, $3, $4, $5, $6, $7, $8)`,
@@ -165,6 +223,20 @@ export async function tallyRound(client: pg.ClientBase, electionId: string, roun
     tallies.push(tally)
   })
   return tallies
+}
+
+/** The stored first-round result of a ranked contest, which its runoff decides. */
+async function firstRoundOf(client: pg.ClientBase, electionId: string, contestId: string): Promise<FirstRoundResult> {
+  const { rows: [row] } = await client.query<{ result: FirstRoundResult | RunoffResult }>(
+    `select s.result from result_snapshot s
+       join round_contest rc on rc.id = s.round_contest_id
+       join round r on r.id = rc.round_id
+      where s.election_id = $1 and rc.contest_id = $2 and r.kind = 'regular'`,
+    [electionId, contestId],
+  )
+  if (!row) throw new TallyError(`contest ${contestId} has no first-round snapshot for its runoff`)
+  if ('runoffOf' in row.result) throw new TallyError(`contest ${contestId} is a poll, which has no runoff`)
+  return row.result
 }
 
 /**

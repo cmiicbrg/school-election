@@ -33,9 +33,9 @@ export function SingleLineText(maxLength: number) {
   return Type.String({ minLength: 1, maxLength, pattern: String.raw`^(?=.*\S)[^\p{Cc}\p{Cs}\p{Zl}\p{Zp}]+$` })
 }
 
-/** Text over several lines: no control characters but tab and line breaks. */
-export function MultiLineText(maxLength: number) {
-  return Type.String({ maxLength, pattern: String.raw`^(?:${PLAIN}|[\t\n\r])*$` })
+/** Text over several lines: no control characters but tab and line breaks; `minLength` where it must not be empty. */
+export function MultiLineText(maxLength: number, minLength = 0) {
+  return Type.String({ minLength, maxLength, pattern: String.raw`^(?:${PLAIN}|[\t\n\r])*$` })
 }
 
 /** An e-mail address as a school account has it: local@domain.tld, nothing to trim. */

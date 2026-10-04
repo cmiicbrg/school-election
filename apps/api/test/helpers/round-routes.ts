@@ -12,6 +12,7 @@ import { castBallot, type CastResult } from '../../lib/ballot-box.ts'
 import { inOrder } from '../../lib/in-order.ts'
 import { withClient } from './db.ts'
 import { ANNA, CARLA, createElection, electionApp, signIn, WANDA, type Browser, type ElectionApp } from './elections.ts'
+import { CookieJar } from './fake-entra.ts'
 
 export interface RouteSetup {
   s: ElectionApp
@@ -32,6 +33,8 @@ export interface RouteSetup {
   credentialIds: string[]
   /** Every class's keys, as printed, in key order. */
   keys: Record<string, string[]>
+  /** Every class's runoff keys, as printed, in key order. */
+  runoffKeys: Record<string, string[]>
 }
 
 export interface ContestShape {
@@ -47,6 +50,8 @@ export interface GroupShape {
   contests: readonly number[]
   /** Keys issued for the class; none without. */
   keys?: number
+  /** Runoff keys issued for the class, in advance; none without. */
+  runoffKeys?: number
 }
 
 export interface ElectionShape {
@@ -98,36 +103,68 @@ export async function preparedElection(t: TestContext, shape: ElectionShape): Pr
   await inOrder(shape.groups.filter((group) => group.keys), async (group) => {
     ok(await anna.request('POST', `${base}/batches`, { voterGroupId: groupIds.get(group.name), roundKind: 'regular', count: group.keys }), 201)
   })
+  await inOrder(shape.groups.filter((group) => group.runoffKeys), async (group) => {
+    ok(await anna.request('POST', `${base}/batches`, { voterGroupId: groupIds.get(group.name), roundKind: 'runoff', count: group.runoffKeys }), 201)
+  })
   const configuration = ok<{ contests: { id: string, rulesetId: RulesetId, candidates: { id: string }[] }[] }>(await anna.request('GET', `${base}/configuration`))
   const contests = contestIds.map((contestId) => {
     const stored = configuration.contests.find((contest) => contest.id === contestId)
     assert.ok(stored)
     return { id: contestId, rulesetId: stored.rulesetId, candidateIds: stored.candidates.map((candidate) => candidate.id) } satisfies Contest
   })
-  const { boxes, keys } = await withClient(s.ownerUrl, async (client) => {
+  const { boxes, keys, runoffKeys } = await withClient(s.ownerUrl, async (client) => {
     const { rows: boxRows } = await client.query<{ id: string, contest_id: string }>('select id, contest_id from round_contest where election_id = $1', [id])
-    const { rows: keyRows } = await client.query<{ key: string, name: string }>(
-      `select c.key, g.name from credential c join credential_batch b on b.id = c.batch_id join voter_group g on g.id = b.voter_group_id
+    const { rows: keyRows } = await client.query<{ key: string, name: string, round_kind: 'regular' | 'runoff' }>(
+      `select c.key, g.name, b.round_kind from credential c join credential_batch b on b.id = c.batch_id join voter_group g on g.id = b.voter_group_id
         where b.election_id = $1 and b.state = $2 order by g.name, c.key`,
       [id, 'issued'],
     )
     const keys: Record<string, string[]> = {}
+    const runoffKeys: Record<string, string[]> = {}
     for (const row of keyRows) {
-      const group = keys[row.name] ?? []
+      const into = row.round_kind === 'regular' ? keys : runoffKeys
+      const group = into[row.name] ?? []
       group.push(row.key)
-      keys[row.name] = group
+      into[row.name] = group
     }
-    return { boxes: new Map(boxRows.map((row) => [row.contest_id, row.id])), keys }
+    return { boxes: new Map(boxRows.map((row) => [row.contest_id, row.id])), keys, runoffKeys }
   })
   const first = shape.groups[0]?.name ?? ''
   const { rows: firstKeys } = await withClient(s.ownerUrl, (client) => client.query<{ id: string }>(
     `select c.id from credential c join credential_batch b on b.id = c.batch_id join voter_group g on g.id = b.voter_group_id
-      where b.election_id = $1 and b.state = $2 and g.name = $3 order by c.key`,
+      where b.election_id = $1 and b.state = $2 and b.round_kind = 'regular' and g.name = $3 order by c.key`,
     [id, 'issued', first],
   ))
   const contest = contests[0]
   assert.ok(contest)
-  return { s, anna, carla, wanda, id, base, contest, contests, boxId: boxes.get(contest.id) ?? '', boxes, credentialIds: firstKeys.map((row) => row.id), keys }
+  return { s, anna, carla, wanda, id, base, contest, contests, boxId: boxes.get(contest.id) ?? '', boxes, credentialIds: firstKeys.map((row) => row.id), keys, runoffKeys }
+}
+
+/** The runoff round's ballot box of a contest, once the runoff is activated. */
+export async function runoffBoxOf(x: RouteSetup, contestId: string): Promise<string> {
+  const { rows: [box] } = await withClient(x.s.ownerUrl, (client) => client.query<{ id: string }>(
+    `select rc.id from round_contest rc join round r on r.id = rc.round_id where r.election_id = $1 and r.kind = 'runoff' and rc.contest_id = $2`,
+    [x.id, contestId],
+  ))
+  return box?.id ?? assert.fail('no runoff box')
+}
+
+export interface KeyVote {
+  /** The redemption's answer. */
+  redeemed: LightMyRequestResponse
+  /** The ballot's answer, if the key was redeemed. */
+  cast: LightMyRequestResponse | undefined
+}
+
+/** Redeems the key and casts one ballot in the box through the voter routes, as a phone does, with a cookie jar of its own. */
+export async function voteByKey(x: RouteSetup, key: string, roundContestId: string, ballot: unknown): Promise<KeyVote> {
+  const jar = new CookieJar()
+  const headers = { 'sec-fetch-site': 'same-origin' }
+  const redeemed = await x.s.app.inject({ method: 'POST', url: '/api/voter/session', headers: { ...headers, cookie: jar.header() }, payload: { key } })
+  jar.update(redeemed)
+  if (redeemed.statusCode !== 200) return { redeemed, cast: undefined }
+  const cast = await x.s.app.inject({ method: 'POST', url: '/api/voter/ballot', headers: { ...headers, cookie: jar.header() }, payload: { roundContestId, ballot } })
+  return { redeemed, cast }
 }
 
 /** A complete ranking for the contest, validated. */

@@ -74,6 +74,14 @@ export const AUDIT_ACTIONS = {
   // saw, the ballots it held and the kind of outcome. The figures are in
   // the result snapshot, never here.
   'result.computed': { contest: 'uuid', round: ROUND_KINDS, inputSha256: 'text', ballots: 'count', outcome: OUTCOME_KINDS },
+  // A lot the officials drew, as recorded: the lot as election-core names
+  // it, its tied set and the order drawn (candidate ids, comma-separated),
+  // and the reason the person gave.
+  'lot.recorded': { contest: 'uuid', lotId: 'text', candidates: 'text', order: 'text', reason: 'long-text' },
+  // The runoff: the pair of every contest that needs one, then the round
+  // activated, with how many keys of the issued runoff batches it entitled.
+  'runoff.pair': { contest: 'uuid', first: 'uuid', second: 'uuid' },
+  'runoff.activated': { round: ROUND_KINDS, contests: 'count', keys: 'count' },
 } as const satisfies Readonly<Record<string, Readonly<Record<string, AuditField>>>>
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS
