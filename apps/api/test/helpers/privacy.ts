@@ -28,6 +28,7 @@ import {
 import { castBallot } from '../../lib/ballot-box.ts'
 import type { Database } from '../../lib/db.ts'
 import { inOrder } from '../../lib/in-order.ts'
+import { contestOutcomes } from '../../lib/outcome.ts'
 import { createTestDatabase, withClient, type TestDatabase } from './db.ts'
 
 export interface ScenarioContest {
@@ -233,18 +234,20 @@ export async function voteInterleaved(scenario: PrivacyScenario, cast: Caster, s
 const RUNOFF_BATCH = '5e6f7081-92a3-4fbf-8ad1-4c5d6e7f8092'
 
 /**
- * The runoff of the scenario, after its regular round was sealed: a runoff
- * batch of the tracked key and `others` more, issued as the owner, and the
- * round activated as the runtime role for the two ranked contests, each
- * between the first two candidates in ballot order. What comes back is the
- * scenario as the runoff round sees it, so the same assertions run over it:
- * its boxes, its keys, its votes; the keys' rows of the whole election,
- * for the check that none was touched.
+ * The runoff of the scenario, after its regular round was closed and
+ * counted: a runoff batch of the tracked key and `others` more, issued as
+ * the owner, and the round activated as the runtime role for every contest
+ * whose outcome requires one, with the pair the outcome names (the seeded
+ * votes give one for both ranked contests). What comes back is the
+ * scenario as the runoff round sees it, so the same assertions run over
+ * it: its boxes, its keys, its votes; the keys' rows of the whole
+ * election, for the check that none was touched.
  */
 export async function runoffScenario(scenario: PrivacyScenario, db: Database, { others = 50 } = {}): Promise<PrivacyScenario> {
   assert.ok(others >= 50, 'the anonymity set is at least fifty other voters')
-  const ranked = scenario.contests.filter((contest) => contest.candidateIds.length > 1)
-  const pairs = ranked.map((contest) => ({ contestId: contest.contestId, candidates: contest.candidateIds.slice(0, 2) }))
+  const outcomes = await db.tx((client) => contestOutcomes(client, scenario.electionId))
+  const pairs = outcomes.flatMap((entry) => entry.outcome.kind === 'runoff-required' ? [{ contestId: entry.contestId, candidates: [...entry.outcome.runoffCandidates] }] : [])
+  assert.ok(pairs.length >= 1, `the seeded first round needs a runoff somewhere; it gave ${outcomes.map((entry) => entry.outcome.kind).join(', ')}`)
   const { keys, credentialXmins } = await withClient(scenario.ownerUrl, async (client) => {
     await client.query('insert into credential_batch (id, election_id, voter_group_id, round_kind) values ($1, $2, $3, $4)', [RUNOFF_BATCH, scenario.electionId, GROUP, 'runoff'])
     const { rows: keys } = await client.query<{ id: string }>(

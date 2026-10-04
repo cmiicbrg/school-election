@@ -62,6 +62,7 @@ export const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   already_member: 'Diese Person ist bereits Mitglied.',
   owner_not_removable: 'Die Wahlleitung kann nicht entfernt werden.',
   duplicate_candidate: 'Diesen Namen gibt es in diesem Wahlgang schon.',
+  too_many_candidates: 'Ein Wahlgang hat höchstens 50 Kandidat:innen.',
   duplicate_contest: 'Einen Wahlgang mit diesem Titel gibt es schon.',
   duplicate_voter_group: 'Eine Klasse oder Gruppe mit diesem Namen gibt es schon.',
   last_candidate: 'Die letzte Kandidatin oder der letzte Kandidat eines vorbereiteten Wahlgangs bleibt.',

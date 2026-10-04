@@ -9,7 +9,7 @@ import type pg from 'pg'
 import { canEnterLot, type Outcome } from '@school-election/election-core'
 import { appendAudit } from './audit.ts'
 import { Refusal, type ElectionAccess } from './election-access.ts'
-import { contestOutcome, decisionsOf, outcomeOf, type ContestOutcome } from './outcome.ts'
+import { contestOutcome, decisionsOf, resolutionOf, type ContestOutcome } from './outcome.ts'
 import { isPermitted } from './permissions.ts'
 
 export interface LotInput {
@@ -23,6 +23,13 @@ export interface LotInput {
 export interface LotRecorded {
   contestId: string
   outcome: Outcome
+}
+
+/** resolve's refusals of a decision, as the route answers them. */
+const REFUSED: Readonly<Record<'duplicate-lot' | 'not-the-tied-set' | 'unknown-lot', [number, string]>> = {
+  'duplicate-lot': [409, 'duplicate_lot'],
+  'not-the-tied-set': [400, 'not_the_tied_set'],
+  'unknown-lot': [409, 'lot_not_required'],
 }
 
 /** Whether the outcome needs this lot now. */
@@ -42,13 +49,11 @@ export async function recordLot(client: pg.ClientBase, access: ElectionAccess, g
   if (!requires(entry, input.lotId)) throw new Refusal(409, 'lot_not_required')
   const lot = entry.outcome.kind === 'lot-required' ? entry.outcome.lots.find((candidate) => candidate.id === input.lotId) : undefined
   if (!lot) throw new Refusal(409, 'lot_not_required')
-  // The decision as resolve will apply it: refused here before anything is written.
-  let outcome: Outcome
-  try {
-    outcome = outcomeOf(entry.rulesetId, entry.first, entry.runoff, [...decisionsOf(entry.lots), { lotId: input.lotId, order: input.order }])
-  } catch {
-    throw new Refusal(400, 'not_the_tied_set')
-  }
+  // The decision as resolve will apply it: its typed refusal is the person's to correct, before anything is
+  // written; anything else that goes wrong here is the database's and stays an error.
+  const resolution = resolutionOf(entry.rulesetId, entry.first, entry.runoff, [...decisionsOf(entry.lots), { lotId: input.lotId, order: input.order }])
+  if (!resolution.ok) throw new Refusal(...REFUSED[resolution.error.kind])
+  const { outcome } = resolution
   const { rows: [box] } = await client.query<{ id: string }>(
     `select rc.id from round_contest rc join round r on r.id = rc.round_id where rc.election_id = $1 and rc.contest_id = $2 and r.kind = 'regular'`,
     [access.electionId, input.contestId],

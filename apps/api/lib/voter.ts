@@ -165,7 +165,7 @@ export async function voterPicture(db: Queryable, credentialId: string, roundId:
        from candidate c
        join round_contest rc on rc.contest_id = c.contest_id and rc.round_id = $2
        join credential_entitlement e on e.round_contest_id = rc.id and e.credential_id = $1
-      where c.picture_sha256 = $3
+      where c.picture_sha256 = $3 and (rc.runoff_pair is null or c.id = any (rc.runoff_pair))
       limit 1`,
     [credentialId, roundId, sha256],
   )

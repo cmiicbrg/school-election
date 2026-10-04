@@ -8,7 +8,7 @@
 // missing snapshot: the database was changed by hand.
 
 import type pg from 'pg'
-import { pollOutcome, resolve, type FirstRoundResult, type LotDecision, type Outcome, type RulesetId, type RunoffResult } from '@school-election/election-core'
+import { pollOutcome, resolve, type FirstRoundResult, type LotDecision, type Outcome, type Resolution, type RulesetId, type RunoffResult } from '@school-election/election-core'
 import { readConfiguration } from './configuration.ts'
 
 /** A stored snapshot, as the result routes return it. */
@@ -68,39 +68,68 @@ const snapshotOf = (row: SnapshotRow): Snapshot => ({
   outcome: row.outcome,
 })
 
-/** The lots recorded for a contest, on its first-round box, in the order recorded. */
-export async function lotDecisionsOf(client: pg.ClientBase, electionId: string, contestId: string): Promise<RecordedLot[]> {
-  const { rows } = await client.query<{ id: string, lot_id: string, candidates: string[], drawn: string[], reason: string, actor_name: string, recorded_at: Date }>(
-    `select d.id, d.lot_id, d.candidates, d.drawn, d.reason, d.actor_name, d.recorded_at
+interface LotRow {
+  id: string
+  contest_id: string
+  lot_id: string
+  candidates: string[]
+  drawn: string[]
+  reason: string
+  actor_name: string
+  recorded_at: Date
+}
+
+const lotOf = (row: LotRow): RecordedLot => ({ id: row.id, lotId: row.lot_id, candidates: row.candidates, drawn: row.drawn, reason: row.reason, actorName: row.actor_name, recordedAt: row.recorded_at.toISOString() })
+
+/** The lots recorded for every contest of the election, on the first-round boxes, by contest, each in the order recorded. */
+async function lotDecisionsByContest(client: pg.ClientBase, electionId: string): Promise<Map<string, RecordedLot[]>> {
+  const { rows } = await client.query<LotRow>(
+    `select d.id, rc.contest_id, d.lot_id, d.candidates, d.drawn, d.reason, d.actor_name, d.recorded_at
        from lot_decision d
        join round_contest rc on rc.id = d.round_contest_id
        join round r on r.id = rc.round_id
-      where d.election_id = $1 and rc.contest_id = $2 and r.kind = 'regular'
+      where d.election_id = $1 and r.kind = 'regular'
       order by d.recorded_at, d.id`,
-    [electionId, contestId],
+    [electionId],
   )
-  return rows.map((row) => ({ id: row.id, lotId: row.lot_id, candidates: row.candidates, drawn: row.drawn, reason: row.reason, actorName: row.actor_name, recordedAt: row.recorded_at.toISOString() }))
+  const byContest = new Map<string, RecordedLot[]>()
+  for (const row of rows) byContest.set(row.contest_id, [...(byContest.get(row.contest_id) ?? []), lotOf(row)])
+  return byContest
+}
+
+/** The lots recorded for a contest, on its first-round box, in the order recorded. */
+export async function lotDecisionsOf(client: pg.ClientBase, electionId: string, contestId: string): Promise<RecordedLot[]> {
+  return (await lotDecisionsByContest(client, electionId)).get(contestId) ?? []
 }
 
 /** The decisions as resolve takes them. */
 export const decisionsOf = (lots: readonly RecordedLot[]): LotDecision[] => lots.map((lot) => ({ lotId: lot.lotId, order: lot.drawn }))
 
 /**
- * The outcome of a contest from what is stored: a poll's as its one round
- * has it; a ranked contest's from its first round, its runoff if that has
- * closed, and the decisions.
+ * election-core's say on a contest from what is stored and the decisions
+ * given: a poll's outcome as its one round has it (a poll has no lots, so
+ * its resolution never refuses); a ranked contest's from its first round,
+ * its runoff if that has closed, and the decisions, with resolve's typed
+ * refusal of a decision that does not fit.
  */
+export function resolutionOf(rulesetId: RulesetId, first: Snapshot, runoff: Snapshot | null, decisions: readonly LotDecision[]): Resolution {
+  if (rulesetId === 'single-choice-v1') return { ok: true, outcome: pollOutcome(first.result as RunoffResult) }
+  return resolve(first.result as FirstRoundResult, runoff === null ? undefined : runoff.result as RunoffResult, decisions)
+}
+
+/** The outcome of a contest from what is stored and the decisions recorded; stored decisions that resolve refuses are a hard error. */
 export function outcomeOf(rulesetId: RulesetId, first: Snapshot, runoff: Snapshot | null, decisions: readonly LotDecision[]): Outcome {
-  if (rulesetId === 'single-choice-v1') return pollOutcome(first.result as RunoffResult)
-  const resolution = resolve(first.result as FirstRoundResult, runoff === null ? undefined : runoff.result as RunoffResult, decisions)
+  const resolution = resolutionOf(rulesetId, first, runoff, decisions)
   if (!resolution.ok) throw new OutcomeError(`contest ${first.contestId}: the recorded decisions were refused: ${resolution.error.kind} (${resolution.error.lotId})`)
   return resolution.outcome
 }
 
 /**
- * Every contest of the election that has a first-round snapshot, in the
- * configuration's order, with its runoff snapshot where the runoff round
- * has closed, its recorded lots and its outcome as it stands.
+ * Every contest of the election, in the configuration's order, with its
+ * first-round snapshot, its runoff snapshot where the runoff round has
+ * closed, its recorded lots and its outcome as it stands. Read once the
+ * regular round has closed, when every contest has its snapshot: one
+ * without is a database changed by hand, and an error.
  */
 export async function contestOutcomes(client: pg.ClientBase, electionId: string): Promise<ContestOutcome[]> {
   const { rows } = await client.query<SnapshotRow>(
@@ -112,12 +141,13 @@ export async function contestOutcomes(client: pg.ClientBase, electionId: string)
     [electionId],
   )
   const configuration = await readConfiguration(client, electionId)
+  const lotsByContest = await lotDecisionsByContest(client, electionId)
   const outcomes: ContestOutcome[] = []
   for (const contest of configuration.contests) {
     const first = rows.find((row) => row.contest_id === contest.id && row.kind === 'regular')
-    if (!first) continue
+    if (!first) throw new OutcomeError(`contest ${contest.id} has no first-round snapshot`)
     const runoffRow = rows.find((row) => row.contest_id === contest.id && row.kind === 'runoff')
-    const lots = await lotDecisionsOf(client, electionId, contest.id)
+    const lots = lotsByContest.get(contest.id) ?? []
     const firstSnapshot = snapshotOf(first)
     const runoff = runoffRow ? snapshotOf(runoffRow) : null
     outcomes.push({ contestId: contest.id, rulesetId: contest.rulesetId, first: firstSnapshot, runoff, lots, outcome: outcomeOf(contest.rulesetId, firstSnapshot, runoff, decisionsOf(lots)) })
@@ -125,7 +155,7 @@ export async function contestOutcomes(client: pg.ClientBase, electionId: string)
   return outcomes
 }
 
-/** The outcome of one contest as it stands, or undefined before its first round has a snapshot. */
+/** The outcome of one contest as it stands, or undefined for a contest that is not the election's. */
 export async function contestOutcome(client: pg.ClientBase, electionId: string, contestId: string): Promise<ContestOutcome | undefined> {
   return (await contestOutcomes(client, electionId)).find((entry) => entry.contestId === contestId)
 }

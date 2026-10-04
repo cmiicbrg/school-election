@@ -1,17 +1,18 @@
 // Request and response schemas of the lots route and the election's result.
 
 import { Type } from 'typebox'
+import { MAX_CANDIDATES } from '../configuration.ts'
 import { MultiLineText, StrictObject, Uuid } from './common.ts'
 import { Snapshot } from './rounds.ts'
 
-/** The most candidates one lot can be drawn among: fifty ids, comma-separated, fit the event's long text. */
-export const MAX_LOT_CANDIDATES = 50
+/** The most candidates one lot can be drawn among: every candidate of a contest; that many ids, comma-separated, fit the event's long text. */
+export const MAX_LOT_CANDIDATES = MAX_CANDIDATES
 
 export const LotBody = StrictObject({
   contestId: Uuid,
   /** The lot as election-core names it in the outcome. */
   lotId: Type.String({ minLength: 1, maxLength: 200 }),
-  /** The tied set in the order drawn, in any case the ids come in; fifty is far beyond any school contest's tie, and what the event's text holds. */
+  /** The tied set in the order drawn, in any case the ids come in: at most every candidate of the contest. */
   order: Type.Array(Uuid, { minItems: 2, maxItems: MAX_LOT_CANDIDATES }),
   reason: MultiLineText(500, 1),
 })

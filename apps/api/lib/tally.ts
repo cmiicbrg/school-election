@@ -206,9 +206,9 @@ export async function tallyRound(client: pg.ClientBase, electionId: string, roun
   if (contests.length !== boxOf.size) throw new TallyError('a ballot box of the round belongs to no contest of the election')
   const tallies: ContestTally[] = []
   await inOrder(contests, async (configured) => {
-    const boxId = boxOf.get(configured.id) ?? ''
-    const box = await contestOfBox(client, boxId)
-    if (!box) throw new TallyError(`ballot box ${boxId} is gone`)
+    const boxId = boxOf.get(configured.id)
+    const box = boxId === undefined ? undefined : await contestOfBox(client, boxId)
+    if (!box) throw new TallyError(`the ballot box of contest ${configured.id} is gone`)
     const { contest } = box
     const rows = await client.query<BallotRow>('select kind, ranking from ballot where round_contest_id = $1 order by id', [boxId])
     const ballots = ballotsOf(contest, rows.rows)

@@ -55,17 +55,25 @@ end
 $$;
 
 -- Ballot boxes change only while their round is planned (0007, 0011), by
--- a direct statement; the definer function adds a runoff's. A box for a
--- pair names two candidates of its own contest, whoever adds it.
+-- a direct statement; the definer function adds a runoff's. A runoff
+-- round's box names its pair, two candidates of its own contest, and no
+-- other round's box names one, whoever adds it.
 create or replace function round_contest_window() returns trigger
   language plpgsql set search_path = pg_catalog as $$
 declare
   target uuid := coalesce(new.round_id, old.round_id);
+  target_kind text;
 begin
-  if tg_op <> 'DELETE' and new.runoff_pair is not null and (
-    select count(*) from public.candidate c where c.contest_id = new.contest_id and c.id = any (new.runoff_pair)
-  ) <> 2 then
-    perform public.refuse('a runoff pair names two candidates of its contest');
+  if tg_op <> 'DELETE' then
+    select r.kind into target_kind from public.round r where r.id = new.round_id;
+    if (new.runoff_pair is null) <> (target_kind is distinct from 'runoff') then
+      perform public.refuse('a runoff box names its pair, and no other box does');
+    end if;
+    if new.runoff_pair is not null and (
+      select count(*) from public.candidate c where c.contest_id = new.contest_id and c.id = any (new.runoff_pair)
+    ) <> 2 then
+      perform public.refuse('a runoff pair names two candidates of its contest');
+    end if;
   end if;
   if current_user <> session_user then
     return coalesce(new, old);
@@ -135,67 +143,6 @@ begin
 end
 $$;
 
--- The runoff round: created open, with a ballot box per pair and the
--- entitlements of every issued runoff batch of the groups that vote in
--- the contest, once, after the regular round has closed. `pairs` is a
--- JSON array of { "contestId": uuid, "candidates": [uuid, uuid] }; the
--- application computes it from the results and the recorded lots.
-create function activate_runoff(target uuid, pairs jsonb) returns uuid
-  language plpgsql security definer set search_path = pg_catalog as $$
-declare
-  active boolean;
-  regular_closed boolean;
-  new_round uuid;
-  pair record;
-  box uuid;
-begin
-  select not s.candidates_editable and not s.final into active
-    from public.election e join public.election_state s on s.state = e.state
-   where e.id = target
-     for no key update of e;
-  if active is null then
-    perform public.refuse('no such election');
-  end if;
-  if not active then
-    perform public.refuse('a runoff is activated on an active election');
-  end if;
-  select rs.opened and not rs.accepts_ballots into regular_closed
-    from public.round r join public.round_state rs on rs.state = r.state
-   where r.election_id = target and r.kind = 'regular';
-  if regular_closed is not true then
-    perform public.refuse('a runoff is activated once the regular round has closed');
-  end if;
-  if exists (select 1 from public.round r where r.election_id = target and r.kind = 'runoff') then
-    perform public.refuse('the runoff was activated already');
-  end if;
-  if pairs is null or jsonb_typeof(pairs) <> 'array' or jsonb_array_length(pairs) = 0 then
-    perform public.refuse('a runoff is of at least one contest');
-  end if;
-  insert into public.round (election_id, kind, state) values (target, 'runoff', 'open') returning id into new_round;
-  for pair in
-    select (p ->> 'contestId')::uuid as contest_id,
-           array(select c::uuid from jsonb_array_elements_text(p -> 'candidates') as c) as candidates
-      from jsonb_array_elements(pairs) as p
-  loop
-    if not exists (
-      select 1 from public.round_contest rc join public.round r on r.id = rc.round_id
-       where r.election_id = target and r.kind = 'regular' and rc.contest_id = pair.contest_id
-    ) then
-      perform public.refuse('a runoff is of a contest of the regular round');
-    end if;
-    insert into public.round_contest (election_id, round_id, contest_id, runoff_pair)
-    values (target, new_round, pair.contest_id, pair.candidates)
-    returning id into box;
-    insert into public.credential_entitlement (election_id, credential_id, round_contest_id)
-    select c.election_id, c.id, box
-      from public.credential c
-      join public.credential_batch b on b.id = c.batch_id and b.state = 'issued' and b.round_kind = 'runoff'
-      join public.voter_group_contest m on m.election_id = b.election_id and m.voter_group_id = b.voter_group_id and m.contest_id = pair.contest_id
-     where c.election_id = target;
-  end loop;
-  return new_round;
-end
-$$;
 
 -- A lot's outcome, recorded once: the lot as election-core names it, on
 -- the first-round box of its contest.
@@ -215,6 +162,43 @@ create table lot_decision (
   foreign key (election_id, round_contest_id) references round_contest (election_id, id)
 );
 
+-- A lot is recorded on a first-round box, once the regular round has
+-- closed and while no round accepts ballots, among candidates of the
+-- box's contest, the order drawn being exactly the tied set; and never
+-- changes. This binds everyone, the owner included.
+create function lot_decision_recorded() returns trigger
+  language plpgsql set search_path = pg_catalog as $$
+declare
+  box record;
+begin
+  select rc.contest_id, r.kind into box
+    from public.round_contest rc join public.round r on r.id = rc.round_id
+   where rc.id = new.round_contest_id and rc.election_id = new.election_id;
+  if box.kind is distinct from 'regular' then
+    perform public.refuse('a lot is recorded on a box of the regular round');
+  end if;
+  if exists (
+    select 1 from public.round r join public.round_state rs on rs.state = r.state
+     where r.election_id = new.election_id and rs.accepts_ballots
+  ) then
+    perform public.refuse('a lot is recorded while no round accepts ballots');
+  end if;
+  if not exists (
+    select 1 from public.round r join public.round_state rs on rs.state = r.state
+     where r.election_id = new.election_id and r.kind = 'regular' and rs.opened and not rs.accepts_ballots
+  ) then
+    perform public.refuse('a lot is recorded once the regular round has closed');
+  end if;
+  if (select array_agg(x order by x) from unnest(new.candidates) as x) <> (select array_agg(x order by x) from unnest(new.drawn) as x) then
+    perform public.refuse('the order drawn is the tied set');
+  end if;
+  if (select count(distinct c.id) from public.candidate c where c.contest_id = box.contest_id and c.id = any (new.candidates)) <> cardinality(new.candidates) then
+    perform public.refuse('a lot is drawn among candidates of its contest, each once');
+  end if;
+  return new;
+end
+$$;
+
 create function lot_decision_kept() returns trigger
   language plpgsql set search_path = pg_catalog as $$
 begin
@@ -223,5 +207,127 @@ begin
 end
 $$;
 
+create trigger lot_decision_recorded before insert on lot_decision
+  for each row execute function lot_decision_recorded();
 create trigger lot_decision_kept before update or delete on lot_decision
   for each row execute function lot_decision_kept();
+
+-- The pair each contest of the regular round needs for its runoff, as the
+-- stored first-round result and the recorded lots have it: the result's
+-- runoff candidates, or, where the runoff entry went to a lot, those who
+-- qualified without it and the first drawn of the lot's decision, as many
+-- as the lot seats. Null where the contest needs no runoff; `waiting`
+-- where it waits for a lot not recorded yet; `missing` where the box has
+-- no result.
+create function runoff_pairs(target uuid)
+  returns table (contest_id uuid, candidates uuid[], waiting boolean, missing boolean)
+  language sql stable set search_path = pg_catalog as $$
+  select rc.contest_id,
+         case s.result ->> 'kind'
+           when 'runoff-required' then array(select c::uuid from jsonb_array_elements_text(s.result -> 'runoffCandidates') as c)
+           when 'lot-required' then (
+             select array(select c::uuid from jsonb_array_elements_text(s.result -> 'lot' -> 'qualified') as c)
+                    || d.drawn[1:(s.result -> 'lot' ->> 'seats')::int]
+               from public.lot_decision d
+              where d.round_contest_id = rc.id and d.lot_id = s.result -> 'lot' ->> 'id')
+         end as candidates,
+         s.result ->> 'kind' = 'lot-required'
+           and not exists (select 1 from public.lot_decision d where d.round_contest_id = rc.id and d.lot_id = s.result -> 'lot' ->> 'id') as waiting,
+         s.id is null as missing
+    from public.round_contest rc
+    join public.round r on r.id = rc.round_id
+    left join public.result_snapshot s on s.round_contest_id = rc.id
+   where r.election_id = target and r.kind = 'regular'
+$$;
+
+-- The runoff round: created open, with a ballot box per pair and the
+-- entitlements of every issued runoff batch of the groups that vote in
+-- the contest, once, after the regular round has closed. `pairs` is a
+-- JSON array of { "contestId": uuid, "candidates": [uuid, uuid] }, which
+-- must be exactly what runoff_pairs gives: the application computes it
+-- the same way, and the database does not take its word for it.
+create function activate_runoff(target uuid, pairs jsonb) returns uuid
+  language plpgsql security definer set search_path = pg_catalog as $$
+declare
+  runoff constant text := 'runoff';
+  active boolean;
+  regular_closed boolean;
+  new_round uuid;
+  expected record;
+  given uuid[];
+  needed integer := 0;
+  pair record;
+  box uuid;
+begin
+  select not s.candidates_editable and not s.final into active
+    from public.election e join public.election_state s on s.state = e.state
+   where e.id = target
+     for no key update of e;
+  if active is null then
+    perform public.refuse('no such election');
+  end if;
+  if not active then
+    perform public.refuse('a runoff is activated on an active election');
+  end if;
+  select rs.opened and not rs.accepts_ballots into regular_closed
+    from public.round r join public.round_state rs on rs.state = r.state
+   where r.election_id = target and r.kind = 'regular';
+  if regular_closed is not true then
+    perform public.refuse('a runoff is activated once the regular round has closed');
+  end if;
+  if exists (select 1 from public.round r where r.election_id = target and r.kind = runoff) then
+    perform public.refuse('the runoff was activated already');
+  end if;
+  if pairs is null or jsonb_typeof(pairs) <> 'array' or jsonb_array_length(pairs) = 0 then
+    perform public.refuse('a runoff is of at least one contest');
+  end if;
+  -- The pairs given are the pairs the results and the lots give, contest for contest.
+  for expected in select * from public.runoff_pairs(target) loop
+    if expected.missing then
+      perform public.refuse('a contest of the regular round has no result');
+    end if;
+    if expected.waiting then
+      perform public.refuse('a runoff entry waits for a lot');
+    end if;
+    select array(select c::uuid from jsonb_array_elements_text(p -> 'candidates') as c) into given
+      from jsonb_array_elements(pairs) as p
+     where (p ->> 'contestId')::uuid = expected.contest_id;
+    if expected.candidates is null then
+      if given is not null then
+        perform public.refuse('a runoff is of the contests that need one');
+      end if;
+    else
+      if given is null or (select array_agg(x order by x) from unnest(given) as x) <> (select array_agg(x order by x) from unnest(expected.candidates) as x) then
+        perform public.refuse('a runoff pair is the one the first round and the lots give');
+      end if;
+      needed := needed + 1;
+    end if;
+  end loop;
+  if needed = 0 then
+    perform public.refuse('no contest needs a runoff');
+  end if;
+  insert into public.round (election_id, kind, state) values (target, runoff, 'open') returning id into new_round;
+  for pair in
+    select (p ->> 'contestId')::uuid as contest_id,
+           array(select c::uuid from jsonb_array_elements_text(p -> 'candidates') as c) as candidates
+      from jsonb_array_elements(pairs) as p
+  loop
+    if not exists (
+      select 1 from public.round_contest rc join public.round r on r.id = rc.round_id
+       where r.election_id = target and r.kind = 'regular' and rc.contest_id = pair.contest_id
+    ) then
+      perform public.refuse('a runoff is of a contest of the regular round');
+    end if;
+    insert into public.round_contest (election_id, round_id, contest_id, runoff_pair)
+    values (target, new_round, pair.contest_id, pair.candidates)
+    returning id into box;
+    insert into public.credential_entitlement (election_id, credential_id, round_contest_id)
+    select c.election_id, c.id, box
+      from public.credential c
+      join public.credential_batch b on b.id = c.batch_id and b.state = 'issued' and b.round_kind = runoff
+      join public.voter_group_contest m on m.election_id = b.election_id and m.voter_group_id = b.voter_group_id and m.contest_id = pair.contest_id
+     where c.election_id = target;
+  end loop;
+  return new_round;
+end
+$$;

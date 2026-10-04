@@ -143,12 +143,16 @@ test('and through the runoff: fresh keys, one choice between the pair, a seal of
   const db = createDatabase(scenario.runtimeUrl, () => {})
   t.after(() => db.close())
   await voteInterleaved(scenario, castBallotCaster(db, scenario))
-  await withClient(scenario.runtimeUrl, (client) => client.query('select seal_round($1)', [scenario.roundId]))
+  const access = await accessAs(scenario.ownerUrl, scenario.electionId, 'owner')
+  await db.tx(async (client) => {
+    await lockElection(client, scenario.electionId)
+    return closeAndTally(client, access, { version: 'dev', gitSha: 'unknown' })
+  })
   await assertUnlinkable(scenario)
 
-  // The runoff: its own keys, its own boxes for the pair, through castBallot as the voter route casts it.
+  // The runoff: its own keys, its own boxes for the pairs the outcomes give, through castBallot as the voter route casts it.
   const runoff = await runoffScenario(scenario, db)
-  assert.equal(runoff.contests.length, 2)
+  assert.ok(runoff.contests.length >= 1)
   await voteInterleaved(runoff, castBallotCaster(db, runoff), 2027, plannedRunoffVotes)
   // A first-round key has no say in the runoff, before and after its seal.
   const [box] = runoff.contests
