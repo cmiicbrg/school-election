@@ -73,8 +73,9 @@ export function lotText(rulesetId: RulesetId, lot: LotRequest, names: Names): st
   const tied = listed(lot.candidates.map(names.candidate))
   if (lot.reason === 'runoff-entry') {
     const places = lot.seats === 1 ? 'ein Platz' : `${lot.seats} Plätze`
-    const qualified = lot.qualified.length > 0 ? ` Bereits in der Stichwahl: ${listed(lot.qualified.map(names.candidate))}.` : ''
-    return `${tied} sind gleichauf; das Los entscheidet, wer von ihnen in die Stichwahl kommt (${places}).${qualified}`
+    const sentence = `${tied} sind gleichauf; das Los entscheidet, wer von ihnen in die Stichwahl kommt (${places}).`
+    if (lot.qualified.length === 0) return sentence
+    return `${sentence} Bereits in der Stichwahl: ${listed(lot.qualified.map(names.candidate))}.`
   }
   return `${tied} sind gleichauf; das Los entscheidet die Reihenfolge für: ${lot.positions.map((fn) => functionLabel(rulesetId, fn)).join(', ')}.`
 }

@@ -4,7 +4,8 @@
 // candidates' names in the order of the rows, checked and cast; the
 // session ends with the last ballot.
 
-import { expect, type BrowserContext } from '@playwright/test'
+import { expect, type BrowserContext, type Page } from '@playwright/test'
+import { inOrder } from '../../apps/api/lib/in-order.ts'
 
 export interface Ballot {
   /** The contest's title, as the list of contests names it. */
@@ -17,15 +18,18 @@ export async function voteOnPhone(context: BrowserContext, key: string, ballots:
   const page = await context.newPage()
   await page.goto(`/v#${key}`)
   await expect(page.getByRole('list', { name: 'Wahlgänge' })).toBeVisible()
-  for (const ballot of ballots) {
-    await page.getByRole('button', { name: `Stimmzettel ausfüllen: ${ballot.contest}` }).click()
-    const rows = page.getByRole('combobox')
-    await expect(rows).toHaveCount(ballot.ranking.length)
-    for (const [index, name] of ballot.ranking.entries()) await rows.nth(index).selectOption({ label: name })
-    await page.getByRole('button', { name: 'Prüfen' }).click()
-    await expect(page.getByRole('status')).toHaveText('Gültige Stimme.')
-    await page.getByRole('button', { name: 'Abgeben', exact: true }).click()
-  }
+  await inOrder(ballots, (ballot) => castOne(page, ballot))
   await expect(page.getByRole('heading', { name: 'Danke!' })).toBeVisible()
   await page.close()
+}
+
+/** One ballot: the contest's button, the rows filled in order, checked and cast. */
+async function castOne(page: Page, ballot: Ballot): Promise<void> {
+  await page.getByRole('button', { name: `Stimmzettel ausfüllen: ${ballot.contest}` }).click()
+  const rows = page.getByRole('combobox')
+  await expect(rows).toHaveCount(ballot.ranking.length)
+  await inOrder(ballot.ranking.entries(), ([index, name]) => rows.nth(index).selectOption({ label: name }))
+  await page.getByRole('button', { name: 'Prüfen' }).click()
+  await expect(page.getByRole('status')).toHaveText('Gültige Stimme.')
+  await page.getByRole('button', { name: 'Abgeben', exact: true }).click()
 }
