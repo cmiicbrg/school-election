@@ -522,17 +522,14 @@ export interface VoteTraces {
 export async function voteTraces(scenario: PrivacyScenario): Promise<VoteTraces> {
   const xids = [...scenario.voteXids]
   return withClient(scenario.ownerUrl, async (client) => {
-    let tuples = 0
-    for (const table of ['ballot_box', 'ballot', 'credential_entitlement']) {
-      const { rows: [row] } = await client.query<{ n: number }>(
-        `select count(*)::int as n
-           from generate_series(0, pg_relation_size($1::text::regclass) / current_setting('block_size')::int - 1) as b (blk)
-           cross join lateral heap_page_items(get_raw_page($1::text, b.blk)) as t
-          where t.t_xmin::text = any($2) or t.t_xmax::text = any($2)`,
-        [table, xids],
-      )
-      tuples += row?.n ?? 0
-    }
+    const { rows: [tuples] } = await client.query<{ n: number }>(
+      `select count(*)::int as n
+         from unnest($1::text[]) as t (name)
+         cross join lateral generate_series(0, pg_relation_size(t.name::regclass) / current_setting('block_size')::int - 1) as b (blk)
+         cross join lateral heap_page_items(get_raw_page(t.name, b.blk)) as item
+        where item.t_xmin::text = any($2) or item.t_xmax::text = any($2)`,
+      [['ballot_box', 'ballot', 'credential_entitlement'], xids],
+    )
     const { rows: [oldest] } = await client.query<{ lsn: string }>(
       `select ('0/0'::pg_lsn + s.segment_number * i.bytes_per_wal_segment)::text as lsn
          from (select min(w.name) as name from pg_ls_waldir() as w where w.name ~ '^[0-9A-F]{24}$') as first
@@ -543,6 +540,6 @@ export async function voteTraces(scenario: PrivacyScenario): Promise<VoteTraces>
       'select count(*)::int as n from pg_get_wal_records_info($1::pg_lsn, pg_current_wal_flush_lsn()) as r where r.xid::text = any($2)',
       [oldest?.lsn ?? assert.fail('no write-ahead log on disk'), xids],
     )
-    return { tuples, records: records?.n ?? 0 }
+    return { tuples: tuples?.n ?? 0, records: records?.n ?? 0 }
   })
 }

@@ -20,6 +20,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import type { RoundKind } from '@school-election/election-core'
 import type { Database } from './db.ts'
 import { Refusal } from './election-access.ts'
+import { inOrder } from './in-order.ts'
 import { SQLSTATE, sqlState } from './pg-errors.ts'
 
 /** The two tables with dead rows of the votes; `ballot` has none, the seal only inserts there. */
@@ -51,15 +52,7 @@ export interface CleanUpOptions {
 export async function cleanUp(db: Pick<Database, 'query'>, electionId: string, { waitMs = BLOCKED_WAIT_MS, pollMs = BLOCKED_POLL_MS }: CleanUpOptions = {}): Promise<RoundPhases> {
   const phases = await roundPhases(db, electionId)
   await waitForSnapshots(db, electionId, waitMs, pollMs)
-  for (const table of REWRITTEN) {
-    try {
-      // Names from the fixed list above, never from input.
-      await db.query(`vacuum full ${table}`)
-    } catch (err) {
-      if (sqlState(err) === SQLSTATE.queryCanceled) throw new Refusal(409, 'cleanup_blocked')
-      throw err
-    }
-  }
+  await inOrder(REWRITTEN, (table) => rewrite(db, table))
   const { rows: [position] } = await db.query<{ lsn: string }>('select pg_current_wal_lsn()::text as lsn')
   const { rows: [flushed] } = await db.query<{ cleared: boolean }>('select flush_wal($1::pg_lsn) as cleared', [position?.lsn ?? '0/0'])
   if (flushed?.cleared !== true) throw new Refusal(409, 'wal_retained')
@@ -78,11 +71,25 @@ export async function cleanupBlockers(db: Pick<Database, 'query'>, electionId: s
   return row?.blockers ?? 0
 }
 
+/** Rewrites one of the two tables without its dead rows; a lock wait past the statement timeout refuses. */
+async function rewrite(db: Pick<Database, 'query'>, table: typeof REWRITTEN[number]): Promise<void> {
+  try {
+    // Names from the fixed list above, never from input.
+    await db.query(`vacuum full ${table}`)
+  } catch (err) {
+    if (sqlState(err) === SQLSTATE.queryCanceled) throw new Refusal(409, 'cleanup_blocked')
+    throw err
+  }
+}
+
+/** Asks every `pollMs` until nothing holds an older snapshot, or refuses once `waitMs` have passed. */
 async function waitForSnapshots(db: Pick<Database, 'query'>, electionId: string, waitMs: number, pollMs: number): Promise<void> {
   const deadline = Date.now() + waitMs
-  for (;;) {
+  const attempt = async (): Promise<void> => {
     if (await cleanupBlockers(db, electionId) === 0) return
     if (Date.now() >= deadline) throw new Refusal(409, 'cleanup_blocked')
     await sleep(pollMs)
+    return attempt()
   }
+  return attempt()
 }

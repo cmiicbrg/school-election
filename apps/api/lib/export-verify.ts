@@ -185,21 +185,35 @@ function checkOutcomes(run: Run): void {
  * not final has neither.
  */
 function checkFinalization(run: Run): void {
-  const { document, check, titleOf } = run
+  const { document, check } = run
   const final = document.election.state === 'final'
   const declarations = document.audit.events.filter((event) => event.action === 'election.finalized')
   const declaration = declarations[0]
   if (!final || declaration === undefined || declarations.length !== 1) {
-    const none = !final && declarations.length === 0 && document.finalOutcomes.length === 0
-    let detail = 'not final: no declaration and no declared outcome, as it should be'
-    if (final) detail = `${declarations.length} election.finalized events for a final election`
-    else if (declarations.length > 0) detail = 'an election.finalized event, but the election is not final'
-    else if (document.finalOutcomes.length > 0) detail = 'declared outcomes, but the election is not final'
-    check('finalization', none, detail)
+    checkNotDeclared(run, final, declarations.length)
     return
   }
   const later = document.audit.events.filter((event) => event.seq > declaration.seq && event.action !== 'export.generated').map((event) => event.action)
   check('finalization', later.length === 0, later.length === 0 ? `declared at ${declaration.at} by ${declaration.actor.name}, exports only since` : `changed after the declaration: ${later.join(', ')}`)
+  const resolved = checkDeclaredOutcomes(run)
+  const unresolved = document.finalOutcomes.length - resolved
+  const counted = declaration.metadata.resolved === resolved && declaration.metadata.unresolved === unresolved
+  check(`event ${declaration.seq} election.finalized`, counted, counted ? `${resolved} resolved, ${unresolved} unresolved; reason: ${field(declaration.metadata, 'reason')}` : `says ${field(declaration.metadata, 'resolved')} resolved and ${field(declaration.metadata, 'unresolved')} unresolved, the declared outcomes give ${resolved} and ${unresolved}`)
+}
+
+/** An election not final, or a final one without exactly one declaration: nothing declared, as it should be, or what is wrong. */
+function checkNotDeclared({ document, check }: Run, final: boolean, declarations: number): void {
+  const none = !final && declarations === 0 && document.finalOutcomes.length === 0
+  let detail = 'not final: no declaration and no declared outcome, as it should be'
+  if (final) detail = `${declarations} election.finalized events for a final election`
+  else if (declarations > 0) detail = 'an election.finalized event, but the election is not final'
+  else if (document.finalOutcomes.length > 0) detail = 'declared outcomes, but the election is not final'
+  check('finalization', none, detail)
+}
+
+/** The declared outcome of every contest, once, equal to the one resolved now; how many of them are of kind final. */
+function checkDeclaredOutcomes(run: Run): number {
+  const { document, check, titleOf } = run
   const listed = document.finalOutcomes.map((entry) => entry.contestId)
   const complete = document.contests.every((contest) => listed.filter((id) => id === contest.id).length === 1) && listed.length === document.contests.length
   check('final outcomes: one per contest', complete, complete ? `${document.contests.length} contests, ${document.finalOutcomes.length} declared outcomes` : `${document.contests.length} contests, but declared outcomes for ${listed.map(titleOf).join(', ') || 'none'}`)
@@ -218,9 +232,7 @@ function checkFinalization(run: Run): void {
     check(`final outcome: ${label}`, same, same ? `${entry.kind}, ${versions}` : `the declared outcome differs from the one resolved now: ${versions}, verified with tally version ${TALLY_VERSION}`)
     if (entry.kind === 'final') resolved += 1
   }
-  const unresolved = document.finalOutcomes.length - resolved
-  const counted = declaration.metadata.resolved === resolved && declaration.metadata.unresolved === unresolved
-  check(`event ${declaration.seq} election.finalized`, counted, counted ? `${resolved} resolved, ${unresolved} unresolved; reason: ${field(declaration.metadata, 'reason')}` : `says ${field(declaration.metadata, 'resolved')} resolved and ${field(declaration.metadata, 'unresolved')} unresolved, the declared outcomes give ${resolved} and ${unresolved}`)
+  return resolved
 }
 
 /** The audit chain: of this election, recomputed, as exported, and not empty. */
