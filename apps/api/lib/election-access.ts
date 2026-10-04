@@ -139,18 +139,24 @@ interface AccessRow {
   display_name: string
 }
 
-/** The states of an election's rounds, as stored: null where the round does not exist. */
-export const ROUND_STATES_SQL = `(select r.state from round r where r.election_id = e.id and r.kind = 'regular') as regular,
-       (select r.state from round r where r.election_id = e.id and r.kind = 'runoff') as runoff`
+/**
+ * The states of an election's rounds, as stored, read with the election
+ * `e` by two joins: select ROUND_STATE_COLUMNS, from `election e` with
+ * ROUND_STATE_JOINS; null where the round does not exist.
+ */
+export const ROUND_STATE_COLUMNS = 'regular.state as regular, runoff.state as runoff'
+export const ROUND_STATE_JOINS = `left join round regular on regular.election_id = e.id and regular.kind = 'regular'
+       left join round runoff on runoff.election_id = e.id and runoff.kind = 'runoff'`
 
 async function evaluate(db: Pick<Database, 'query'>, id: unknown, userId: string, check: Check): Promise<ElectionAccess> {
   if (typeof id !== 'string' || !UUID.test(id)) throw new Refusal(404, 'not_found')
   const electionId = id.toLowerCase()
   const { rows } = await db.query<AccessRow>(
-    `select e.state, m.role, u.tid, u.oid, u.display_name, ${ROUND_STATES_SQL}
+    `select e.state, m.role, u.tid, u.oid, u.display_name, ${ROUND_STATE_COLUMNS}
        from election_member m
        join election e on e.id = m.election_id
        join app_user u on u.id = m.user_id
+       ${ROUND_STATE_JOINS}
       where m.election_id = $1 and m.user_id = $2`,
     [electionId, userId],
   )
@@ -169,7 +175,7 @@ function electionIdOf(request: FastifyRequest): unknown {
 
 /**
  * The lifecycle of an election from its stored states: the election's and
- * its rounds' (ROUND_STATES_SQL). A regular round that does not exist yet
+ * its rounds' (ROUND_STATE_COLUMNS). A regular round that does not exist yet
  * is a planned one; a runoff round that does not exist is none. States
  * that do not form a lifecycle (the triggers of migrations 0007 and 0009
  * keep them so) are a wiring error, never a user error.

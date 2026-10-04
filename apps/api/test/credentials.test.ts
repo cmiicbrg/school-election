@@ -10,7 +10,7 @@ import { parseKey, type ElectionState, type RoundKind, type RoundState } from '@
 import type pg from 'pg'
 import { lockElection } from '../lib/audit.ts'
 import { issueBatch, listBatches, readBatchKeys, replaceBatch, type BatchKeys } from '../lib/credentials.ts'
-import { lifecycleOf, Refusal, ROUND_STATES_SQL, type ElectionAccess } from '../lib/election-access.ts'
+import { lifecycleOf, Refusal, ROUND_STATE_COLUMNS, ROUND_STATE_JOINS, type ElectionAccess } from '../lib/election-access.ts'
 import { prepareElection, type PrepareResult } from '../lib/prepare.ts'
 import type { ElectionRole } from '../lib/permissions.ts'
 import { DB, withClient } from './helpers/db.ts'
@@ -84,8 +84,8 @@ async function prepared(t: TestContext): Promise<Setup> {
 async function accessOf(s: ElectionApp, electionId: string, person: Person): Promise<ElectionAccess> {
   return withClient(s.ownerUrl, async (client) => {
     const { rows: [row] } = await client.query<{ role: ElectionRole, state: ElectionState, regular: RoundState | null, runoff: RoundState | null, tid: string, oid: string, display_name: string }>(
-      `select m.role, e.state, u.tid, u.oid, u.display_name, ${ROUND_STATES_SQL}
-         from election_member m join election e on e.id = m.election_id join app_user u on u.id = m.user_id
+      `select m.role, e.state, u.tid, u.oid, u.display_name, ${ROUND_STATE_COLUMNS}
+         from election_member m join election e on e.id = m.election_id join app_user u on u.id = m.user_id ${ROUND_STATE_JOINS}
         where m.election_id = $1 and u.oid = $2`,
       [electionId, person.oid],
     )

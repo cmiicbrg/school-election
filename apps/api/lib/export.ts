@@ -14,6 +14,7 @@ import { TALLY_VERSION, type ElectionState, type RoundKind, type RoundState } fr
 import type { BuildInfo } from '../config.ts'
 import { readAuditChain } from './audit.ts'
 import { verifyAuditChain } from './audit-chain.ts'
+import { BATCHES_WITH_KEYS } from './batch-keys.ts'
 import { canonicalJson } from './canonical-json.ts'
 import { readConfiguration, type Configuration } from './configuration.ts'
 import { lifecycleOf } from './election-access.ts'
@@ -57,8 +58,8 @@ export async function buildExport(client: pg.ClientBase, electionId: string, bui
   )
   const configuration = await readConfiguration(client, electionId)
   const { rows: batches } = await client.query<{ id: string, voter_group_id: string, round_kind: RoundKind, state: string, keys: number }>(
-    `select b.id, b.voter_group_id, b.round_kind, b.state, (select count(*) from credential c where c.batch_id = b.id)::int as keys
-       from credential_batch b where b.election_id = $1 order by b.round_kind, b.state, b.id`, [electionId],
+    `select b.id, b.voter_group_id, b.round_kind, b.state, b.keys
+       from ${BATCHES_WITH_KEYS} b where b.election_id = $1 order by b.round_kind, b.state, b.id`, [electionId],
   )
   const exportedRounds = await exportRounds(client, electionId, rounds, configuration)
   const outcomes = rounds.some((round) => round.kind === 'regular' && round.state === 'closed') ? await contestOutcomes(client, electionId) : []

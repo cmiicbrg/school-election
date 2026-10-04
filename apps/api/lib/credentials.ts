@@ -19,6 +19,7 @@ import { canIssueBatch, canRotateBatch, generateKey, KEY_RANDOM_BYTES, type Roun
 import { appendAudit } from './audit.ts'
 import type { Database } from './db.ts'
 import { Refusal, type ElectionAccess } from './election-access.ts'
+import { BATCHES_WITH_KEYS } from './batch-keys.ts'
 import { compareLabels } from './names.ts'
 import { isPermitted, type ElectionRole } from './permissions.ts'
 import { sqlState } from './pg-errors.ts'
@@ -58,9 +59,8 @@ export function mayReadKeys(role: ElectionRole, round: RoundState | null): boole
 /** Every batch of the election, without keys: by voter group, regular before runoff, issued before void. For every member. */
 export async function listBatches(db: Queryable, electionId: string): Promise<BatchSummary[]> {
   const { rows } = await db.query<BatchRow & { group_name: string }>(
-    `select b.id, b.voter_group_id, b.round_kind, b.state, g.name as group_name,
-            (select count(*) from credential c where c.batch_id = b.id)::int as keys
-       from credential_batch b join voter_group g on g.id = b.voter_group_id
+    `select b.id, b.voter_group_id, b.round_kind, b.state, b.keys, g.name as group_name
+       from ${BATCHES_WITH_KEYS} b join voter_group g on g.id = b.voter_group_id
       where b.election_id = $1`,
     [electionId],
   )
@@ -77,9 +77,8 @@ export async function listBatches(db: Queryable, electionId: string): Promise<Ba
  */
 export async function readBatchKeys(db: Queryable, access: Pick<ElectionAccess, 'electionId' | 'role'>, batchId: string): Promise<BatchKeys> {
   const { rows: [row] } = await db.query<BatchRow & { round_state: RoundState | null }>(
-    `select b.id, b.voter_group_id, b.round_kind, b.state, r.state as round_state,
-            (select count(*) from credential c where c.batch_id = b.id)::int as keys
-       from credential_batch b left join round r on r.election_id = b.election_id and r.kind = b.round_kind
+    `select b.id, b.voter_group_id, b.round_kind, b.state, b.keys, r.state as round_state
+       from ${BATCHES_WITH_KEYS} b left join round r on r.election_id = b.election_id and r.kind = b.round_kind
       where b.id = $1 and b.election_id = $2`,
     [batchId, access.electionId],
   )
@@ -137,8 +136,8 @@ export async function issueBatch(client: pg.ClientBase, access: ElectionAccess, 
  */
 export async function replaceBatch(client: pg.ClientBase, access: ElectionAccess, batchId: string): Promise<BatchKeys> {
   const { rows: [row] } = await client.query<BatchRow>(
-    `select b.id, b.voter_group_id, b.round_kind, b.state, (select count(*) from credential c where c.batch_id = b.id)::int as keys
-       from credential_batch b where b.id = $1 and b.election_id = $2`,
+    `select b.id, b.voter_group_id, b.round_kind, b.state, b.keys
+       from ${BATCHES_WITH_KEYS} b where b.id = $1 and b.election_id = $2`,
     [batchId, access.electionId],
   )
   if (!row) throw new Refusal(404, 'not_found')
