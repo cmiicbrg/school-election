@@ -30,7 +30,9 @@ import {
 import type { BuildInfo } from '../config.ts'
 import { canonicalJson } from './canonical-json.ts'
 import { readConfiguration } from './configuration.ts'
+import { Refusal } from './election-access.ts'
 import { inOrder } from './in-order.ts'
+import { SQLSTATE, sqlState } from './pg-errors.ts'
 
 export interface ContestTally {
   contestId: string
@@ -169,12 +171,19 @@ export async function tallyRound(client: pg.ClientBase, electionId: string, roun
  * The count of a test, from the ballots the test has staged so far, in the
  * configuration's order of the contests: computed on every read, stored
  * nowhere. The database hands the ballots out only while the round is in
- * test mode.
+ * test mode; a test that ended between the route's guard and this read
+ * is refused as the guard would have refused it (409 round_planned).
  */
 export async function tallyTest(client: pg.ClientBase, electionId: string, roundId: string, build: BuildInfo): Promise<StoredResult[]> {
   const boxes = await client.query<{ id: string, contest_id: string }>('select id, contest_id from round_contest where round_id = $1', [roundId])
   const boxOf = new Map(boxes.rows.map((box) => [box.contest_id, box.id]))
-  const staged = await client.query<BallotRow & { round_contest_id: string }>('select round_contest_id, kind, ranking from test_ballots($1)', [roundId])
+  let staged: pg.QueryResult<BallotRow & { round_contest_id: string }>
+  try {
+    staged = await client.query<BallotRow & { round_contest_id: string }>('select round_contest_id, kind, ranking from test_ballots($1)', [roundId])
+  } catch (err) {
+    if (sqlState(err) === SQLSTATE.objectNotInPrerequisiteState) throw new Refusal(409, 'round_planned')
+    throw err
+  }
   const results: StoredResult[] = []
   for (const contest of await contestsOf(client, electionId)) {
     const boxId = boxOf.get(contest.id)

@@ -46,9 +46,10 @@ $$;
 
 -- Two windows of 0007 read whether a round has opened; a test has not,
 -- but it has ballots staged, so they read whether it accepts ballots as
--- well: an election does not go back to draft, and a round's ballot
--- boxes do not change, while a round of it is in test mode (a ballot
--- box's removal would take the test's ballots with it, past end_test).
+-- well: an election does not go back to draft, its title and description
+-- do not change, and a round's ballot boxes do not change, while a round
+-- of it is in test mode (a ballot box's removal would take the test's
+-- ballots with it, past end_test).
 create or replace function election_lifecycle() returns trigger
   language plpgsql set search_path = pg_catalog as $$
 declare
@@ -58,8 +59,11 @@ begin
   if was.final then
     perform public.refuse('a final election never changes');
   end if;
-  if (new.title, new.description) is distinct from (old.title, old.description) and not was.candidates_editable then
-    perform public.refuse('title and description change only until voting starts');
+  if (new.title, new.description) is distinct from (old.title, old.description) and (not was.candidates_editable or exists (
+    select 1 from public.round r join public.round_state rs on rs.state = r.state
+     where r.election_id = new.id and rs.accepts_ballots and not rs.opened
+  )) then
+    perform public.refuse('title and description change only until voting starts, and not while a round is in test mode');
   end if;
   if new.state is distinct from old.state then
     if new.state is distinct from was.advances_to and new.state is distinct from was.returns_to then

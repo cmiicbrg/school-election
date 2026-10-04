@@ -60,7 +60,8 @@ test('a test takes ballots and uses keys up like an open round, and ends with no
 test('the test result is counted from the staged ballots, only while the test runs', DB, async (t) => {
   const s = await setup(t)
   const result = () => s.db.tx((client) => tallyTest(client, ELECTION, ROUND, BUILD))
-  await assert.rejects(result(), (err) => sqlState(err) === SQLSTATE.objectNotInPrerequisiteState)
+  // Before and after a test, the read refuses as the route's guard does, for a test that ended under a request.
+  await assert.rejects(result(), refusedWith(409, 'round_planned'))
   await start(s)
   assert.deepEqual((await result()).map((contest) => [contest.contestId, (contest.result as { statistics: { validBallots: number } }).statistics.validBallots]), [[CONTEST, 0]])
   const [first, second] = s.credentialIds as [string, string]
@@ -72,7 +73,7 @@ test('the test result is counted from the staged ballots, only while the test ru
   assert.equal((counted.outcome as { kind: string }).kind, 'final')
   assert.equal(counted.appVersion, 'dev')
   await end(s)
-  await assert.rejects(result(), (err) => sqlState(err) === SQLSTATE.objectNotInPrerequisiteState)
+  await assert.rejects(result(), refusedWith(409, 'round_planned'))
 })
 
 test('the database keeps a test apart: no seal, no direct way out, and the runtime role reads no staged ballot', DB, async (t) => {
@@ -108,14 +109,15 @@ test('the database keeps a test apart: no seal, no direct way out, and the runti
   assert.equal(await roundState(s), 'testing')
 })
 
-test('candidates are frozen while a test runs, at the database as in the lifecycle', DB, async (t) => {
+test('candidates, the title and the description are frozen while a test runs, at the database as in the lifecycle', DB, async (t) => {
   const s = await setup(t)
   await start(s)
-  for (const statement of [`update candidate set surname = 'Anders' where id = '${PAULA}'`, `delete from candidate where id = '${QUIRIN}'`, `insert into candidate (election_id, contest_id, surname, given_name) values ('${ELECTION}', '${CONTEST}', 'Neu', 'Nina')`]) {
+  for (const statement of [`update candidate set surname = 'Anders' where id = '${PAULA}'`, `delete from candidate where id = '${QUIRIN}'`, `insert into candidate (election_id, contest_id, surname, given_name) values ('${ELECTION}', '${CONTEST}', 'Neu', 'Nina')`, `update election set title = 'Anders' where id = '${ELECTION}'`]) {
     await assert.rejects(s.db.query(statement), (err) => sqlState(err) === SQLSTATE.objectNotInPrerequisiteState, statement)
   }
   await end(s)
   await s.db.query(`update candidate set surname = 'Anders' where id = '${PAULA}'`)
+  await s.db.query(`update election set title = 'Anders' where id = '${ELECTION}'`)
 })
 
 test('opening from a test ends it first: the test\'s ballots are gone before the first real vote, and both are audited', DB, async (t) => {
