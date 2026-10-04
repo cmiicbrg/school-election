@@ -9,6 +9,7 @@ import {
   canEditCandidates,
   canEditStructure,
   canEnterLot,
+  canExport,
   canFinalize,
   canIssueBatch,
   canManageMembers,
@@ -171,6 +172,11 @@ const GUARDS: Guard[] = [
     check: canFinalize,
     expected: rows(['round-planned', 'round-planned', 'round-planned', 'round-open', 'ok', 'round-open', 'ok', 'election-final', 'election-final']),
   },
+  {
+    name: 'canExport',
+    check: canExport,
+    expected: rows(['round-planned', 'round-planned', 'round-planned', 'round-open', 'ok', 'round-open', 'ok', 'ok', 'ok']),
+  },
 ]
 
 test('every action in every state is either the expected transition or a typed refusal', () => {
@@ -282,9 +288,11 @@ test('once final, every change is refused', () => {
     for (const action of LIFECYCLE_ACTIONS) {
       assert.deepEqual(transition(STATES[name], action), { ok: false, refusal: 'election-final' }, `${action} in ${name}`)
     }
-    for (const guard of GUARDS.filter((g) => !g.name.startsWith('canShowResults'))) {
+    // Reading a result and exporting are not changes: a final election is read and exported.
+    for (const guard of GUARDS.filter((g) => !g.name.startsWith('canShowResults') && g.name !== 'canExport')) {
       assert.deepEqual(guard.check(STATES[name]), { ok: false, refusal: 'election-final' }, `${guard.name} in ${name}`)
     }
+    assert.deepEqual(canExport(STATES[name]), { ok: true }, `canExport in ${name}`)
   }
 })
 

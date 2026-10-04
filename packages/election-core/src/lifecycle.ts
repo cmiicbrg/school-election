@@ -241,6 +241,17 @@ export function canFinalize(lifecycle: Lifecycle): Verdict {
   return noRoundOpen(lifecycle)
 }
 
+/**
+ * Exporting the election: once the regular round has closed, while no
+ * round is open, so every round in the file is sealed; a final election
+ * exports as well, which is why this is not noRoundOpen.
+ */
+export function canExport(lifecycle: Lifecycle): Verdict {
+  const { regular, runoff } = checked(lifecycle)
+  if (regular === 'planned' || regular === 'testing') return refused('round-planned')
+  return regular === 'open' || runoff === 'open' ? refused('round-open') : ALLOWED
+}
+
 function noRoundOpen(lifecycle: Lifecycle): Verdict {
   const { election, regular, runoff } = checked(lifecycle)
   if (election === 'final') return refused('election-final')
