@@ -16,6 +16,7 @@
     "dev:web": "npm run dev --workspace apps/web",
     "build": "npm run build --workspace apps/web",
     "migrate": "npm run migrate --workspace apps/api",
+    "verify": "node apps/api/scripts/verify.ts",
     "test": "node --test \"scripts/**/*.test.mjs\" && npm test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p e2e/tsconfig.json",
     "lint": "npm run lint:js && npm run lint:md && npm run lint:deps && npm run typecheck",

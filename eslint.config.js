@@ -149,24 +149,31 @@ export default [
     },
   },
 
-  // Canonical JSON and the audit hash chain are what the offline verifier
-  // recomputes from an export, so they stay pure: node:crypto and each
-  // other, no database, no network, no file system, no environment.
+  // Canonical JSON, the audit hash chain, the count's digest, the export's
+  // shape and the verifier are what the offline verifier runs on, so they
+  // stay pure: election-core, node:crypto and each other, no database, no
+  // network, no file system, no environment.
   {
-    files: ['apps/api/lib/canonical-json.ts', 'apps/api/lib/audit-chain.ts'],
+    files: [
+      'apps/api/lib/canonical-json.ts',
+      'apps/api/lib/audit-chain.ts',
+      'apps/api/lib/tally-digest.ts',
+      'apps/api/lib/export-format.ts',
+      'apps/api/lib/export-verify.ts',
+    ],
     rules: {
       'no-restricted-imports': ['error', {
         patterns: [
           {
-            regex: String.raw`^(?!node:crypto$|\./canonical-json\.ts$)`,
-            message: 'The audit chain is verified offline: import only node:crypto and ./canonical-json.ts.',
+            regex: String.raw`^(?!node:crypto$|@school-election/election-core$|\./(canonical-json|audit-chain|tally-digest|export-format)\.ts$)`,
+            message: 'The export is verified offline: import only node:crypto, election-core and the pure modules beside this one.',
           },
         ],
       }],
       'no-restricted-globals': ['error',
         ...['process', 'fetch', 'globalThis', 'global'].map((name) => ({
           name,
-          message: 'The audit chain is verified offline: no access to the runtime environment.',
+          message: 'The export is verified offline: no access to the runtime environment.',
         })),
       ],
     },
