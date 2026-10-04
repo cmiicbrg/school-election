@@ -149,6 +149,11 @@ test('starting a test waits for a candidate change in flight, and a change waits
       await lockElection(client, ELECTION)
       return startTest(client, await as(s))
     }), (err) => sqlState(err) === '55P03', 'the start waits for the edit')
+    // The direct update along the transition row waits as well: the trigger takes the row.
+    await withClient(s.runtimeUrl, async (direct) => {
+      await direct.query('set lock_timeout = 200')
+      await assert.rejects(direct.query(`update round set state = 'testing' where id = '${ROUND}'`), (err) => sqlState(err) === '55P03', 'the direct update waits for the edit')
+    })
     await editing.query('commit')
   })
   assert.equal(await roundState(s), 'planned')

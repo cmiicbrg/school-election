@@ -6,72 +6,18 @@
 
 import { test, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import type { LightMyRequestResponse } from 'fastify'
-import { validateBallot, type CastBallot, type Contest, type Lifecycle } from '@school-election/election-core'
-import { castBallot } from '../lib/ballot-box.ts'
 import { DB, withClient } from './helpers/db.ts'
-import { ANNA, auditActions, CARLA, createElection, electionApp, signIn, WANDA, type Browser, type ElectionApp } from './helpers/elections.ts'
+import { auditActions, createElection } from './helpers/elections.ts'
+import { lifecycleOf, ok, preparedElection, refused, vote, type RouteSetup } from './helpers/round-routes.ts'
 
-interface Setup {
-  s: ElectionApp
-  anna: Browser
-  carla: Browser
-  wanda: Browser
-  id: string
-  base: string
-  contest: Contest
-  boxId: string
-  credentialIds: string[]
-}
-
-const ok = <T>(res: LightMyRequestResponse, status = 200): T => {
-  assert.equal(res.statusCode, status, res.body)
-  return res.json<T>()
-}
-
-const refused = (res: LightMyRequestResponse, status: number, error: string) => {
-  assert.equal(res.statusCode, status, res.body)
-  assert.equal(res.json<{ error: string }>().error, error)
-}
-
-/** A prepared election with one two-candidate contest voted in by 1A, three keys, Carla as co-admin and Wanda as witness. */
-async function prepared(t: TestContext): Promise<Setup> {
-  const s = await electionApp(t)
-  const anna = await signIn(s, ANNA)
-  const id = await createElection(anna)
-  const base = `/api/elections/${id}`
-  const created = ok<{ id: string }>(await anna.request('POST', `${base}/contests`, { title: 'Klassensprecher/in', rulesetId: 'at-representative-v1' }), 201)
-  for (const [surname, givenName] of [['Berger', 'Paula'], ['Huber', 'Quirin']]) {
-    ok(await anna.request('POST', `${base}/contests/${created.id}/candidates`, { surname, givenName }), 201)
-  }
-  const group = ok<{ id: string }>(await anna.request('POST', `${base}/voter-groups`, { name: '1A' }), 201)
-  ok(await anna.request('PUT', `${base}/voter-groups/${group.id}/contests`, { contestIds: [created.id] }))
-  for (const [person, role] of [[CARLA, 'admin'], [WANDA, 'witness']] as const) {
-    ok(await anna.request('POST', `${base}/members`, { email: person.email, role }), 201)
-  }
-  const carla = await signIn(s, CARLA)
-  const wanda = await signIn(s, WANDA)
-  ok(await anna.request('POST', `${base}/prepare`))
-  ok(await anna.request('POST', `${base}/batches`, { voterGroupId: group.id, roundKind: 'regular', count: 3 }), 201)
-  const configuration = ok<{ contests: { id: string, candidates: { id: string }[] }[] }>(await anna.request('GET', `${base}/configuration`))
-  const contest: Contest = { id: created.id, rulesetId: 'at-representative-v1', candidateIds: configuration.contests[0]!.candidates.map((candidate) => candidate.id) }
-  const { boxId, credentialIds } = await withClient(s.ownerUrl, async (client) => ({
-    boxId: (await client.query<{ id: string }>('select id from round_contest where election_id = $1', [id])).rows[0]!.id,
-    credentialIds: (await client.query<{ id: string }>('select id from credential where election_id = $1 order by key', [id])).rows.map((row) => row.id),
-  }))
-  return { s, anna, carla, wanda, id, base, contest, boxId, credentialIds }
-}
-
-const ranking = (contest: Contest, order: string[]): CastBallot => {
-  const result = validateBallot(contest, { kind: 'ranking', ranking: order })
-  assert.ok(result.ok, JSON.stringify(result))
-  return result.ballot
-}
-
-const vote = (x: Setup, credentialId: string, order: string[]) =>
-  x.s.db.tx((client) => castBallot(client, { credentialId, roundContestId: x.boxId, contest: x.contest, ballot: ranking(x.contest, order) }))
-
-const lifecycleOf = async (by: Browser, base: string) => ok<{ lifecycle: Lifecycle }>(await by.request('GET', base))
+/** The class contest with two candidates, voted in by 1A, three keys. */
+const prepared = (t: TestContext): Promise<RouteSetup> => preparedElection(t, {
+  title: 'Klassensprecher/in',
+  rulesetId: 'at-representative-v1',
+  candidates: [['Berger', 'Paula'], ['Huber', 'Quirin']],
+  groups: ['1A'],
+  keys: 3,
+})
 
 interface Counted { round: string, contests: { contestId: string, result: { statistics: { validBallots: number } }, outcome: { kind: string } }[] }
 

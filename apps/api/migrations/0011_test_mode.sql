@@ -13,7 +13,11 @@
 -- along the new transition row.
 
 insert into round_state (state, opened, accepts_ballots) values ('testing', false, true);
-insert into round_transition (from_state, to_state) values ('planned', 'testing'), ('testing', 'planned');
+-- From planned into the state that accepts ballots without opening, and back.
+insert into round_transition (from_state, to_state)
+select 'planned', s.state from round_state s where s.accepts_ballots and not s.opened
+union all
+select s.state, 'planned' from round_state s where s.accepts_ballots and not s.opened;
 
 -- A test's ballots name candidates, so candidates change only while no
 -- round of their election accepts ballots without having opened: the
@@ -102,7 +106,9 @@ $$;
 -- A round enters test mode only while its election is prepared, as the
 -- lifecycle has it (a draft has no keys to test with, an active election
 -- is past testing): the round's transition trigger of 0009, with that
--- check for a state that accepts ballots without being opened.
+-- check for a state that accepts ballots without being opened, taking
+-- the election's row so that a candidate change cannot land under the
+-- test from either side.
 create or replace function round_lifecycle() returns trigger
   language plpgsql set search_path = pg_catalog as $$
 declare
@@ -125,10 +131,13 @@ begin
     ) then
       perform public.refuse('a round opens only once its election is active');
     end if;
+    -- Entering test mode takes the election's row as opening does, so a
+    -- candidate change in flight (which holds it for share) commits first
+    -- and the next one waits: the lock conflicts with theirs.
     if entering.accepts_ballots and not entering.opened and not exists (
       select 1 from public.election e join public.election_state s on s.state = e.state
        where e.id = new.election_id and not s.structure_editable and s.candidates_editable and not s.final
-         for share of e
+         for no key update of e
     ) then
       perform public.refuse('a round enters test mode only while its election is prepared');
     end if;

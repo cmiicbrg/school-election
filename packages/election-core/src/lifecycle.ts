@@ -109,6 +109,20 @@ function roundState(lifecycle: Lifecycle, round: RoundKind): RoundState | null {
   return round === 'regular' ? lifecycle.regular : lifecycle.runoff
 }
 
+/** Why a round in `state` refuses what it is not in the state for. */
+function becauseOf(state: RoundState): LifecycleRefusal {
+  switch (state) {
+    case 'planned':
+      return 'round-planned'
+    case 'testing':
+      return 'round-testing'
+    case 'open':
+      return 'round-open'
+    case 'closed':
+      return 'round-closed'
+  }
+}
+
 /** Contests, voter groups and their mapping, and each contest's ruleset: in a draft only. */
 export function canEditStructure(lifecycle: Lifecycle): Verdict {
   const { election } = checked(lifecycle)
@@ -160,7 +174,7 @@ export function canCastBallot(lifecycle: Lifecycle, round: RoundKind): Verdict {
   const state = roundState(lifecycle, round)
   if (state === null) return refused('no-runoff')
   if (state === 'open' || state === 'testing') return ALLOWED
-  return refused(state === 'planned' ? 'round-planned' : 'round-closed')
+  return refused(becauseOf(state))
 }
 
 /** Closing a round, which seals it: only while it is open; a test is ended, not closed. */
@@ -169,7 +183,7 @@ export function canCloseRound(lifecycle: Lifecycle, round: RoundKind): Verdict {
   const state = roundState(lifecycle, round)
   if (state === null) return refused('no-runoff')
   if (state === 'open') return ALLOWED
-  return refused(state === 'planned' ? 'round-planned' : state === 'testing' ? 'round-testing' : 'round-closed')
+  return refused(becauseOf(state))
 }
 
 /** A round's result, for every role: only once the round has closed, never while it is open or in test mode. */
@@ -177,7 +191,7 @@ export function canShowResults(lifecycle: Lifecycle, round: RoundKind): Verdict 
   const state = roundState(checked(lifecycle), round)
   if (state === null) return refused('no-runoff')
   if (state === 'closed') return ALLOWED
-  return refused(state === 'planned' ? 'round-planned' : state === 'testing' ? 'round-testing' : 'round-open')
+  return refused(becauseOf(state))
 }
 
 /** The test result, counted from the test's ballots: exactly while the regular round is in test mode. */
@@ -185,7 +199,7 @@ export function canShowTestResult(lifecycle: Lifecycle): Verdict {
   const { election, regular } = checked(lifecycle)
   if (election === 'final') return refused('election-final')
   if (regular === 'testing') return ALLOWED
-  return refused(regular === 'planned' ? 'round-planned' : regular === 'open' ? 'round-open' : 'round-closed')
+  return refused(becauseOf(regular))
 }
 
 /**
@@ -245,15 +259,16 @@ export function transition(lifecycle: Lifecycle, action: LifecycleAction): Trans
       next = { ...lifecycle, election: 'prepared' }
       break
     case 'unprepare':
+      verdict = whilePreparedAndPlanned(lifecycle)
+      next = { ...lifecycle, election: 'draft' }
+      break
     case 'open-regular':
+      verdict = whilePreparedAndPlanned(lifecycle)
+      next = { ...lifecycle, election: 'active', regular: 'open' }
+      break
     case 'start-test':
-      verdict = whilePrepared(election)
-      if (verdict.ok && lifecycle.regular === 'testing') verdict = refused('round-testing')
-      next = action === 'unprepare'
-        ? { ...lifecycle, election: 'draft' }
-        : action === 'open-regular'
-          ? { ...lifecycle, election: 'active', regular: 'open' }
-          : { ...lifecycle, regular: 'testing' }
+      verdict = whilePreparedAndPlanned(lifecycle)
+      next = { ...lifecycle, regular: 'testing' }
       break
     case 'end-test':
       verdict = whilePrepared(election)
@@ -278,6 +293,12 @@ export function transition(lifecycle: Lifecycle, action: LifecycleAction): Trans
       break
   }
   return verdict.ok ? { ok: true, next: checked(next) } : verdict
+}
+
+/** Prepared, and no test running: what unpreparing, opening and starting a test need. */
+function whilePreparedAndPlanned(lifecycle: Lifecycle): Verdict {
+  const verdict = whilePrepared(lifecycle.election)
+  return verdict.ok && lifecycle.regular === 'testing' ? refused('round-testing') : verdict
 }
 
 function whilePrepared(election: ElectionState): Verdict {
