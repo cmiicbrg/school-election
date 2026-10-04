@@ -1,3 +1,6 @@
+// First of all, before the router exists: on the voter page the key leaves
+// the fragment and the history entry (voter/bootstrap.ts).
+import './voter/take-key.ts'
 import { createApp } from 'vue'
 import App from './App.vue'
 import { onUnauthenticated } from './lib/api.ts'

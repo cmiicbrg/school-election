@@ -20,3 +20,17 @@ export async function apiGet<T>(page: Page, path: string): Promise<Answer<T>> {
   if (answer.status >= 400) expectFailure(new URL(path, page.url()).toString())
   return answer
 }
+
+/** A POST of `path` from within `page`, with the browser's session and `body` as JSON when given; a refusal is the spec's to assert. */
+export async function apiPost<T>(page: Page, path: string, body?: unknown): Promise<Answer<T>> {
+  const answer = await page.evaluate(async ([url, payload]) => {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: payload === undefined ? { accept: 'application/json' } : { 'accept': 'application/json', 'content-type': 'application/json' },
+      body: payload === undefined ? undefined : JSON.stringify(payload),
+    })
+    return { status: response.status, body: response.status === 204 ? undefined : await response.json() as unknown }
+  }, [path, body] as const) as Answer<T>
+  if (answer.status >= 400) expectFailure(new URL(path, page.url()).toString())
+  return answer
+}
