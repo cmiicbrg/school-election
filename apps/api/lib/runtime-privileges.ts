@@ -76,6 +76,11 @@ export const RUNTIME_FUNCTIONS: readonly string[] = [
   'refuse(text)',
   // Closes an open round and seals its ballots (migration 0009).
   'seal_round(uuid)',
+  // The test mode: ends a test with nothing kept, reads a test's ballots
+  // for its result; and removes an election nobody used (migration 0011).
+  'end_test(uuid)',
+  'test_ballots(uuid)',
+  'delete_election(uuid)',
 ]
 
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/

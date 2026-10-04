@@ -88,9 +88,10 @@ const fakeKey = (n: number) => String(n).padStart(20, '0')
 /**
  * A prepared election with the three contests, one voter group that votes
  * in all of them, the tracked key and `others` more entitled to all three
- * boxes, and the regular round open; made as the owner.
+ * boxes, and the regular round open (or, with `opened` false, still
+ * planned, for a test before the election); made as the owner.
  */
-export async function seedPrivacyScenario(t: TestContext, { others = 50 } = {}): Promise<PrivacyScenario> {
+export async function seedPrivacyScenario(t: TestContext, { others = 50, opened = true } = {}): Promise<PrivacyScenario> {
   assert.ok(others >= 50, 'the anonymity set is at least fifty other voters')
   const db = await createTestDatabase(t)
   return withClient(db.ownerUrl, async (client) => {
@@ -123,8 +124,7 @@ export async function seedPrivacyScenario(t: TestContext, { others = 50 } = {}):
        select c.election_id, c.id, rc.id from credential c, round_contest rc where c.batch_id = $1 and rc.round_id = $2`,
       [BATCH, ROUND],
     )
-    await client.query('update election set state = $2 where id = $1', [ELECTION, 'active'])
-    await client.query('update round set state = $2 where id = $1', [ROUND, 'open'])
+    if (opened) await openScenario(client)
     const { rows: ordered } = await client.query<{ id: string }>('select id from credential where key = $1', [CANARY_KEY])
     const tracked = ordered[0]?.id ?? assert.fail('the tracked key is missing')
     return {
@@ -139,6 +139,12 @@ export async function seedPrivacyScenario(t: TestContext, { others = 50 } = {}):
       credentialXmins: new Map(keys.map((row) => [row.id, row.xmin])),
     }
   })
+}
+
+/** Opens the regular round of the scenario's election, as the owner, past the API. */
+export async function openScenario(client: pg.ClientBase): Promise<void> {
+  await client.query('update election set state = $2 where id = $1', [ELECTION, 'active'])
+  await client.query('update round set state = $2 where id = $1', [ROUND, 'open'])
 }
 
 /** A small seeded generator (mulberry32), so the interleaving is the same in every run. */

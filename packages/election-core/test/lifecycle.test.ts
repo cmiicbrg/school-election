@@ -4,14 +4,18 @@ import { isDeepStrictEqual } from 'node:util'
 import {
   canActivateRunoff,
   canCastBallot,
+  canCloseRound,
+  canDelete,
   canEditCandidates,
   canEditStructure,
   canEnterLot,
   canFinalize,
   canIssueBatch,
   canManageMembers,
+  canOpenRegular,
   canRotateBatch,
   canShowResults,
+  canShowTestResult,
   ELECTION_STATES,
   isConsistentLifecycle,
   LIFECYCLE_ACTIONS,
@@ -28,6 +32,7 @@ import {
 const STATES = {
   draft: { election: 'draft', regular: 'planned', runoff: null },
   prepared: { election: 'prepared', regular: 'planned', runoff: null },
+  testing: { election: 'prepared', regular: 'testing', runoff: null },
   regularOpen: { election: 'active', regular: 'open', runoff: null },
   regularClosed: { election: 'active', regular: 'closed', runoff: null },
   runoffOpen: { election: 'active', regular: 'closed', runoff: 'open' },
@@ -42,16 +47,17 @@ const nameOf = (lifecycle: Lifecycle) => NAMES.find((name) => isDeepStrictEqual(
 
 // Each action in each state: `→ next` or the typed refusal. Columns follow
 // LIFECYCLE_ACTIONS: prepare, unprepare, open-regular, close-regular,
-// activate-runoff, close-runoff, finalize.
+// activate-runoff, close-runoff, finalize, start-test, end-test.
 type Expected = `→ ${StateName}` | LifecycleRefusal
-const FINAL_ROW: Expected[] = Array<Expected>(7).fill('election-final')
+const FINAL_ROW: Expected[] = Array<Expected>(9).fill('election-final')
 const TRANSITIONS: Record<StateName, Expected[]> = {
-  draft: ['→ prepared', 'not-prepared', 'not-prepared', 'round-planned', 'round-planned', 'no-runoff', 'round-planned'],
-  prepared: ['not-draft', '→ draft', '→ regularOpen', 'round-planned', 'round-planned', 'no-runoff', 'round-planned'],
-  regularOpen: ['not-draft', 'voting-started', 'voting-started', '→ regularClosed', 'round-open', 'no-runoff', 'round-open'],
-  regularClosed: ['not-draft', 'voting-started', 'voting-started', 'round-closed', '→ runoffOpen', 'no-runoff', '→ final'],
-  runoffOpen: ['not-draft', 'voting-started', 'voting-started', 'round-closed', 'runoff-activated', '→ runoffClosed', 'round-open'],
-  runoffClosed: ['not-draft', 'voting-started', 'voting-started', 'round-closed', 'runoff-activated', 'round-closed', '→ finalAfterRunoff'],
+  draft: ['→ prepared', 'not-prepared', 'not-prepared', 'round-planned', 'round-planned', 'no-runoff', 'round-planned', 'not-prepared', 'not-prepared'],
+  prepared: ['not-draft', '→ draft', '→ regularOpen', 'round-planned', 'round-planned', 'no-runoff', 'round-planned', '→ testing', 'round-planned'],
+  testing: ['not-draft', 'round-testing', 'round-testing', 'round-testing', 'round-planned', 'no-runoff', 'round-planned', 'round-testing', '→ prepared'],
+  regularOpen: ['not-draft', 'voting-started', 'voting-started', '→ regularClosed', 'round-open', 'no-runoff', 'round-open', 'voting-started', 'voting-started'],
+  regularClosed: ['not-draft', 'voting-started', 'voting-started', 'round-closed', '→ runoffOpen', 'no-runoff', '→ final', 'voting-started', 'voting-started'],
+  runoffOpen: ['not-draft', 'voting-started', 'voting-started', 'round-closed', 'runoff-activated', '→ runoffClosed', 'round-open', 'voting-started', 'voting-started'],
+  runoffClosed: ['not-draft', 'voting-started', 'voting-started', 'round-closed', 'runoff-activated', 'round-closed', '→ finalAfterRunoff', 'voting-started', 'voting-started'],
   final: FINAL_ROW,
   finalAfterRunoff: FINAL_ROW,
 }
@@ -77,68 +83,93 @@ interface Guard {
 const rows = (values: Allowed[]): Record<StateName, Allowed> =>
   Object.fromEntries(NAMES.map((name, i) => [name, values[i] ?? assert.fail(`no value for ${name}`)])) as Record<StateName, Allowed>
 
-// Columns: draft, prepared, regularOpen, regularClosed, runoffOpen,
-// runoffClosed, final, finalAfterRunoff.
+// Columns: draft, prepared, testing, regularOpen, regularClosed,
+// runoffOpen, runoffClosed, final, finalAfterRunoff.
 const GUARDS: Guard[] = [
   {
     name: 'canEditStructure',
     check: canEditStructure,
-    expected: rows(['ok', 'not-draft', 'not-draft', 'not-draft', 'not-draft', 'not-draft', 'election-final', 'election-final']),
+    expected: rows(['ok', 'not-draft', 'not-draft', 'not-draft', 'not-draft', 'not-draft', 'not-draft', 'election-final', 'election-final']),
   },
   {
     name: 'canEditCandidates',
     check: canEditCandidates,
-    expected: rows(['ok', 'ok', 'voting-started', 'voting-started', 'voting-started', 'voting-started', 'election-final', 'election-final']),
+    expected: rows(['ok', 'ok', 'round-testing', 'voting-started', 'voting-started', 'voting-started', 'voting-started', 'election-final', 'election-final']),
   },
   {
     name: 'canManageMembers',
     check: canManageMembers,
-    expected: rows(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'election-final', 'election-final']),
+    expected: rows(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'election-final', 'election-final']),
   },
   {
     name: 'canIssueBatch regular',
     check: (l) => canIssueBatch(l, 'regular'),
-    expected: rows(['not-prepared', 'ok', 'voting-started', 'voting-started', 'voting-started', 'voting-started', 'election-final', 'election-final']),
+    expected: rows(['not-prepared', 'ok', 'round-testing', 'voting-started', 'voting-started', 'voting-started', 'voting-started', 'election-final', 'election-final']),
   },
   {
     name: 'canIssueBatch runoff',
     check: (l) => canIssueBatch(l, 'runoff'),
-    expected: rows(['not-prepared', 'ok', 'ok', 'ok', 'voting-started', 'voting-started', 'election-final', 'election-final']),
+    expected: rows(['not-prepared', 'ok', 'ok', 'ok', 'ok', 'voting-started', 'voting-started', 'election-final', 'election-final']),
   },
   {
     name: 'canCastBallot regular',
     check: (l) => canCastBallot(l, 'regular'),
-    expected: rows(['round-planned', 'round-planned', 'ok', 'round-closed', 'round-closed', 'round-closed', 'election-final', 'election-final']),
+    expected: rows(['round-planned', 'round-planned', 'ok', 'ok', 'round-closed', 'round-closed', 'round-closed', 'election-final', 'election-final']),
   },
   {
     name: 'canCastBallot runoff',
     check: (l) => canCastBallot(l, 'runoff'),
-    expected: rows(['no-runoff', 'no-runoff', 'no-runoff', 'no-runoff', 'ok', 'round-closed', 'election-final', 'election-final']),
+    expected: rows(['no-runoff', 'no-runoff', 'no-runoff', 'no-runoff', 'no-runoff', 'ok', 'round-closed', 'election-final', 'election-final']),
+  },
+  {
+    name: 'canCloseRound regular',
+    check: (l) => canCloseRound(l, 'regular'),
+    expected: rows(['round-planned', 'round-planned', 'round-testing', 'ok', 'round-closed', 'round-closed', 'round-closed', 'election-final', 'election-final']),
+  },
+  {
+    name: 'canCloseRound runoff',
+    check: (l) => canCloseRound(l, 'runoff'),
+    expected: rows(['no-runoff', 'no-runoff', 'no-runoff', 'no-runoff', 'no-runoff', 'ok', 'round-closed', 'election-final', 'election-final']),
   },
   {
     name: 'canShowResults regular',
     check: (l) => canShowResults(l, 'regular'),
-    expected: rows(['round-planned', 'round-planned', 'round-open', 'ok', 'ok', 'ok', 'ok', 'ok']),
+    expected: rows(['round-planned', 'round-planned', 'round-testing', 'round-open', 'ok', 'ok', 'ok', 'ok', 'ok']),
   },
   {
     name: 'canShowResults runoff',
     check: (l) => canShowResults(l, 'runoff'),
-    expected: rows(['no-runoff', 'no-runoff', 'no-runoff', 'no-runoff', 'round-open', 'ok', 'no-runoff', 'ok']),
+    expected: rows(['no-runoff', 'no-runoff', 'no-runoff', 'no-runoff', 'no-runoff', 'round-open', 'ok', 'no-runoff', 'ok']),
+  },
+  {
+    name: 'canShowTestResult',
+    check: canShowTestResult,
+    expected: rows(['round-planned', 'round-planned', 'ok', 'round-open', 'round-closed', 'round-closed', 'round-closed', 'election-final', 'election-final']),
+  },
+  {
+    name: 'canOpenRegular',
+    check: canOpenRegular,
+    expected: rows(['not-prepared', 'ok', 'ok', 'voting-started', 'voting-started', 'voting-started', 'voting-started', 'election-final', 'election-final']),
+  },
+  {
+    name: 'canDelete',
+    check: canDelete,
+    expected: rows(['ok', 'ok', 'round-testing', 'voting-started', 'voting-started', 'voting-started', 'voting-started', 'election-final', 'election-final']),
   },
   {
     name: 'canActivateRunoff',
     check: canActivateRunoff,
-    expected: rows(['round-planned', 'round-planned', 'round-open', 'ok', 'runoff-activated', 'runoff-activated', 'election-final', 'election-final']),
+    expected: rows(['round-planned', 'round-planned', 'round-planned', 'round-open', 'ok', 'runoff-activated', 'runoff-activated', 'election-final', 'election-final']),
   },
   {
     name: 'canEnterLot',
     check: canEnterLot,
-    expected: rows(['round-planned', 'round-planned', 'round-open', 'ok', 'round-open', 'ok', 'election-final', 'election-final']),
+    expected: rows(['round-planned', 'round-planned', 'round-planned', 'round-open', 'ok', 'round-open', 'ok', 'election-final', 'election-final']),
   },
   {
     name: 'canFinalize',
     check: canFinalize,
-    expected: rows(['round-planned', 'round-planned', 'round-open', 'ok', 'round-open', 'ok', 'election-final', 'election-final']),
+    expected: rows(['round-planned', 'round-planned', 'round-planned', 'round-open', 'ok', 'round-open', 'ok', 'election-final', 'election-final']),
   },
 ]
 
@@ -150,7 +181,7 @@ test('every action in every state is either the expected transition or a typed r
   }
 })
 
-test('exactly the eight listed states are consistent, and every function refuses any other combination', () => {
+test('exactly the nine listed states are consistent, and every function refuses any other combination', () => {
   const consistent: Lifecycle[] = []
   for (const election of ELECTION_STATES) {
     for (const regular of ROUND_STATES) {
@@ -171,7 +202,7 @@ test('exactly the eight listed states are consistent, and every function refuses
   assert.deepEqual(NEW_ELECTION, STATES.draft)
 })
 
-test('every state is reachable from a new election; the only way back is unprepare, and a closed round never reopens', () => {
+test('every state is reachable from a new election; the only ways back are unprepare and ending a test, and a closed round never reopens', () => {
   const reached = new Set<StateName>(['draft'])
   const queue: StateName[] = ['draft']
   for (let name = queue.shift(); name !== undefined; name = queue.shift()) {
@@ -182,7 +213,7 @@ test('every state is reachable from a new election; the only way back is unprepa
       const next = nameOf(result.next)
       assert.ok(next)
       const after = result.next
-      if (action !== 'unprepare') assert.ok(rank(after) > rank(before), `${action} from ${name} goes back`)
+      if (action !== 'unprepare' && action !== 'end-test') assert.ok(rank(after) > rank(before), `${action} from ${name} goes back`)
       if (before.regular === 'closed') assert.equal(after.regular, 'closed')
       if (before.runoff === 'closed') assert.equal(after.runoff, 'closed')
       if (!reached.has(next)) {
@@ -196,7 +227,7 @@ test('every state is reachable from a new election; the only way back is unprepa
 
 // How far an election has come: each forward action increases it.
 function rank({ election, regular, runoff }: Lifecycle): number {
-  return ELECTION_STATES.indexOf(election) * 9 + ROUND_STATES.indexOf(regular) * 3 + [null, 'open', 'closed'].indexOf(runoff)
+  return ELECTION_STATES.indexOf(election) * 12 + ROUND_STATES.indexOf(regular) * 3 + [null, 'open', 'closed'].indexOf(runoff)
 }
 
 const allowed = (verdict: Verdict): Allowed => verdict.ok ? 'ok' : verdict.refusal
@@ -273,6 +304,26 @@ test('candidates can be corrected until the first round opens, the structure onl
   // Unprepare reopens the structure only before any round has opened.
   assert.deepEqual(transition(STATES.prepared, 'unprepare'), { ok: true, next: STATES.draft })
   assert.deepEqual(transition(STATES.regularOpen, 'unprepare'), { ok: false, refusal: 'voting-started' })
+})
+
+test('a test runs on a prepared election: it accepts ballots but is ended, not closed, and freezes candidates, its keys, unpreparing and opening until then', () => {
+  assert.deepEqual(transition(STATES.prepared, 'start-test'), { ok: true, next: STATES.testing })
+  assert.deepEqual(transition(STATES.testing, 'end-test'), { ok: true, next: STATES.prepared })
+  assert.deepEqual(canCastBallot(STATES.testing, 'regular'), { ok: true })
+  assert.deepEqual(canShowTestResult(STATES.testing), { ok: true })
+  assert.deepEqual(canShowResults(STATES.testing, 'regular'), { ok: false, refusal: 'round-testing' })
+  for (const action of ['unprepare', 'open-regular', 'close-regular', 'start-test'] as const) {
+    assert.deepEqual(transition(STATES.testing, action), { ok: false, refusal: 'round-testing' }, action)
+  }
+  // Opening from a test is allowed as a step that ends the test first.
+  assert.deepEqual(canOpenRegular(STATES.testing), { ok: true })
+  assert.deepEqual(canEditCandidates(STATES.testing), { ok: false, refusal: 'round-testing' })
+  assert.deepEqual(canIssueBatch(STATES.testing, 'regular'), { ok: false, refusal: 'round-testing' })
+  assert.deepEqual(canIssueBatch(STATES.testing, 'runoff'), { ok: true })
+  assert.deepEqual(canManageMembers(STATES.testing), { ok: true })
+  assert.deepEqual(canDelete(STATES.testing), { ok: false, refusal: 'round-testing' })
+  assert.deepEqual(transition(STATES.prepared, 'end-test'), { ok: false, refusal: 'round-planned' })
+  assert.deepEqual(transition(STATES.regularOpen, 'start-test'), { ok: false, refusal: 'voting-started' })
 })
 
 test('transition never changes its input', () => {

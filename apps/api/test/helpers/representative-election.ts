@@ -27,6 +27,8 @@ export const CONTEST_OF: Contest = { id: CONTEST, rulesetId: 'at-representative-
 export interface Setup {
   db: Database
   ownerUrl: string
+  /** A second connection as the runtime role, for a statement that must run beside the pool's. */
+  runtimeUrl: string
   credentialIds: string[]
 }
 
@@ -50,7 +52,7 @@ export async function setup(t: TestContext, keys = 3): Promise<Setup> {
   const { rows } = await withClient(testDb.ownerUrl, (client) => client.query<{ id: string }>('select id from credential order by key'))
   const db = createDatabase(testDb.runtimeUrl, () => {})
   t.after(() => db.close())
-  return { db, ownerUrl: testDb.ownerUrl, credentialIds: rows.map((row) => row.id) }
+  return { db, ownerUrl: testDb.ownerUrl, runtimeUrl: testDb.runtimeUrl, credentialIds: rows.map((row) => row.id) }
 }
 
 /** Opens the round as the owner, by the direct updates the API makes: for tests of what follows opening. */

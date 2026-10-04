@@ -20,6 +20,7 @@ const MATRIX: Record<ElectionAction, Record<ElectionRole, boolean>> = {
   'enter-lot': { owner: true, admin: true, witness: false },
   'manage-members': { owner: true, admin: false, witness: false },
   'finalize': { owner: true, admin: false, witness: false },
+  'delete-election': { owner: true, admin: false, witness: false },
 }
 
 test('every role and action is permitted exactly as the matrix says', () => {
@@ -34,6 +35,7 @@ test('every role and action is permitted exactly as the matrix says', () => {
 })
 
 const ELECTION_ROUTES = [
+  'DELETE /api/elections/:id',
   'DELETE /api/elections/:id/candidates/:candidateId',
   'DELETE /api/elections/:id/candidates/:candidateId/picture',
   'DELETE /api/elections/:id/contests/:contestId',
@@ -49,6 +51,7 @@ const ELECTION_ROUTES = [
   'GET /api/elections/:id/members',
   'GET /api/elections/:id/preparation',
   'GET /api/elections/:id/rounds/regular/result',
+  'GET /api/elections/:id/rounds/regular/test-result',
   'GET /api/elections/:id/rounds/regular/turnout',
   'HEAD /api/elections',
   'HEAD /api/elections/:id',
@@ -60,6 +63,7 @@ const ELECTION_ROUTES = [
   'HEAD /api/elections/:id/members',
   'HEAD /api/elections/:id/preparation',
   'HEAD /api/elections/:id/rounds/regular/result',
+  'HEAD /api/elections/:id/rounds/regular/test-result',
   'HEAD /api/elections/:id/rounds/regular/turnout',
   'PATCH /api/elections/:id',
   'PATCH /api/elections/:id/candidates/:candidateId',
@@ -74,6 +78,8 @@ const ELECTION_ROUTES = [
   'POST /api/elections/:id/prepare',
   'POST /api/elections/:id/rounds/regular/close',
   'POST /api/elections/:id/rounds/regular/open',
+  'POST /api/elections/:id/rounds/regular/test',
+  'POST /api/elections/:id/rounds/regular/test/end',
   'POST /api/elections/:id/unprepare',
   'POST /api/elections/:id/voter-groups',
   'PUT /api/elections/:id/candidates/:candidateId/picture',

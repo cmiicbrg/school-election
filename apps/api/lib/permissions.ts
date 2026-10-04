@@ -27,11 +27,12 @@ export const ELECTION_ACTIONS = [
   'enter-lot', // record the outcome of a lot the officials drew
   'manage-members', // invite and remove co-admins and witnesses
   'finalize',
+  'delete-election', // remove an election nobody used
 ] as const
 export type ElectionAction = typeof ELECTION_ACTIONS[number]
 
 const READ_ONLY: ReadonlySet<ElectionAction> = new Set(['view', 'view-results'])
-const OWNER_ONLY: ReadonlySet<ElectionAction> = new Set(['manage-members', 'finalize'])
+const OWNER_ONLY: ReadonlySet<ElectionAction> = new Set(['manage-members', 'finalize', 'delete-election'])
 
 export function isPermitted(role: ElectionRole, action: ElectionAction): boolean {
   switch (role) {

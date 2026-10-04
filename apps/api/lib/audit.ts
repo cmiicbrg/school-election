@@ -61,6 +61,10 @@ export const AUDIT_ACTIONS = {
   'credential-batch.replaced': { batch: 'uuid', replacement: 'uuid', group: 'uuid', round: ROUND_KINDS, keys: 'count' },
   // Voided by preparing again, because the group's contests had changed.
   'credential-batch.voided': { batch: 'uuid', group: 'uuid', keys: 'count' },
+  // A test of the prepared election started and ended: how many ballots
+  // the test staged and how many keys voted in it, all undone at the end.
+  'test.started': { round: ROUND_KINDS },
+  'test.ended': { round: ROUND_KINDS, ballots: 'count', keys: 'count' },
   // A round opened: voting starts.
   'round.opened': { round: ROUND_KINDS },
   // A round closed and sealed, with how many ballots it holds: the one

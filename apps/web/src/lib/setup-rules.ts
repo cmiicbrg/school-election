@@ -18,7 +18,7 @@ import {
 } from '@school-election/election-core'
 import type { Role } from './labels.ts'
 
-export type Permission = 'view' | 'view-results' | 'configure' | 'prepare' | 'issue-keys' | 'run-rounds' | 'enter-lot' | 'manage-members' | 'finalize'
+export type Permission = 'view' | 'view-results' | 'configure' | 'prepare' | 'issue-keys' | 'run-rounds' | 'enter-lot' | 'manage-members' | 'finalize' | 'delete-election'
 
 export interface SetupRules {
   /** Contests, voter groups and their mapping, each contest's ruleset. */

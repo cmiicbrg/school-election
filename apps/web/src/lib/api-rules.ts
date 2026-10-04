@@ -53,6 +53,7 @@ export const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   round_planned: 'Die Runde hat noch nicht begonnen.',
   round_open: 'Die Runde läuft noch.',
   round_closed: 'Die Runde ist bereits geschlossen.',
+  round_testing: 'Die Wahl ist im Testmodus; bitte zuerst den Test beenden.',
   no_runoff: 'Es gibt keine Stichwahl.',
   runoff_activated: 'Die Stichwahl läuft bereits.',
   not_ready: 'Die Wahl kann noch nicht vorbereitet werden.',
