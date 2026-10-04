@@ -67,9 +67,9 @@ const allDone = computed(() => props.election.remaining === 0)
         </button>
       </li>
     </ul>
-    <p role="status">
+    <output class="status">
       {{ remainingText(election.remaining) }}
-    </p>
+    </output>
     <div class="actions">
       <button
         type="button"
@@ -84,6 +84,11 @@ const allDone = computed(() => props.election.remaining === 0)
 </template>
 
 <style scoped>
+.status {
+  display: block;
+  margin: 0 0 10px;
+}
+
 .contests > li {
   display: flex;
   flex-wrap: wrap;

@@ -66,20 +66,18 @@ const lines = computed(() => {
         <span :class="{ empty: !line.name }">{{ line.name ?? 'leer' }}</span>
       </li>
     </ul>
-    <p
+    <output
       v-if="verdict.kind === 'valid'"
       class="message ok"
-      role="status"
     >
       Gültige Stimme.
-    </p>
-    <p
+    </output>
+    <output
       v-else-if="verdict.kind === 'invalid'"
       class="message warning"
-      role="status"
     >
       Ungültige Stimme: {{ emptyRowsText(verdict.empty, verdict.of) }}. Eine ungültige Stimme zählt für niemanden.
-    </p>
+    </output>
     <p
       v-if="message"
       class="message error"

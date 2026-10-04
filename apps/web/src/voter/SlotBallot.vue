@@ -158,13 +158,12 @@ function review(): void {
           </option>
         </select>
       </div>
-      <p
+      <output
         v-if="morePeopleThanRows"
-        class="muted"
-        role="status"
+        class="status muted"
       >
         Ohne Punkte: {{ unranked }}
-      </p>
+      </output>
     </div>
     <div class="actions">
       <button
@@ -186,6 +185,11 @@ function review(): void {
 </template>
 
 <style scoped>
+.status {
+  display: block;
+  margin: 0 0 10px;
+}
+
 .candidates > li {
   display: grid;
   grid-template-columns: auto 1fr;

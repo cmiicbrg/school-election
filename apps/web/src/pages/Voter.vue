@@ -8,18 +8,20 @@
 // reload resume the session. The client of its own (voter/voter-api.ts)
 // sends nobody to the sign-in page: a voter's 401 is back to the code.
 //
-// Every request of the session runs through one lane, one after another,
-// and belongs to the session it started in: another card scanned into
-// this tab starts a new one, and an answer of an older session changes
-// nothing on the page. So an answer that ends a session (the last
-// ballot's, "Beenden"'s) is in before the next card is redeemed, and the
-// cookie set last is the last card's.
+// Every request of the session runs through one lane (voter/lane.ts),
+// one after another, and belongs to the session it started in: another
+// card scanned into this tab starts a new one, as does leaving the page,
+// and an answer of an older session changes nothing on the page. So an
+// answer that ends a session (the last ballot's, "Beenden"'s) is in
+// before the next card is redeemed, and the cookie set last is the last
+// card's. The lane is the tab's, not this mounting's.
 
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { toSend } from '../voter/ballot-state.ts'
 import { pendingKey } from '../voter/bootstrap.ts'
 import ContestList from '../voter/ContestList.vue'
+import { currentSession, inLane, keyQueued, nextSession, queueKey, stale, takeQueuedKey } from '../voter/lane.ts'
 import KeyEntry from '../voter/KeyEntry.vue'
 import ReviewStep from '../voter/ReviewStep.vue'
 import SlotBallot from '../voter/SlotBallot.vue'
@@ -74,20 +76,6 @@ function flag(on: boolean): void {
   }
 }
 
-// The lane, and the session each request belongs to.
-let lane: Promise<void> = Promise.resolve()
-let session = 0
-/** The key of the latest card scanned while the lane was busy; only it is redeemed. */
-let queued: string | undefined
-
-/** Runs `fn` after everything before it in the lane; `fn` answers for its own errors. */
-function inLane(fn: () => Promise<void>): void {
-  lane = lane.then(fn, fn)
-}
-
-/** Whether a request that started in session `mine` still speaks for the page. */
-const stale = (mine: number): boolean => mine !== session
-
 onMounted(() => {
   window.addEventListener('hashchange', onHashChange)
   const key = pendingKey()
@@ -96,8 +84,11 @@ onMounted(() => {
   else go({ kind: 'code' })
 })
 
+// Leaving the page ends its session's say: an answer still on its way
+// changes nothing, and a page mounted again starts after it in the lane.
 onBeforeUnmount(() => {
   window.removeEventListener('hashchange', onHashChange)
+  nextSession()
 })
 
 /**
@@ -112,7 +103,7 @@ function onHashChange(): void {
   const key = pendingKey()
   if (key === undefined) return
   void router.replace('/v')
-  session += 1
+  nextSession()
   election.value = null
   flag(false)
   go({ kind: 'loading' })
@@ -121,12 +112,10 @@ function onHashChange(): void {
 
 /** A code to redeem, from the fragment or typed: the latest one waiting is redeemed when the lane is free. */
 function enqueue(key: string): void {
-  queued = key
+  queueKey(key)
   inLane(async () => {
-    const next = queued
-    if (next === undefined) return
-    queued = undefined
-    await redeemKey(next)
+    const next = takeQueuedKey()
+    if (next !== undefined) await redeemKey(next)
   })
 }
 
@@ -137,16 +126,16 @@ async function redeemKey(key: string): Promise<void> {
     go({ kind: 'code' }, hint)
     return
   }
-  const mine = session
+  const mine = currentSession()
   message.value = null
   busy.value = true
   try {
     const known = await redeem(key)
-    if (stale(mine) || queued !== undefined) return
+    if (stale(mine) || keyQueued()) return
     flag(true)
     arrived(known)
   } catch (err) {
-    if (stale(mine) || queued !== undefined) return
+    if (stale(mine) || keyQueued()) return
     go({ kind: 'code' }, messageFor(err))
   } finally {
     busy.value = false
@@ -154,7 +143,7 @@ async function redeemKey(key: string): Promise<void> {
 }
 
 async function resume(): Promise<void> {
-  const mine = session
+  const mine = currentSession()
   try {
     const known = await contests()
     if (stale(mine)) return
@@ -201,7 +190,7 @@ function submit(confirmInvalid: boolean): void {
 }
 
 async function cast(contest: VoterContest, ballot: VoterBallot, confirmInvalid: boolean): Promise<void> {
-  const mine = session
+  const mine = currentSession()
   message.value = null
   busy.value = true
   try {
@@ -239,7 +228,7 @@ async function cast(contest: VoterContest, ballot: VoterBallot, confirmInvalid: 
  */
 function end(): void {
   inLane(async () => {
-    const mine = session
+    const mine = currentSession()
     message.value = null
     busy.value = true
     try {
@@ -263,13 +252,12 @@ function end(): void {
     ref="root"
     class="voter"
   >
-    <p
+    <output
       v-if="step.kind === 'loading'"
-      class="muted"
-      role="status"
+      class="status muted"
     >
       Einen Moment …
-    </p>
+    </output>
     <KeyEntry
       v-else-if="step.kind === 'code'"
       :message="message"
@@ -321,6 +309,11 @@ function end(): void {
   max-width: 36rem;
   margin: 0 auto;
   padding: 16px;
+}
+
+.status {
+  display: block;
+  margin: 0 0 10px;
 }
 
 .voter :deep(h1:focus) {
