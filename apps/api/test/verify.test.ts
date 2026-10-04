@@ -62,11 +62,14 @@ test('a genuine export passes every check, and the report names them', DB, async
   for (const expected of [
     'format', 'ballots: regular round, Schulsprecher/in', 'digest: regular round, Schulsprecher/in', 'result: regular round, Schulsprecher/in', 'outcome at close: regular round, Schulsprecher/in',
     'ballots: runoff round, Schulsprecher/in', 'digest: runoff round, Schulsprecher/in', 'result: runoff round, Schulsprecher/in', 'outcome at close: runoff round, Schulsprecher/in',
-    'outcome: Schulsprecher/in', 'audit chain', 'no key',
+    'outcome: Schulsprecher/in', 'outcomes: one per contest', 'audit chain', 'audit chain as exported',
+    'event for the close of the regular round', 'event for the close of the runoff round', 'event for the activation of the runoff',
+    'event for the result: regular round, Schulsprecher/in', 'event for the result: runoff round, Schulsprecher/in', 'no key',
   ]) {
     assert.ok(names.includes(expected), `${expected} among ${names.join('; ')}`)
   }
   assert.equal(names.filter((name) => name.startsWith('lot ')).length, 2, 'both lots against their events')
+  assert.equal(names.filter((name) => /^event \d+ lot\.recorded/.test(name)).length, 2, 'both events against their lots')
   assert.ok(names.some((name) => /result\.computed: Schulsprecher/.test(name)))
   assert.ok(names.some((name) => /round\.closed: runoff/.test(name)))
   assert.ok(names.some((name) => /runoff\.pair: Schulsprecher/.test(name)))
@@ -114,9 +117,42 @@ test('each tampering fails the check it breaks, with what differs', DB, async (t
   version.version = 2
   const formatReport = verifyExport(version)
   assert.deepEqual(formatReport.checks.map((check) => [check.name, check.ok]), [['format', false]])
+  assert.match(formatReport.checks[0]?.detail ?? '', /version 2/)
 
   assert.equal(verifyExport('not an object').ok, false)
   assert.equal(verifyExport(null).ok, false)
+
+  // The audit history stripped: the chain of nothing is no chain, and the events the rounds imply are missing.
+  const stripped = clone(document)
+  stripped.audit.events = []
+  const strippedReport = verifyExport(stripped)
+  assert.ok(failed(strippedReport).includes('audit chain'))
+  assert.ok(failed(strippedReport).includes('audit chain as exported'))
+  assert.ok(failed(strippedReport).includes('event for the close of the regular round'))
+  assert.ok(failed(strippedReport).includes('event for the activation of the runoff'))
+  assert.ok(failed(strippedReport).some((name) => name.startsWith('event for the result: regular round')))
+  assert.ok(failed(strippedReport).some((name) => name.startsWith('lot ')), 'the lots have no events any more')
+
+  // The outcomes left out: every contest needs its outcome.
+  const noOutcomes = clone(document)
+  noOutcomes.outcomes = []
+  assert.ok(failed(verifyExport(noOutcomes)).includes('outcomes: one per contest'))
+
+  // A lot's reason changed, and a lot left out while its event stays: both are caught, in both directions.
+  const reason = clone(document)
+  reason.lots[0]!.reason = 'Ein anderer Grund'
+  assert.ok(failed(verifyExport(reason)).some((name) => name.startsWith(`lot ${reason.lots[0]?.lotId}`)))
+  const suppressed = clone(document)
+  suppressed.lots = suppressed.lots.slice(1)
+  assert.ok(failed(verifyExport(suppressed)).some((name) => /^event \d+ lot\.recorded/.test(name)))
+
+  // A damaged section is a named failure, never a crash.
+  const damaged = clone(document) as unknown as { rounds: unknown[] }
+  damaged.rounds = [{ kind: 'regular', state: 'closed', boxes: [null] }]
+  const damagedReport = verifyExport(damaged)
+  assert.equal(damagedReport.ok, false)
+  assert.deepEqual(damagedReport.checks.map((check) => [check.name, check.ok]), [['format', false]])
+  assert.match(damagedReport.checks[0]?.detail ?? '', /the rounds section/)
 })
 
 test('the script verifies a file from a checkout, with no database and no server, and exits 1 on a tampered one', DB, async (t) => {

@@ -26,17 +26,26 @@ export interface Report {
   checks: Check[]
 }
 
-/** Checks `input`, a parsed export, and reports every check by name; `ok` when all passed. */
+/** Checks `input`, a parsed export, and reports every check by name; `ok` when all passed. A damaged file is a failed check, never a crash. */
 export function verifyExport(input: unknown): Report {
   const checks: Check[] = []
   const check = (name: string, ok: boolean, detail: string): void => {
     checks.push({ name, ok, detail })
   }
-  const document = asDocument(input)
-  if (!document) {
-    check('format', false, `not a ${EXPORT_FORMAT} document of version ${EXPORT_VERSION}, or a section is missing`)
+  const shape = asDocument(input)
+  if (!shape.ok) {
+    check('format', false, shape.problem)
     return { ok: false, checks }
   }
+  try {
+    runChecks(shape.document, check)
+  } catch (err) {
+    check('document', false, `the file is damaged: ${err instanceof Error ? err.message : String(err)}`)
+  }
+  return { ok: checks.every((entry) => entry.ok), checks }
+}
+
+function runChecks(document: ExportDocument, check: (name: string, ok: boolean, detail: string) => void): void {
   check('format', true, `${EXPORT_FORMAT} version ${EXPORT_VERSION}, election ${document.election.title}, exported ${document.exportedAt}`)
 
   const contests = new Map(document.contests.map((contest) => [contest.id, contest]))
@@ -89,7 +98,10 @@ export function verifyExport(input: unknown): Report {
     }
   }
 
-  // Every outcome as it stands: the stored results and every recorded lot.
+  // Every contest has its outcome as it stands, once; each is the stored results and every recorded lot resolved.
+  const outcomeContests = document.outcomes.map((entry) => entry.contestId)
+  const complete = document.contests.every((contest) => outcomeContests.filter((id) => id === contest.id).length === 1) && outcomeContests.length === document.contests.length
+  check('outcomes: one per contest', complete, complete ? `${document.contests.length} contests, ${document.outcomes.length} outcomes` : `${document.contests.length} contests, but outcomes for ${outcomeContests.map(titleOf).join(', ') || 'none'}`)
   for (const entry of document.outcomes) {
     const label = titleOf(entry.contestId)
     const contest = contests.get(entry.contestId)
@@ -104,9 +116,24 @@ export function verifyExport(input: unknown): Report {
     check(`outcome: ${label}`, same, same ? outcome.kind : 'the outcome resolved from the results and the lots differs from the file')
   }
 
-  // The audit chain, and what its events say against the file.
+  // The audit chain: recomputed, as exported, and not empty; then the events the file's rounds and snapshots imply.
   const chain = verifyAuditChain(document.audit.events)
-  check('audit chain', chain.valid, chain.valid ? `${chain.length} events, head ${chain.head ?? 'none'}` : `broken at event ${chain.index}: ${chain.problem}`)
+  check('audit chain', chain.valid && chain.length > 0, chain.valid ? (chain.length > 0 ? `${chain.length} events, head ${chain.head ?? 'none'}` : 'no events: an election has at least its creation') : `broken at event ${chain.index}: ${chain.problem}`)
+  const asExported = canonicalJson(chain) === canonicalJson(document.audit.chain)
+  check('audit chain as exported', asExported, asExported ? 'the recomputed chain is the one the file states' : 'the file states another chain than its events give')
+  for (const round of document.rounds) {
+    if (round.state !== 'closed') continue
+    const closed = document.audit.events.some((event) => event.action === 'round.closed' && event.metadata.round === round.kind)
+    check(`event for the close of the ${round.kind} round`, closed, closed ? 'in the log' : 'no round.closed event in the file')
+    if (round.kind === 'runoff') {
+      const activated = document.audit.events.some((event) => event.action === 'runoff.activated')
+      check('event for the activation of the runoff', activated, activated ? 'in the log' : 'no runoff.activated event in the file')
+    }
+  }
+  for (const snapshot of document.snapshots) {
+    const computed = document.audit.events.some((event) => event.action === 'result.computed' && event.metadata.contest === snapshot.contestId && event.metadata.round === snapshot.round && event.metadata.inputSha256 === snapshot.inputSha256)
+    check(`event for the result: ${snapshot.round} round, ${titleOf(snapshot.contestId)}`, computed, computed ? 'in the log, with the digest' : 'no result.computed event with this digest in the file')
+  }
   for (const event of document.audit.events) {
     if (event.action === 'result.computed') {
       const snapshot = snapshotOf(field(event.metadata, 'contest'), field(event.metadata, 'round'))
@@ -125,17 +152,21 @@ export function verifyExport(input: unknown): Report {
       check(`event ${event.seq} export.generated`, true, `an earlier export, ${field(event.metadata, 'bytes')} bytes, ${field(event.metadata, 'sha256')}`)
     }
   }
+  // Lots and their events, both ways: every lot has its event with the same set, order and reason, and every event its lot.
   for (const lot of document.lots) {
     const event = document.audit.events.find((entry) => entry.action === 'lot.recorded' && entry.metadata.lotId === lot.lotId && entry.metadata.contest === lot.contestId)
-    const ok = event !== undefined && event.metadata.order === lot.drawn.join(',') && event.metadata.candidates === lot.candidates.join(',')
-    check(`lot ${lot.lotId}: ${titleOf(lot.contestId)}`, ok, ok ? `recorded by ${lot.actorName} at ${lot.recordedAt}, as event ${event.seq} says` : 'no event records this lot with this order')
+    const ok = event !== undefined && event.metadata.order === lot.drawn.join(',') && event.metadata.candidates === lot.candidates.join(',') && event.metadata.reason === lot.reason && event.actor.name === lot.actorName
+    check(`lot ${lot.lotId}: ${titleOf(lot.contestId)}`, ok, ok ? `recorded by ${lot.actorName} at ${lot.recordedAt}, as event ${event.seq} says` : 'no event records this lot with this set, order, reason and actor')
+  }
+  for (const event of document.audit.events.filter((entry) => entry.action === 'lot.recorded')) {
+    const lot = document.lots.find((entry) => entry.lotId === event.metadata.lotId && entry.contestId === event.metadata.contest)
+    const ok = lot !== undefined && lot.drawn.join(',') === event.metadata.order
+    check(`event ${event.seq} lot.recorded: ${titleOf(field(event.metadata, 'contest'))}`, ok, ok ? 'the lot it records is in the file' : 'the lot it records is not in the file, or not with this order')
   }
 
   // Nothing that could be a key.
   const keys = strings(document).filter((value) => /^[0-9a-z]{20}$/i.test(value) && parseKey(value).ok)
   check('no key', keys.length === 0, keys.length === 0 ? 'no string of the file is a well-formed key' : `${keys.length} strings of the file are well-formed keys`)
-
-  return { ok: checks.every((entry) => entry.ok), checks }
 }
 
 /** A metadata field as text: the log holds strings and numbers there, nothing else. */
@@ -174,18 +205,36 @@ function outcomeOf(rulesetId: RulesetId, first: FirstRoundResult | RunoffResult 
   }
 }
 
-/** Whether `input` has the shape the checks read; the checks themselves find what is wrong inside. */
-function asDocument(input: unknown): ExportDocument | undefined {
-  if (typeof input !== 'object' || input === null) return undefined
-  const value = input as Record<string, unknown>
-  if (value.format !== EXPORT_FORMAT || value.version !== EXPORT_VERSION) return undefined
-  const object = (key: string) => typeof value[key] === 'object' && value[key] !== null
-  const list = (key: string) => Array.isArray(value[key])
-  if (!object('election') || !object('app') || !object('audit') || typeof value.exportedAt !== 'string') return undefined
-  if (!['contests', 'voterGroups', 'batches', 'rounds', 'snapshots', 'lots', 'outcomes'].every(list)) return undefined
-  const audit = value.audit as Record<string, unknown>
-  if (!Array.isArray(audit.events)) return undefined
-  return value as unknown as ExportDocument
+type Shape = { ok: true, document: ExportDocument } | { ok: false, problem: string }
+
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
+const isList = (value: unknown, item: (entry: unknown) => boolean): boolean => Array.isArray(value) && value.every(item)
+const isText = (value: unknown): boolean => typeof value === 'string'
+const isTextList = (value: unknown): boolean => isList(value, isText)
+
+/**
+ * Whether `input` has the shape the checks read, section by section, so a
+ * damaged file is a named failure and never a crash; what is wrong inside
+ * a well-shaped file, the checks find.
+ */
+function asDocument(input: unknown): Shape {
+  const problem = (what: string): Shape => ({ ok: false, problem: `not a ${EXPORT_FORMAT} document of version ${EXPORT_VERSION}: ${what}` })
+  if (!isObject(input)) return problem('not an object')
+  if (input.format !== EXPORT_FORMAT || input.version !== EXPORT_VERSION) return problem(`format ${String(input.format)}, version ${String(input.version)}`)
+  if (!isText(input.exportedAt) || !isObject(input.app) || !isObject(input.election) || !isText(input.election.title) || !isObject(input.election.lifecycle)) return problem('the election or the app section')
+  if (!isList(input.contests, (contest) => isObject(contest) && isText(contest.id) && isText(contest.title) && isText(contest.rulesetId)
+    && isList(contest.candidates, (candidate) => isObject(candidate) && isText(candidate.id)))) return problem('the contests section')
+  if (!isList(input.voterGroups, (group) => isObject(group) && isText(group.id) && isTextList(group.contestIds))) return problem('the voter groups section')
+  if (!isList(input.batches, (batch) => isObject(batch) && isText(batch.id) && typeof batch.keys === 'number')) return problem('the batches section')
+  if (!isList(input.rounds, (round) => isObject(round) && isText(round.kind) && isText(round.state)
+    && isList(round.boxes, (box) => isObject(box) && isText(box.id) && isText(box.contestId) && (box.runoffPair === null || isTextList(box.runoffPair))
+      && isObject(box.entitlements) && typeof box.entitlements.issued === 'number' && typeof box.entitlements.used === 'number'
+      && isList(box.ballots, (ballot) => isObject(ballot) && isText(ballot.kind) && isTextList(ballot.ranking))))) return problem('the rounds section')
+  if (!isList(input.snapshots, (snapshot) => isObject(snapshot) && isText(snapshot.contestId) && isText(snapshot.round) && isText(snapshot.inputSha256) && 'result' in snapshot && 'outcome' in snapshot)) return problem('the snapshots section')
+  if (!isList(input.lots, (lot) => isObject(lot) && isText(lot.contestId) && isText(lot.lotId) && isTextList(lot.candidates) && isTextList(lot.drawn) && isText(lot.reason) && isText(lot.actorName) && isText(lot.recordedAt))) return problem('the lots section')
+  if (!isList(input.outcomes, (entry) => isObject(entry) && isText(entry.contestId) && isObject(entry.outcome) && isText(entry.outcome.kind))) return problem('the outcomes section')
+  if (!isObject(input.audit) || !isObject(input.audit.chain) || !isList(input.audit.events, (event) => isObject(event) && isText(event.action) && isObject(event.metadata) && isObject(event.actor) && isText(event.at))) return problem('the audit section')
+  return { ok: true, document: input as unknown as ExportDocument }
 }
 
 /** Every string anywhere in a JSON value. */
