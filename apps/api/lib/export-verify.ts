@@ -12,7 +12,7 @@ import { firstRoundResult, parseKey, pollOutcome, resolve, runoffResult, type Co
 import { verifyAuditChain } from './audit-chain.ts'
 import { canonicalJson } from './canonical-json.ts'
 import { EXPORT_FORMAT, EXPORT_VERSION, type ExportDocument, type ExportedBox, type ExportedSnapshot } from './export-format.ts'
-import { ballotsOf, inputDigest, TallyError } from './tally-digest.ts'
+import { ballotsOf, inputDigest, sortedByContent, TallyError } from './tally-digest.ts'
 
 export interface Check {
   name: string
@@ -68,6 +68,12 @@ function runChecks(document: ExportDocument, check: (name: string, ok: boolean, 
         check(`ballots: ${label}`, false, 'the box belongs to no contest of the file')
         continue
       }
+      // The rows as the file has them, before election-core rebuilds them: a "Nein" and an invalid vote name nobody,
+      // and the rows lie in content order, as the export writes them, so the file carries no order of its own.
+      const bare = box.ballots.every((ballot) => ballot.kind === 'ranking' || ballot.ranking.length === 0)
+      check(`rows: ${label}`, bare, bare ? `${box.ballots.length} rows, "Nein" and invalid votes naming nobody` : 'a "Nein" or an invalid vote names a candidate')
+      const inOrder = canonicalJson(box.ballots) === canonicalJson(sortedByContent(contest, box.ballots))
+      check(`order: ${label}`, inOrder, inOrder ? 'in content order' : 'the rows are not in content order')
       let ballots
       try {
         ballots = ballotsOf(contest, box.ballots)
@@ -75,7 +81,8 @@ function runChecks(document: ExportDocument, check: (name: string, ok: boolean, 
         check(`ballots: ${label}`, false, err instanceof TallyError ? err.message : String(err))
         continue
       }
-      check(`ballots: ${label}`, ballots.length === box.entitlements.used, `${ballots.length} ballots, ${box.entitlements.used} entitlements used`)
+      const counts = ballots.length === box.entitlements.used && box.entitlements.used <= box.entitlements.issued && box.entitlements.used >= 0
+      check(`ballots: ${label}`, counts, `${ballots.length} ballots, ${box.entitlements.used} of ${box.entitlements.issued} entitlements used`)
       const snapshot = snapshotOf(box.contestId, round.kind)
       if (!snapshot) {
         check(`snapshot: ${label}`, false, 'no snapshot in the file')
@@ -116,7 +123,9 @@ function runChecks(document: ExportDocument, check: (name: string, ok: boolean, 
     check(`outcome: ${label}`, same, same ? outcome.kind : 'the outcome resolved from the results and the lots differs from the file')
   }
 
-  // The audit chain: recomputed, as exported, and not empty; then the events the file's rounds and snapshots imply.
+  // The audit chain: of this election, recomputed, as exported, and not empty; then the events the file's rounds and snapshots imply.
+  const ofThisElection = document.audit.events.length > 0 && document.audit.events.every((event) => event.electionId === document.election.id)
+  check('audit chain of this election', ofThisElection, ofThisElection ? `every event names election ${document.election.id}` : 'the events name another election than the file')
   const chain = verifyAuditChain(document.audit.events)
   check('audit chain', chain.valid && chain.length > 0, chain.valid ? (chain.length > 0 ? `${chain.length} events, head ${chain.head ?? 'none'}` : 'no events: an election has at least its creation') : `broken at event ${chain.index}: ${chain.problem}`)
   const asExported = canonicalJson(chain) === canonicalJson(document.audit.chain)

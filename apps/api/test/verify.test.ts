@@ -62,7 +62,8 @@ test('a genuine export passes every check, and the report names them', DB, async
   for (const expected of [
     'format', 'ballots: regular round, Schulsprecher/in', 'digest: regular round, Schulsprecher/in', 'result: regular round, Schulsprecher/in', 'outcome at close: regular round, Schulsprecher/in',
     'ballots: runoff round, Schulsprecher/in', 'digest: runoff round, Schulsprecher/in', 'result: runoff round, Schulsprecher/in', 'outcome at close: runoff round, Schulsprecher/in',
-    'outcome: Schulsprecher/in', 'outcomes: one per contest', 'audit chain', 'audit chain as exported',
+    'rows: regular round, Schulsprecher/in', 'order: regular round, Schulsprecher/in',
+    'outcome: Schulsprecher/in', 'outcomes: one per contest', 'audit chain of this election', 'audit chain', 'audit chain as exported',
     'event for the close of the regular round', 'event for the close of the runoff round', 'event for the activation of the runoff',
     'event for the result: regular round, Schulsprecher/in', 'event for the result: runoff round, Schulsprecher/in', 'no key',
   ]) {
@@ -145,6 +146,23 @@ test('each tampering fails the check it breaks, with what differs', DB, async (t
   const suppressed = clone(document)
   suppressed.lots = suppressed.lots.slice(1)
   assert.ok(failed(verifyExport(suppressed)).some((name) => /^event \d+ lot\.recorded/.test(name)))
+
+  // Another election's id on the file; a "Nein" naming someone; the rows out of content order; more used than issued.
+  const other = clone(document)
+  other.election.id = '00000000-0000-4000-8000-000000000000'
+  assert.ok(failed(verifyExport(other)).includes('audit chain of this election'))
+  const named = clone(document)
+  const runoffBox = named.rounds[1]?.boxes[0] ?? assert.fail('the runoff box')
+  runoffBox.ballots[0] = { kind: 'invalid', ranking: [paula] }
+  assert.ok(failed(verifyExport(named)).includes('rows: runoff round, Schulsprecher/in'))
+  const shuffled = clone(document)
+  const rows = shuffled.rounds[0]?.boxes[0]?.ballots ?? assert.fail('the rows')
+  rows.reverse()
+  assert.ok(failed(verifyExport(shuffled)).includes('order: regular round, Schulsprecher/in'))
+  assert.ok(!failed(verifyExport(shuffled)).includes('digest: regular round, Schulsprecher/in'), 'the digest sorts for itself; the order check is the one that sees it')
+  const issued = clone(document)
+  issued.rounds[0]!.boxes[0]!.entitlements.issued = 0
+  assert.ok(failed(verifyExport(issued)).includes('ballots: regular round, Schulsprecher/in'))
 
   // A damaged section is a named failure, never a crash.
   const damaged = clone(document) as unknown as { rounds: unknown[] }
