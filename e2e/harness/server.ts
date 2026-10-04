@@ -29,40 +29,52 @@ if (!process.env.TEST_DATABASE_URL) {
 }
 
 // createTestDatabase registers the drop with a test context; this one
-// collects what to do at the end.
+// collects everything to undo, in the order it was done, so that a start
+// that fails halfway (a busy port, say) undoes what it did and leaves no
+// database behind, and a signal undoes all of it.
 const cleanups: (() => unknown)[] = []
 const context = { after: (fn: () => unknown) => cleanups.push(fn) } as unknown as TestContext
 
-const testDb = await createTestDatabase(context)
-const entra = await startFakeEntra()
-const db = createDatabase(testDb.runtimeUrl, (err) => console.error('database client failed', err))
-const config = loadConfig({
-  ...SERVER_ENV,
-  PUBLIC_ORIGIN: ORIGIN,
-  HOST: '127.0.0.1',
-  PORT: String(PORT),
-  WEB_DIST_DIR: path.join(ROOT, 'apps', 'web', 'dist'),
-})
-const app = await buildApp(config, { db, entraAuthority: entra.authority })
-await app.listen({ host: '127.0.0.1', port: PORT })
-console.log(`e2e server ready at ${ORIGIN} (database ${testDb.name}, sign-in stand-in at ${entra.authority})`)
-
 let stopping = false
-async function stop(): Promise<void> {
-  if (stopping) return
-  stopping = true
-  await app.close()
-  await db.close()
-  await entra.close()
-  for (const cleanup of cleanups.reverse()) await cleanup()
-  process.exit(0)
+async function stop(code: number): Promise<never> {
+  if (!stopping) {
+    stopping = true
+    for (const cleanup of cleanups.reverse()) {
+      try {
+        await cleanup()
+      } catch (err) {
+        console.error('cleanup failed', err)
+        code = 1
+      }
+    }
+  }
+  process.exit(code)
 }
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
-    stop().catch((err: unknown) => {
-      console.error('stopping failed', err)
-      process.exit(1)
-    })
+    void stop(0)
   })
+}
+
+try {
+  const testDb = await createTestDatabase(context)
+  const entra = await startFakeEntra()
+  cleanups.push(() => entra.close())
+  const db = createDatabase(testDb.runtimeUrl, (err) => console.error('database client failed', err))
+  cleanups.push(() => db.close())
+  const config = loadConfig({
+    ...SERVER_ENV,
+    PUBLIC_ORIGIN: ORIGIN,
+    HOST: '127.0.0.1',
+    PORT: String(PORT),
+    WEB_DIST_DIR: path.join(ROOT, 'apps', 'web', 'dist'),
+  })
+  const app = await buildApp(config, { db, entraAuthority: entra.authority })
+  cleanups.push(() => app.close())
+  await app.listen({ host: '127.0.0.1', port: PORT })
+  console.log(`e2e server ready at ${ORIGIN} (database ${testDb.name}, sign-in stand-in at ${entra.authority})`)
+} catch (err) {
+  console.error('e2e server failed to start', err)
+  await stop(1)
 }
