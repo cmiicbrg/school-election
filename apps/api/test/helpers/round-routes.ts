@@ -9,6 +9,7 @@ import type { TestContext } from 'node:test'
 import type { LightMyRequestResponse } from 'fastify'
 import { validateBallot, type CastBallot, type Contest, type Lifecycle, type RulesetId } from '@school-election/election-core'
 import { castBallot, type CastResult } from '../../lib/ballot-box.ts'
+import { inOrder } from '../../lib/in-order.ts'
 import { withClient } from './db.ts'
 import { ANNA, CARLA, createElection, electionApp, signIn, WANDA, type Browser, type ElectionApp } from './elections.ts'
 
@@ -51,18 +52,18 @@ export async function preparedElection(t: TestContext, shape: ElectionShape): Pr
   const id = await createElection(anna)
   const base = `/api/elections/${id}`
   const created = ok<{ id: string }>(await anna.request('POST', `${base}/contests`, { title: shape.title, rulesetId: shape.rulesetId }), 201)
-  for (const [surname, givenName] of shape.candidates) {
+  await inOrder(shape.candidates, async ([surname, givenName]) => {
     ok(await anna.request('POST', `${base}/contests/${created.id}/candidates`, { surname, givenName }), 201)
-  }
+  })
   const groupIds: string[] = []
-  for (const name of shape.groups) {
+  await inOrder(shape.groups, async (name) => {
     const group = ok<{ id: string }>(await anna.request('POST', `${base}/voter-groups`, { name }), 201)
     ok(await anna.request('PUT', `${base}/voter-groups/${group.id}/contests`, { contestIds: [created.id] }))
     groupIds.push(group.id)
-  }
-  for (const [person, role] of [[CARLA, 'admin'], [WANDA, 'witness']] as const) {
+  })
+  await inOrder([[CARLA, 'admin'], [WANDA, 'witness']] as const, async ([person, role]) => {
     ok(await anna.request('POST', `${base}/members`, { email: person.email, role }), 201)
-  }
+  })
   const carla = await signIn(s, CARLA)
   const wanda = await signIn(s, WANDA)
   ok(await anna.request('POST', `${base}/prepare`))
