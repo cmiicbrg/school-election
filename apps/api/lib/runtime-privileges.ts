@@ -41,7 +41,8 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   candidate: { table: ['SELECT', 'INSERT', 'DELETE'], updateColumns: ['surname', 'given_name', 'picture', 'picture_sha256'] },
   voter_group: { table: ['SELECT', 'INSERT', 'DELETE'], updateColumns: ['name'] },
   voter_group_contest: { table: ['SELECT', 'INSERT', 'DELETE'] },
-  // Preparing creates the regular round and its ballot boxes. A round's
+  // Preparing creates the regular round and its ballot boxes; the runoff
+  // round and its boxes are activate_runoff's (migration 0013). A round's
   // state moves along round_transition: opening is a direct update, closing
   // is the seal's (migration 0009); its phase is the trigger's (0012). No
   // round is removed.
@@ -66,9 +67,12 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   // The count writes one snapshot per ballot box when the round closes,
   // and members read them; a trigger refuses any change (migration 0010).
   result_snapshot: { table: ['SELECT', 'INSERT'] },
+  // A lot the officials drew is recorded once and read by every member; a
+  // trigger refuses any change (migration 0013).
+  lot_decision: { table: ['SELECT', 'INSERT'] },
 }
 
-/** Functions the runtime role may execute, by their signature. */
+/** Functions the runtime role may execute, by their signature as PostgreSQL prints a regprocedure: argument types without spaces between them. */
 export const RUNTIME_FUNCTIONS: readonly string[] = [
   // The preload settings for the startup check (migration 0006).
   'preload_settings()',
@@ -82,10 +86,12 @@ export const RUNTIME_FUNCTIONS: readonly string[] = [
   'end_test(uuid)',
   'test_ballots(uuid)',
   'delete_election(uuid)',
+  // The runoff round, created open with its boxes and entitlements, once (migration 0013).
+  'activate_runoff(uuid,jsonb)',
 ]
 
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/
-const SIGNATURE = /^[a-z_][a-z0-9_]*\((?:[a-z_][a-z0-9_ ]*(?:, [a-z_][a-z0-9_ ]*)*)?\)$/
+const SIGNATURE = /^[a-z_][a-z0-9_]*\((?:[a-z_][a-z0-9_ ]*(?:,[a-z_][a-z0-9_ ]*)*)?\)$/
 
 /**
  * The GRANT statements for `role`, for the tables and functions that exist.
