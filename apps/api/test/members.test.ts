@@ -36,8 +36,9 @@ test('create, invite, bind and remove: each change is audited in one chain that 
   assert.equal(created.statusCode, 201)
   const election = created.json<{ id: string, title: string, description: string, state: string, role: string, permissions: string[] }>()
   assert.match(election.id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
-  assert.deepEqual({ ...election, id: undefined, permissions: undefined }, {
+  assert.deepEqual({ ...election, id: undefined, permissions: undefined, lifecycle: undefined }, {
     id: undefined,
+    lifecycle: undefined,
     title: 'Schulsprecherwahl 2026/27',
     description: 'Wahl am 5. Oktober\nim Festsaal',
     state: 'draft',
