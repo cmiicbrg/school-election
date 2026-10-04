@@ -4,13 +4,17 @@
 // and stores the next state in the same transaction.
 //
 //   election  draft ⇄ prepared → active → final
-//   round     planned → open → closed
+//   round     planned ⇄ testing, planned → open → closed
 //
 // An election is prepared once its structure is fixed and keys can be
-// issued; unprepare takes it back to draft. Opening its regular round makes
-// it active. A runoff round exists only once it is activated, which opens
-// it, after the regular round has closed. A closed round never reopens, and
-// a final election never changes.
+// issued; unprepare takes it back to draft. A prepared election's regular
+// round can be put into test mode, which accepts ballots as an open round
+// does but can be ended, which takes the round back to planned with
+// nothing kept; while it runs, candidates, its keys, unpreparing and
+// opening wait for the test to end. Opening the regular round makes the
+// election active. A runoff round exists only once it is activated, which
+// opens it, after the regular round has closed. A closed round never
+// reopens, and a final election never changes.
 
 export const ELECTION_STATES = ['draft', 'prepared', 'active', 'final'] as const
 export type ElectionState = typeof ELECTION_STATES[number]
@@ -18,13 +22,13 @@ export type ElectionState = typeof ELECTION_STATES[number]
 export const ROUND_KINDS = ['regular', 'runoff'] as const
 export type RoundKind = typeof ROUND_KINDS[number]
 
-export const ROUND_STATES = ['planned', 'open', 'closed'] as const
+export const ROUND_STATES = ['planned', 'testing', 'open', 'closed'] as const
 export type RoundState = typeof ROUND_STATES[number]
 
 /** An election's state with the states of its rounds. */
 export interface Lifecycle {
   readonly election: ElectionState
-  /** The regular round, planned until it opens. */
+  /** The regular round: planned until it opens, or testing while the prepared election is tried out. */
   readonly regular: RoundState
   /** The runoff round: null until it is activated, which opens it. */
   readonly runoff: 'open' | 'closed' | null
@@ -41,6 +45,8 @@ export const LIFECYCLE_ACTIONS = [
   'activate-runoff',
   'close-runoff',
   'finalize',
+  'start-test',
+  'end-test',
 ] as const
 export type LifecycleAction = typeof LIFECYCLE_ACTIONS[number]
 
@@ -53,6 +59,7 @@ export type LifecycleRefusal
     | 'round-planned' // the round has not opened yet
     | 'round-open' // the round is open
     | 'round-closed' // the round has closed
+    | 'round-testing' // the round is in test mode: end the test first
     | 'no-runoff' // no runoff round has been activated
     | 'runoff-activated' // the runoff round exists already
 
@@ -71,10 +78,10 @@ function refused(refusal: LifecycleRefusal): { readonly ok: false, readonly refu
 }
 
 /**
- * Whether the states can occur together: a draft or prepared election has
- * a planned regular round and no runoff; an active one has opened its
- * regular round and has a runoff only after closing it; a final one has
- * no round open.
+ * Whether the states can occur together: a draft election has a planned
+ * regular round and no runoff, a prepared one a planned or testing regular
+ * round and no runoff; an active one has opened its regular round and has
+ * a runoff only after closing it; a final one has no round open.
  */
 export function isConsistentLifecycle(lifecycle: Lifecycle): boolean {
   const { election, regular, runoff } = lifecycle
@@ -82,8 +89,9 @@ export function isConsistentLifecycle(lifecycle: Lifecycle): boolean {
   if (runoff !== null && runoff !== 'open' && runoff !== 'closed') return false
   switch (election) {
     case 'draft':
-    case 'prepared':
       return regular === 'planned' && runoff === null
+    case 'prepared':
+      return (regular === 'planned' || regular === 'testing') && runoff === null
     case 'active':
       return regular === 'open' ? runoff === null : regular === 'closed'
     case 'final':
@@ -110,11 +118,13 @@ export function canEditStructure(lifecycle: Lifecycle): Verdict {
 
 /**
  * Candidates, and the election's title and description: until the regular
- * round opens, so a misspelled name never forces a return to draft.
+ * round opens, so a misspelled name never forces a return to draft; not
+ * while a test runs, whose ballots name the candidates.
  */
 export function canEditCandidates(lifecycle: Lifecycle): Verdict {
   const { election, regular } = checked(lifecycle)
   if (election === 'final') return refused('election-final')
+  if (regular === 'testing') return refused('round-testing')
   return regular === 'planned' ? ALLOWED : refused('voting-started')
 }
 
@@ -125,15 +135,17 @@ export function canManageMembers(lifecycle: Lifecycle): Verdict {
 
 /**
  * Issuing a batch of keys for a round, or topping one up: once the
- * election is prepared, until that round opens. Runoff keys can be issued
- * in advance, while the regular round is open and after it has closed;
- * they stay unusable until the runoff is activated.
+ * election is prepared, until that round opens, and not while the round
+ * is in test mode, whose votes used some of the keys. Runoff keys can be
+ * issued in advance, while the regular round is open and after it has
+ * closed; they stay unusable until the runoff is activated.
  */
 export function canIssueBatch(lifecycle: Lifecycle, round: RoundKind): Verdict {
   const { election } = checked(lifecycle)
   if (election === 'final') return refused('election-final')
   if (election === 'draft') return refused('not-prepared')
   const state = roundState(lifecycle, round)
+  if (state === 'testing') return refused('round-testing')
   return state === null || state === 'planned' ? ALLOWED : refused('voting-started')
 }
 
@@ -142,28 +154,62 @@ export function canRotateBatch(lifecycle: Lifecycle, round: RoundKind): Verdict 
   return canIssueBatch(lifecycle, round)
 }
 
-/** Casting a ballot: only while the round is open. */
+/** Casting a ballot: while the round is open, or in test mode. */
 export function canCastBallot(lifecycle: Lifecycle, round: RoundKind): Verdict {
   if (checked(lifecycle).election === 'final') return refused('election-final')
   const state = roundState(lifecycle, round)
   if (state === null) return refused('no-runoff')
-  if (state === 'open') return ALLOWED
+  if (state === 'open' || state === 'testing') return ALLOWED
   return refused(state === 'planned' ? 'round-planned' : 'round-closed')
 }
 
-/** A round's result, for every role: only once the round has closed, never while it is open. */
+/** Closing a round, which seals it: only while it is open; a test is ended, not closed. */
+export function canCloseRound(lifecycle: Lifecycle, round: RoundKind): Verdict {
+  if (checked(lifecycle).election === 'final') return refused('election-final')
+  const state = roundState(lifecycle, round)
+  if (state === null) return refused('no-runoff')
+  if (state === 'open') return ALLOWED
+  return refused(state === 'planned' ? 'round-planned' : state === 'testing' ? 'round-testing' : 'round-closed')
+}
+
+/** A round's result, for every role: only once the round has closed, never while it is open or in test mode. */
 export function canShowResults(lifecycle: Lifecycle, round: RoundKind): Verdict {
   const state = roundState(checked(lifecycle), round)
   if (state === null) return refused('no-runoff')
   if (state === 'closed') return ALLOWED
-  return refused(state === 'planned' ? 'round-planned' : 'round-open')
+  return refused(state === 'planned' ? 'round-planned' : state === 'testing' ? 'round-testing' : 'round-open')
+}
+
+/** The test result, counted from the test's ballots: exactly while the regular round is in test mode. */
+export function canShowTestResult(lifecycle: Lifecycle): Verdict {
+  const { election, regular } = checked(lifecycle)
+  if (election === 'final') return refused('election-final')
+  if (regular === 'testing') return ALLOWED
+  return refused(regular === 'planned' ? 'round-planned' : regular === 'open' ? 'round-open' : 'round-closed')
+}
+
+/**
+ * Opening the regular round: once the election is prepared, from a planned
+ * round or from a test, which the opening ends first (the transition
+ * open-regular itself needs a planned round).
+ */
+export function canOpenRegular(lifecycle: Lifecycle): Verdict {
+  return whilePrepared(checked(lifecycle).election)
+}
+
+/** Deleting an election nobody used: a draft, or a prepared one whose round is planned, with no test running. */
+export function canDelete(lifecycle: Lifecycle): Verdict {
+  const { election, regular } = checked(lifecycle)
+  if (election === 'final') return refused('election-final')
+  if (election === 'active') return refused('voting-started')
+  return regular === 'testing' ? refused('round-testing') : ALLOWED
 }
 
 /** Activating the runoff, which opens its round: once, after the regular round has closed. */
 export function canActivateRunoff(lifecycle: Lifecycle): Verdict {
   const { election, regular, runoff } = checked(lifecycle)
   if (election === 'final') return refused('election-final')
-  if (regular !== 'closed') return refused(regular === 'planned' ? 'round-planned' : 'round-open')
+  if (regular !== 'closed') return refused(regular === 'open' ? 'round-open' : 'round-planned')
   return runoff === null ? ALLOWED : refused('runoff-activated')
 }
 
@@ -184,7 +230,7 @@ export function canFinalize(lifecycle: Lifecycle): Verdict {
 function noRoundOpen(lifecycle: Lifecycle): Verdict {
   const { election, regular, runoff } = checked(lifecycle)
   if (election === 'final') return refused('election-final')
-  if (regular === 'planned') return refused('round-planned')
+  if (regular === 'planned' || regular === 'testing') return refused('round-planned')
   return regular === 'open' || runoff === 'open' ? refused('round-open') : ALLOWED
 }
 
@@ -200,11 +246,22 @@ export function transition(lifecycle: Lifecycle, action: LifecycleAction): Trans
       break
     case 'unprepare':
     case 'open-regular':
+    case 'start-test':
       verdict = whilePrepared(election)
-      next = action === 'unprepare' ? { ...lifecycle, election: 'draft' } : { ...lifecycle, election: 'active', regular: 'open' }
+      if (verdict.ok && lifecycle.regular === 'testing') verdict = refused('round-testing')
+      next = action === 'unprepare'
+        ? { ...lifecycle, election: 'draft' }
+        : action === 'open-regular'
+          ? { ...lifecycle, election: 'active', regular: 'open' }
+          : { ...lifecycle, regular: 'testing' }
+      break
+    case 'end-test':
+      verdict = whilePrepared(election)
+      if (verdict.ok && lifecycle.regular !== 'testing') verdict = refused('round-planned')
+      next = { ...lifecycle, regular: 'planned' }
       break
     case 'close-regular':
-      verdict = canCastBallot(lifecycle, 'regular')
+      verdict = canCloseRound(lifecycle, 'regular')
       next = { ...lifecycle, regular: 'closed' }
       break
     case 'activate-runoff':
@@ -212,7 +269,7 @@ export function transition(lifecycle: Lifecycle, action: LifecycleAction): Trans
       next = { ...lifecycle, runoff: 'open' }
       break
     case 'close-runoff':
-      verdict = canCastBallot(lifecycle, 'runoff')
+      verdict = canCloseRound(lifecycle, 'runoff')
       next = { ...lifecycle, runoff: 'closed' }
       break
     case 'finalize':
