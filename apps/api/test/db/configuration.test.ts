@@ -96,7 +96,9 @@ test('the state tables say what the lifecycle in packages/election-core allows',
     const row = electionState.get(lifecycle.election)
     const label = JSON.stringify(lifecycle)
     assert.equal(row?.structure_editable, canEditStructure(lifecycle).ok, label)
-    assert.equal(row?.candidates_editable, canEditCandidates(lifecycle).ok, label)
+    // The flag is the election's; a running test freezes candidates through the round (migration 0011).
+    const candidates = canEditCandidates(lifecycle)
+    if (candidates.ok || candidates.refusal !== 'round-testing') assert.equal(row?.candidates_editable, candidates.ok, label)
     assert.equal(row?.final, !canManageMembers(lifecycle).ok, label)
     for (const kind of ROUND_KINDS) {
       const state = kind === 'regular' ? lifecycle.regular : lifecycle.runoff
