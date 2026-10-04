@@ -11,7 +11,7 @@ import { SQLSTATE, sqlState } from '../../lib/pg-errors.ts'
 import { closeAndTally, endTest, openRound, readTurnout, startTest } from '../../lib/rounds.ts'
 import { tallyTest } from '../../lib/tally.ts'
 import { DB, withClient } from '../helpers/db.ts'
-import { as, BOX, cast, CONTEST, ELECTION, PAULA, QUIRIN, ranking, refusedWith, ROUND, setup, type Setup } from '../helpers/representative-election.ts'
+import { as, BATCH, BOX, cast, CONTEST, ELECTION, GROUP, PAULA, QUIRIN, ranking, refusedWith, ROUND, setup, type Setup } from '../helpers/representative-election.ts'
 
 const BUILD = { version: 'dev', gitSha: 'unknown' }
 
@@ -86,6 +86,19 @@ test('the database keeps a test apart: no seal, no direct way out, and the runti
   for (const statement of [`update election set state = 'draft' where id = '${ELECTION}'`, `delete from round_contest where id = '${BOX}'`, `delete from contest where id = '${CONTEST}'`]) {
     await assert.rejects(s.db.query(statement), (err) => sqlState(err) === SQLSTATE.objectNotInPrerequisiteState, statement)
   }
+  // The keys of the round in test mode are frozen: no batch issued or voided, no key or entitlement added or removed. Runoff keys are not concerned.
+  for (const statement of [
+    `insert into credential_batch (election_id, voter_group_id, round_kind) values ('${ELECTION}', '${GROUP}', 'regular')`,
+    `update credential_batch set state = 'void' where id = '${BATCH}'`,
+    `insert into credential (election_id, batch_id, key) values ('${ELECTION}', '${BATCH}', 'ZZZZZZZZZZZZZZZZZZZZ')`,
+    `insert into credential_entitlement (election_id, credential_id, round_contest_id) select '${ELECTION}', id, '${BOX}' from credential limit 1`,
+  ]) {
+    await assert.rejects(s.db.query(statement), (err) => sqlState(err) === SQLSTATE.objectNotInPrerequisiteState, statement)
+  }
+  // Removing an entitlement is nobody's during a test: the privilege stops the runtime role, the window the owner.
+  await assert.rejects(s.db.query('delete from credential_entitlement'), (err) => sqlState(err) === SQLSTATE.insufficientPrivilege)
+  await withClient(s.ownerUrl, (client) => assert.rejects(client.query('delete from credential_entitlement'), (err) => sqlState(err) === SQLSTATE.objectNotInPrerequisiteState))
+  await s.db.query(`insert into credential_batch (election_id, voter_group_id, round_kind) values ('${ELECTION}', '${GROUP}', 'runoff')`)
   await assert.rejects(s.db.query('select * from ballot_box'), (err) => sqlState(err) === SQLSTATE.insufficientPrivilege)
   await assert.rejects(s.db.query('delete from ballot_box'), (err) => sqlState(err) === SQLSTATE.insufficientPrivilege)
   await assert.rejects(s.db.query('update credential_entitlement set consumed = false'), (err) => sqlState(err) === SQLSTATE.objectNotInPrerequisiteState)
@@ -146,4 +159,13 @@ test('starting a test waits for a candidate change in flight, and a change waits
     })
     await starting.query('rollback')
   })
+})
+
+test('a round enters test mode only while its election is prepared, at the database as in the lifecycle', DB, async (t) => {
+  const s = await setup(t)
+  await withClient(s.ownerUrl, (client) => client.query(`update election set state = 'draft' where id = '${ELECTION}'`))
+  await assert.rejects(s.db.query(`update round set state = 'testing' where id = '${ROUND}'`), (err) => sqlState(err) === SQLSTATE.objectNotInPrerequisiteState)
+  await withClient(s.ownerUrl, (client) => client.query(`update election set state = 'prepared' where id = '${ELECTION}'`))
+  await s.db.query(`update round set state = 'testing' where id = '${ROUND}'`)
+  assert.equal(await roundState(s), 'testing')
 })

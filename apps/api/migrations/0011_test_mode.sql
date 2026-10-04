@@ -95,6 +95,119 @@ begin
 end
 $$;
 
+-- A round enters test mode only while its election is prepared, as the
+-- lifecycle has it (a draft has no keys to test with, an active election
+-- is past testing): the round's transition trigger of 0009, with that
+-- check for a state that accepts ballots without being opened.
+create or replace function round_lifecycle() returns trigger
+  language plpgsql set search_path = pg_catalog as $$
+declare
+  leaving public.round_state;
+  entering public.round_state;
+begin
+  if (new.id, new.election_id, new.kind) is distinct from (old.id, old.election_id, old.kind) then
+    perform public.refuse('a round never moves');
+  end if;
+  if new.state is distinct from old.state then
+    if not exists (select 1 from public.round_transition t where t.from_state = old.state and t.to_state = new.state) then
+      perform public.refuse(format('a round does not go from %s to %s', old.state, new.state));
+    end if;
+    select * into leaving from public.round_state s where s.state = old.state;
+    select * into entering from public.round_state s where s.state = new.state;
+    if entering.opened and not leaving.opened and not exists (
+      select 1 from public.election e join public.election_state s on s.state = e.state
+       where e.id = new.election_id and not s.candidates_editable and not s.final
+         for share of e
+    ) then
+      perform public.refuse('a round opens only once its election is active');
+    end if;
+    if entering.accepts_ballots and not entering.opened and not exists (
+      select 1 from public.election e join public.election_state s on s.state = e.state
+       where e.id = new.election_id and not s.structure_editable and s.candidates_editable and not s.final
+         for share of e
+    ) then
+      perform public.refuse('a round enters test mode only while its election is prepared');
+    end if;
+    if leaving.accepts_ballots and current_user = session_user then
+      perform public.refuse('a round leaves a state that accepts ballots only through the seal');
+    end if;
+  end if;
+  return new;
+end
+$$;
+
+-- The key windows of 0008 asked whether a round had opened; a test has
+-- not, but its keys are in use, so they ask whether the round accepts
+-- ballots as well: no batch is issued or voided, no key added and no
+-- entitlement added or removed for a round in test mode. Keys of the
+-- other round are not concerned.
+create or replace function credential_batch_window() returns trigger
+  language plpgsql set search_path = pg_catalog as $$
+declare
+  election_final boolean;
+  round_frozen boolean;
+begin
+  if current_user <> session_user then
+    return new;
+  end if;
+  select s.final into election_final
+    from public.election e join public.election_state s on s.state = e.state
+   where e.id = new.election_id
+     for share of e;
+  select rs.opened or rs.accepts_ballots into round_frozen
+    from public.round r join public.round_state rs on rs.state = r.state
+   where r.election_id = new.election_id and r.kind = new.round_kind;
+  if election_final or coalesce(round_frozen, false) then
+    perform public.refuse('keys are issued and replaced only until their round opens, and not while it is in test mode');
+  end if;
+  return new;
+end
+$$;
+
+create or replace function credential_added() returns trigger
+  language plpgsql set search_path = pg_catalog as $$
+begin
+  if current_user <> session_user then
+    return new;
+  end if;
+  if not exists (
+    select 1 from public.credential_batch b
+      join public.credential_batch_state bs on bs.state = b.state
+      join public.election e on e.id = b.election_id
+      join public.election_state s on s.state = e.state
+      left join public.round r on r.election_id = b.election_id and r.kind = b.round_kind
+      left join public.round_state rs on rs.state = r.state
+     where b.id = new.batch_id and bs.usable and not s.structure_editable and not s.final and not coalesce(rs.opened or rs.accepts_ballots, false)
+       for share of b, e
+  ) then
+    perform public.refuse('keys are added only to an issued batch, until its round opens, and not while it is in test mode');
+  end if;
+  return new;
+end
+$$;
+
+create or replace function credential_entitlement_planned() returns trigger
+  language plpgsql set search_path = pg_catalog as $$
+declare
+  round_frozen boolean;
+begin
+  if current_user <> session_user then
+    return coalesce(new, old);
+  end if;
+  select rs.opened or rs.accepts_ballots into round_frozen
+    from public.round_contest rc
+    join public.round r on r.id = rc.round_id
+    join public.round_state rs on rs.state = r.state
+    join public.election e on e.id = r.election_id
+   where rc.id = coalesce(new.round_contest_id, old.round_contest_id)
+     for share of e;
+  if round_frozen is not false then
+    perform public.refuse('entitlements are added and removed only while their round is planned');
+  end if;
+  return coalesce(new, old);
+end
+$$;
+
 -- Ends a test: removes the round's staged ballots, sets every entitlement
 -- of the round unused and takes the round back to planned, in one
 -- transaction, as the owner of the tables (the runtime role may neither
