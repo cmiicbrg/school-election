@@ -8,7 +8,8 @@
 // reload resume the session. The client of its own (voter/voter-api.ts)
 // sends nobody to the sign-in page: a voter's 401 is back to the code.
 
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { toSend } from '../voter/ballot-state.ts'
 import { pendingKey } from '../voter/bootstrap.ts'
 import ContestList from '../voter/ContestList.vue'
@@ -29,6 +30,7 @@ type Step
 /** Set from redemption until the session ends, so that a reload resumes it; never a key. */
 const FLAG = 'voter'
 
+const router = useRouter()
 const root = ref<HTMLElement | null>(null)
 const step = ref<Step>({ kind: 'loading' })
 const election = ref<VoterElection | null>(null)
@@ -66,11 +68,32 @@ function flag(on: boolean): void {
 }
 
 onMounted(async () => {
+  window.addEventListener('hashchange', onHashChange)
   const key = pendingKey()
   if (key !== undefined) await redeemKey(key)
   else if (flagged()) await resume()
   else go({ kind: 'code' })
 })
+
+onBeforeUnmount(() => {
+  window.removeEventListener('hashchange', onHashChange)
+})
+
+/**
+ * Another card scanned into this tab: the browser changed the fragment
+ * without loading the page again, take-key.ts took the key out of it
+ * before this runs, and the router, which heard the navigation first, is
+ * told the address is /v again. The page starts over with the new key;
+ * its redemption replaces the cookie of the session so far.
+ */
+function onHashChange(): void {
+  const key = pendingKey()
+  if (key === undefined) return
+  void router.replace('/v')
+  election.value = null
+  flag(false)
+  void redeemKey(key)
+}
 
 /** A code, from the fragment or typed: checked here first, so a malformed one is never sent. */
 async function redeemKey(key: string): Promise<void> {
@@ -158,13 +181,20 @@ async function submit(confirmInvalid: boolean): Promise<void> {
   }
 }
 
-/** The way out, for a second person at the same phone: the session ends on the server and the page forgets everything. */
+/**
+ * The way out, for a second person at the same phone: the answer takes the
+ * cookie with it, and the page forgets everything. When the request fails
+ * the cookie is still there, so the page stays as it is and says so,
+ * rather than showing the next person a page that looks handed over.
+ */
 async function end(): Promise<void> {
+  message.value = null
   busy.value = true
   try {
     await endSession()
-  } catch {
-    // The page forgets the session either way; the cookie is worthless once the round moves on, and short-lived anyway.
+  } catch (err) {
+    message.value = messageFor(err)
+    return
   } finally {
     busy.value = false
   }

@@ -9,7 +9,7 @@
 import { devices, type BrowserContext, type Page } from '@playwright/test'
 import { expect, test } from '../support/test.ts'
 import { apiGet, apiPost } from '../support/api.ts'
-import { refused } from '../support/console.ts'
+import { expectFailure, refused } from '../support/console.ts'
 import { batchId, electionId, journey } from '../support/journey.ts'
 import { ANNA } from '../support/personas.ts'
 import { shot } from '../support/screenshot.ts'
@@ -169,8 +169,16 @@ test('derselbe Code getippt: Tippfehler werden vor dem Senden erkannt, die Karte
   await typed.getByRole('button', { name: 'Weiter' }).click()
   await expect(typed.getByRole('status')).toHaveText('Sie haben in allen Wahlgängen abgestimmt.')
   await expect(typed.getByRole('list', { name: 'Wahlgänge' }).getByText('abgegeben')).toHaveCount(2)
+  // "Fertig" that does not reach the server leaves the page as it is: the cookie is still there.
+  await other.route('**/api/voter/session/end', (route) => route.abort())
+  expectFailure(new URL('/api/voter/session/end', typed.url()).toString())
+  await typed.getByRole('button', { name: 'Fertig' }).click()
+  await expect(typed.getByRole('alert')).toHaveText('Das hat nicht geklappt. Bitte versuchen Sie es noch einmal.')
+  await expect(typed.getByRole('status')).toHaveText('Sie haben in allen Wahlgängen abgestimmt.')
+  await other.unroute('**/api/voter/session/end')
   await typed.getByRole('button', { name: 'Fertig' }).click()
   await expect(typed.getByRole('heading', { name: 'Stimmabgabe' })).toBeVisible()
+  expect((await other.cookies()).map((cookie) => cookie.name)).not.toContain('__Secure-voter-session')
   await other.close()
 })
 
@@ -186,6 +194,22 @@ test('ein zweiter Code läuft über ein Neuladen der Seite weiter; nach dem Ende
   await reloaded.reload()
   await expect(reloaded.getByRole('status')).toHaveText('Noch 2 Wahlgänge offen.')
   await expect(reloaded).toHaveURL('/v')
+
+  // A third card scanned into the same tab: the browser changes the fragment without loading the page
+  // again; the key leaves the address all the same, and the page starts over with the new session.
+  const third = keys[2] ?? ''
+  const cookieOf = async () => (await context.cookies()).find((cookie) => cookie.name === '__Secure-voter-session')?.value
+  const before = await cookieOf()
+  const urls: string[] = []
+  reloaded.on('request', (request) => urls.push(request.url()))
+  await reloaded.evaluate((key) => {
+    window.location.hash = `#${key}`
+  }, third)
+  await expect(reloaded.getByRole('status')).toHaveText('Noch 2 Wahlgänge offen.')
+  await expect.poll(cookieOf).not.toBe(before)
+  await expect(reloaded).toHaveURL('/v')
+  expect(await reloaded.evaluate(() => window.location.hash)).toBe('')
+  expect(urls.filter((url) => url.includes(third))).toEqual([])
 
   // The test ends: the first key's two ballots, one of them invalid, are gone, its entitlements unused again.
   const ended = await apiPost<{ election: string, round: string, ballots: number, keys: number }>(anna, `${rounds()}/test/end`)
