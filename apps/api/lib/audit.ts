@@ -75,9 +75,9 @@ export const AUDIT_ACTIONS = {
   // the result snapshot, never here.
   'result.computed': { contest: 'uuid', round: ROUND_KINDS, inputSha256: 'text', ballots: 'count', outcome: OUTCOME_KINDS },
   // A lot the officials drew, as recorded: the lot as election-core names
-  // it, its tied set and the order drawn (candidate ids, comma-separated),
-  // and the reason the person gave.
-  'lot.recorded': { contest: 'uuid', lotId: 'text', candidates: 'text', order: 'text', reason: 'long-text' },
+  // it, its tied set and the order drawn (candidate ids, comma-separated;
+  // up to fifty, as the lots route allows), and the reason the person gave.
+  'lot.recorded': { contest: 'uuid', lotId: 'text', candidates: 'long-text', order: 'long-text', reason: 'long-text' },
   // The runoff: the pair of every contest that needs one, then the round
   // activated, with how many keys of the issued runoff batches it entitled.
   'runoff.pair': { contest: 'uuid', first: 'uuid', second: 'uuid' },

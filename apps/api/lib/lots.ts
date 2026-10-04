@@ -30,10 +30,12 @@ function requires(entry: ContestOutcome, lotId: string): boolean {
   return entry.outcome.kind === 'lot-required' && entry.outcome.lots.some((lot) => lot.id === lotId)
 }
 
-export async function recordLot(client: pg.ClientBase, access: ElectionAccess, input: LotInput): Promise<LotRecorded> {
+export async function recordLot(client: pg.ClientBase, access: ElectionAccess, given: LotInput): Promise<LotRecorded> {
   if (!isPermitted(access.role, 'run-rounds')) throw new Refusal(403, 'forbidden')
   const allowed = canEnterLot(access.lifecycle)
   if (!allowed.ok) throw new Refusal(409, allowed.refusal.replaceAll('-', '_'))
+  // Ids as the database and election-core hold them: the schema takes a UUID in any case.
+  const input: LotInput = { ...given, contestId: given.contestId.toLowerCase(), order: given.order.map((id) => id.toLowerCase()) }
   const entry = await contestOutcome(client, access.electionId, input.contestId)
   if (!entry) throw new Refusal(404, 'not_found')
   if (entry.lots.some((lot) => lot.lotId === input.lotId)) throw new Refusal(409, 'duplicate_lot')

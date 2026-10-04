@@ -97,7 +97,8 @@ test('a lot for the runoff entry: required, recorded once by someone who runs ro
   assert.deepEqual(pending.outcome.positions?.slice(0, 3).map((position) => [position.function, position.candidateId, position.basis]), [
     ['school-speaker', renate, 'runoff'], ['school-speaker-deputy-1', null, 'lot-pending'], ['school-speaker-deputy-2', null, 'lot-pending'],
   ])
-  const second = { contestId: x.contest.id, lotId: positionsLot.id, order: [quirin, paula], reason: 'Zweites Los, Stellvertretung' }
+  // Ids in upper case, as a UUID may be written: the same lot, the same candidates.
+  const second = { contestId: x.contest.id.toUpperCase(), lotId: positionsLot.id, order: [quirin.toUpperCase(), paula.toUpperCase()], reason: 'Zweites Los, Stellvertretung' }
   const final = ok<{ outcome: Outcome }>(await record(x.anna, second))
   assert.equal(final.outcome.kind, 'final')
   assert.deepEqual(final.outcome.positions?.map((position) => [position.function, position.candidateId, position.basis]), [

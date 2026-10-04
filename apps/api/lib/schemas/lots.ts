@@ -4,12 +4,15 @@ import { Type } from 'typebox'
 import { MultiLineText, StrictObject, Uuid } from './common.ts'
 import { Snapshot } from './rounds.ts'
 
+/** The most candidates one lot can be drawn among: fifty ids, comma-separated, fit the event's long text. */
+export const MAX_LOT_CANDIDATES = 50
+
 export const LotBody = StrictObject({
   contestId: Uuid,
   /** The lot as election-core names it in the outcome. */
   lotId: Type.String({ minLength: 1, maxLength: 200 }),
-  /** The tied set in the order drawn. */
-  order: Type.Array(Uuid, { minItems: 2, maxItems: 12 }),
+  /** The tied set in the order drawn, in any case the ids come in; fifty is far beyond any school contest's tie, and what the event's text holds. */
+  order: Type.Array(Uuid, { minItems: 2, maxItems: MAX_LOT_CANDIDATES }),
   reason: MultiLineText(500, 1),
 })
 
