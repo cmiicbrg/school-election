@@ -73,9 +73,9 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   // A lot the officials drew is recorded once and read by every member; a
   // trigger refuses any change (migration 0013).
   lot_decision: { table: ['SELECT', 'INSERT'] },
-  // The final outcome of every contest, written once at finalization and
-  // read by every member; a trigger refuses any change (migration 0014).
-  final_outcome: { table: ['SELECT', 'INSERT'] },
+  // The final outcome of every contest, written by finalize_election alone
+  // and read by every member; a trigger refuses any change (migration 0014).
+  final_outcome: { table: ['SELECT'] },
 }
 
 /** Functions the runtime role may execute, by their signature as PostgreSQL prints a regprocedure: argument types without spaces between them. */
@@ -96,9 +96,10 @@ export const RUNTIME_FUNCTIONS: readonly string[] = [
   'activate_runoff(uuid,jsonb)',
   // The clean-up at finalization: what still holds a snapshot older than
   // the election's seals, and the flush of the write-ahead log with its
-  // check (migration 0014).
+  // check; then the declaration that makes the election final (migration 0014).
   'cleanup_blockers(uuid)',
   'flush_wal(pg_lsn)',
+  'finalize_election(uuid,jsonb,integer,text,text)',
 ]
 
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/

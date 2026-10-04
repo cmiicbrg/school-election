@@ -1,14 +1,15 @@
 // Finalizing an election, inside changeElection, after the clean-up
 // (lib/cleanup.ts) ran outside it: by the owner, with a reason, once the
-// regular round has closed and while no round is open. The outcome of
-// every contest as it stands is written once (final_outcome, migration
-// 0014) with the versions that derived it, whatever its kind: a botched
-// election ends as it stands, and the reason says why; the issued runoff
+// regular round has closed and while no round is open. The issued runoff
 // batches of an election that held no runoff are voided, so no key of the
-// election can vote any more; the election moves to final, after which
-// the triggers refuse every change; and the event names the reason and
-// how many contests were resolved. The rounds must be in the phases the
-// clean-up saw, or nothing is declared.
+// election can vote any more; then finalize_election (migration 0014), the
+// owner's function and the one way to a declaration, writes the outcome
+// of every contest as it stands with the versions that derived it,
+// whatever its kind (a botched election ends as it stands, and the reason
+// says why), and moves the election to final, after which the triggers
+// refuse every change; and the event names the reason and how many
+// contests were resolved. The rounds must be in the phases the clean-up
+// saw, or nothing is declared.
 
 import type pg from 'pg'
 import { TALLY_VERSION, transition, type OutcomeKind, type RoundKind } from '@school-election/election-core'
@@ -21,6 +22,7 @@ import { Refusal, type ElectionAccess } from './election-access.ts'
 import { inOrder } from './in-order.ts'
 import { contestOutcomes } from './outcome.ts'
 import { isPermitted } from './permissions.ts'
+import { SQLSTATE, sqlState } from './pg-errors.ts'
 
 export interface Finalized {
   contests: { contestId: string, kind: OutcomeKind }[]
@@ -40,12 +42,14 @@ export async function finalizeElection(client: pg.ClientBase, access: ElectionAc
 
   const outcomes = await contestOutcomes(client, access.electionId)
   const batchesVoided = access.lifecycle.runoff === null ? await voidRunoffBatches(client, access) : 0
-  await inOrder(outcomes, (entry) => client.query(
-    `insert into final_outcome (election_id, contest_id, kind, outcome, tally_version, app_version, git_sha)
-     values ($1, $2, $3, $4::jsonb, $5, $6, $7)`,
-    [access.electionId, entry.contestId, entry.outcome.kind, JSON.stringify(entry.outcome), TALLY_VERSION, build.version, build.gitSha],
-  ))
-  await client.query(`update election set state = 'final' where id = $1`, [access.electionId])
+  const declaration = outcomes.map((entry) => ({ contestId: entry.contestId, outcome: entry.outcome }))
+  try {
+    await client.query('select finalize_election($1, $2::jsonb, $3, $4, $5)', [access.electionId, JSON.stringify(declaration), TALLY_VERSION, build.version, build.gitSha])
+  } catch (err) {
+    // The function and the triggers refuse only what the guard, re-read under the lock, let through: a change since.
+    if (sqlState(err) === SQLSTATE.objectNotInPrerequisiteState) throw new Refusal(409, 'election_changed')
+    throw err
+  }
   const resolved = outcomes.filter((entry) => entry.outcome.kind === 'final').length
   await appendAudit(client, access.electionId, {
     actor: access.actor,

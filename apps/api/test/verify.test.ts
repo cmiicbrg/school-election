@@ -65,7 +65,7 @@ test('a genuine export passes every check, and the report names them', DB, async
     'rows: regular round, Schulsprecher/in', 'order: regular round, Schulsprecher/in', 'snapshots: one per box',
     'outcome: Schulsprecher/in', 'outcomes: one per contest', 'audit chain of this election', 'audit chain', 'audit chain as exported',
     'event for the close of the regular round', 'event for the close of the runoff round', 'event for the activation of the runoff',
-    'event for the result: regular round, Schulsprecher/in', 'event for the result: runoff round, Schulsprecher/in', 'no key', 'finalization',
+    'event for the result: regular round, Schulsprecher/in', 'event for the result: runoff round, Schulsprecher/in', 'no key', 'finalization', 'lifecycle',
   ]) {
     assert.ok(names.includes(expected), `${expected} among ${names.join('; ')}`)
   }
@@ -255,6 +255,9 @@ test('a finalized election\'s export passes, with the declaration checked; a dec
   notFinal.election.state = 'active'
   notFinal.election.lifecycle = { ...notFinal.election.lifecycle, election: 'active' }
   assert.match(verifyExport(notFinal).checks.find((check) => check.name === 'finalization')?.detail ?? '', /an election\.finalized event, but the election is not final/)
+  const disagreeing = clone(document)
+  disagreeing.election.state = 'active'
+  assert.match(verifyExport(disagreeing).checks.find((check) => check.name === 'lifecycle')?.detail ?? '', /^the lifecycle says final, closed, closed; the file active/)
   const declaredEarly = clone(document)
   declaredEarly.election.state = 'active'
   declaredEarly.audit.events = declaredEarly.audit.events.filter((event) => event.action !== 'election.finalized')

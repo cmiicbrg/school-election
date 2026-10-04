@@ -127,6 +127,33 @@ test('a snapshot older than the seal holds the dead rows back: counted as a bloc
   await newer.end()
 })
 
+test('sealed rows a vacuum has frozen still name the seal, and count nothing as older, rightly: a tuple is frozen only once its transaction precedes every snapshot', DB, async (t) => {
+  const { scenario, db } = await sealedScenario(t)
+  await withClient(scenario.ownerUrl, async (client) => {
+    await client.query('vacuum freeze ballot')
+    await client.query('vacuum freeze credential_entitlement')
+    const { rows: [frozen] } = await client.query<{ live: number, frozen: number, named: number }>(
+      `select count(*)::int as live,
+              count(*) filter (where 'HEAP_XMIN_FROZEN' = any ((heap_tuple_infomask_flags(item.t_infomask, item.t_infomask2)).combined_flags))::int as frozen,
+              count(*) filter (where item.t_xmin::text <> '2')::int as named
+         from generate_series(0, pg_relation_size('ballot') / current_setting('block_size')::int - 1) as b (blk)
+         cross join lateral heap_page_items(get_raw_page('ballot', b.blk)) as item
+        where item.t_xmin is not null`,
+    )
+    assert.equal(frozen?.live, scenario.castOrder.length)
+    assert.equal(frozen?.frozen, frozen?.live, 'every sealed ballot is frozen')
+    assert.equal(frozen?.named, frozen?.live, 'and still shows the seal\'s transaction id')
+  })
+  assert.equal(await cleanupBlockers(db, scenario.electionId), 0)
+  // A snapshot taken now is younger than the seal, as any still open must be.
+  const newer = await reader(scenario.runtimeUrl, t)
+  assert.equal(await cleanupBlockers(db, scenario.electionId), 0)
+  await cleanUp(db, scenario.electionId)
+  assert.deepEqual(await voteTraces(scenario), { tuples: 0, records: 0 })
+  await assertUnlinkable(scenario)
+  await newer.end()
+})
+
 test('flush_wal leaves no segment at or before the position given, and an election without a sealed row has no blockers', DB, async (t) => {
   const testDb = await createTestDatabase(t)
   const db = createDatabase(testDb.runtimeUrl, () => {})

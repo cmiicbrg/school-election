@@ -4,7 +4,7 @@ What this system promises about a ballot, what PostgreSQL records about one whil
 
 ## The claim
 
-After an election, neither the database, nor an export, a backup or the application's ordinary logs say which ballots one voting key cast, or which ballots in different contests were cast with the same key. A ballot (`ballot`) carries its ballot box, its kind and its ranking, and nothing else: no key, no entitlement, no session, no person, no time, no request. Nothing references a ballot. The privacy tables (`ballot_box`, `ballot`, `credential`, `credential_entitlement`) have random ids only, no sequence, no timestamp and no ordered id, which the privacy regression checks against the catalog.
+After an election is final, neither the database, nor an export, a backup taken from then on, or the application's ordinary logs say which ballots one voting key cast, or which ballots in different contests were cast with the same key; a copy made between the first opening and finalization is the one thing the model cannot undo, and the operator rules keep it from being made (see What remains). A ballot (`ballot`) carries its ballot box, its kind and its ranking, and nothing else: no key, no entitlement, no session, no person, no time, no request. Nothing references a ballot. The privacy tables (`ballot_box`, `ballot`, `credential`, `credential_entitlement`) have random ids only, no sequence, no timestamp and no ordered id, which the privacy regression checks against the catalog.
 
 Columns are the easy half. The other half is what PostgreSQL itself records about every row, and the rest of this document is about that.
 
@@ -31,7 +31,7 @@ The application logs nothing of a vote, and the audit log records administrators
 
 **The settings the server requires at startup** (`apps/api/lib/db-settings.ts`), with which the server refuses to start otherwise: `wal_recycle=off` (segments are unlinked, never renamed and reused with old content inside), `wal_keep_size=0`, `summarize_wal=off`, `archive_mode=off`, `max_replication_slots=0` and `max_wal_senders=0` (no slot keeps the log and no standby receives it); `track_commit_timestamp=off`; and the logging settings that keep statements, parameters and durations out of the server log. Development, CI and the deployment example set exactly these flags, and a test keeps the three in step.
 
-**The roles.** The server connects as a role that holds exactly what `apps/api/lib/runtime-privileges.ts` lists, re-applied by every migration run. It never reads a staged ballot, never deletes a sealed one, and runs the elevated steps only through the owner's functions, each of which does one fixed thing.
+**The roles.** The server connects as a role that holds exactly what `apps/api/lib/runtime-privileges.ts` lists, re-applied by every migration run. It never reads a staged ballot, never deletes a sealed one, never writes a declared outcome itself, and runs the elevated steps only through the owner's functions, each of which does one fixed thing: the seal, the runoff's activation, the clean-up's two, the declaration.
 
 ## What the tests prove
 

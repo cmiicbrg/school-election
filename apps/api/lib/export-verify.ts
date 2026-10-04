@@ -54,6 +54,7 @@ export function verifyExport(input: unknown): Report {
   const run: Run = { document, check, titleOf: (contestId) => contests.get(contestId)?.title ?? contestId, results: new Map() }
   try {
     check('format', true, `${EXPORT_FORMAT} version ${EXPORT_VERSION}, election ${document.election.title}, exported ${document.exportedAt}`)
+    checkLifecycle(run)
     checkSnapshotsOnePerBox(run)
     for (const round of document.rounds) {
       if (round.state === 'closed') {
@@ -74,6 +75,15 @@ export function verifyExport(input: unknown): Report {
     check('document', false, `the file is damaged: ${err instanceof Error ? err.message : String(err)}`)
   }
   return { ok: checks.every((entry) => entry.ok), checks }
+}
+
+/** The lifecycle the file states is the election's state and its rounds' states, as the file has them. */
+function checkLifecycle({ document, check }: Run): void {
+  const { state, lifecycle } = document.election
+  const regular = document.rounds.find((round) => round.kind === 'regular')?.state ?? 'planned'
+  const runoff = document.rounds.find((round) => round.kind === 'runoff')?.state ?? null
+  const agrees = lifecycle.election === state && lifecycle.regular === regular && lifecycle.runoff === runoff
+  check('lifecycle', agrees, agrees ? `${state}, regular round ${regular}, runoff ${runoff ?? 'none'}` : `the lifecycle says ${lifecycle.election}, ${lifecycle.regular}, ${lifecycle.runoff ?? 'none'}; the file ${state}, ${regular}, ${runoff ?? 'none'}`)
 }
 
 /** One snapshot per box of a closed round, and none for anything else: the checks read the one. */

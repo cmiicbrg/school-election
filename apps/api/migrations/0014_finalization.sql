@@ -12,9 +12,10 @@
 -- recorded lots by whatever election-core runs today, and a final election
 -- must show what was declared after an upgrade too. Not a privacy table:
 -- derived from the snapshots and the lots, never from a ballot, once per
--- contest, never per voter. Written once: a trigger refuses any change,
--- for every role, and the runtime role may only add and read them
--- (lib/runtime-privileges.ts).
+-- contest, never per voter. Written once, and only by finalize_election
+-- below, which declares and makes the election final in one step: a
+-- trigger refuses any change, for every role, and the runtime role may
+-- only read the rows (lib/runtime-privileges.ts).
 
 create table final_outcome (
   election_id uuid not null references election (id),
@@ -29,8 +30,10 @@ create table final_outcome (
 
 -- A final outcome is written while its election is active, once its
 -- regular round has closed and while no round of it accepts ballots: the
--- transaction that makes the election final writes them just before. The
--- regular round is the kind created planned (0007): flags, not names.
+-- transaction that makes the election final writes them just before. This
+-- binds everyone, the owner included; the runtime role has no way to the
+-- table but the function below. The regular round is the kind created
+-- planned (0007): flags, not names.
 create function final_outcome_written() returns trigger
   language plpgsql set search_path = pg_catalog as $$
 declare
@@ -133,6 +136,104 @@ begin
 end
 $$;
 
+-- Finalization itself: the declared outcome of every contest written, and
+-- the election moved to the state its state advances to, in one step, by
+-- the application's definer function (lib/finalize.ts), so no declaration
+-- exists apart from a final election. `outcomes` is a JSON array of
+-- { "contestId": uuid, "outcome": election-core's outcome }, one per
+-- contest of the election; the kind is the outcome's own. The triggers
+-- above keep the windows for the function's statements as for any other:
+-- an election not active, a round still accepting ballots or a regular
+-- round not closed refuse. Returns how many outcomes were declared.
+create function finalize_election(target uuid, outcomes jsonb, tally_version integer, app_version text, git_sha text) returns integer
+  language plpgsql security definer set search_path = pg_catalog as $$
+declare
+  active boolean;
+  declared integer;
+begin
+  select not s.candidates_editable and not s.final into active
+    from public.election e join public.election_state s on s.state = e.state
+   where e.id = target
+     for no key update of e;
+  if active is null then
+    perform public.refuse('no such election');
+  end if;
+  if not active then
+    perform public.refuse('an election is finalized while active');
+  end if;
+  if outcomes is null or jsonb_typeof(outcomes) <> 'array' then
+    perform public.refuse('a declaration is a list of outcomes');
+  end if;
+  if (select count(*) from jsonb_array_elements(outcomes) as o) <> (select count(*) from public.contest c where c.election_id = target)
+     or (select count(distinct o ->> 'contestId') from jsonb_array_elements(outcomes) as o) <> (select count(*) from jsonb_array_elements(outcomes) as o)
+     or exists (
+       select 1 from jsonb_array_elements(outcomes) as o
+         left join public.contest c on c.id = (o ->> 'contestId')::uuid and c.election_id = target
+        where c.id is null
+     ) then
+    perform public.refuse('a declaration names every contest of the election, once');
+  end if;
+  insert into public.final_outcome (election_id, contest_id, kind, outcome, tally_version, app_version, git_sha)
+  select target, (o ->> 'contestId')::uuid, o -> 'outcome' ->> 'kind', o -> 'outcome', tally_version, app_version, git_sha
+    from jsonb_array_elements(outcomes) as o;
+  get diagnostics declared = row_count;
+  update public.election e set state = s.advances_to
+    from public.election_state s
+   where e.id = target and s.state = e.state;
+  return declared;
+end
+$$;
+
+-- A lot is recorded on an active election (0013 asked for the regular
+-- round closed and nothing accepting ballots, which a final election
+-- satisfies too): once final, nothing of the election changes, the lots
+-- included, for every role.
+create or replace function lot_decision_recorded() returns trigger
+  language plpgsql set search_path = pg_catalog as $$
+declare
+  box record;
+  active boolean;
+begin
+  select not s.candidates_editable and not s.final into active
+    from public.election e join public.election_state s on s.state = e.state
+   where e.id = new.election_id
+     for share of e;
+  if active is not true then
+    perform public.refuse('a lot is recorded on an active election');
+  end if;
+  -- The regular round is the kind created planned (0007): flags, not names.
+  select rc.contest_id, k.created_planned as regular into box
+    from public.round_contest rc
+    join public.round r on r.id = rc.round_id
+    join public.round_kind k on k.kind = r.kind
+   where rc.id = new.round_contest_id and rc.election_id = new.election_id;
+  if box.regular is not true then
+    perform public.refuse('a lot is recorded on a box of the regular round');
+  end if;
+  if exists (
+    select 1 from public.round r join public.round_state rs on rs.state = r.state
+     where r.election_id = new.election_id and rs.accepts_ballots
+  ) then
+    perform public.refuse('a lot is recorded while no round accepts ballots');
+  end if;
+  if not exists (
+    select 1 from public.round r
+      join public.round_state rs on rs.state = r.state
+      join public.round_kind k on k.kind = r.kind and k.created_planned
+     where r.election_id = new.election_id and rs.opened and not rs.accepts_ballots
+  ) then
+    perform public.refuse('a lot is recorded once the regular round has closed');
+  end if;
+  if (select array_agg(x order by x) from unnest(new.candidates) as x) <> (select array_agg(x order by x) from unnest(new.drawn) as x) then
+    perform public.refuse('the order drawn is the tied set');
+  end if;
+  if (select count(distinct c.id) from public.candidate c where c.contest_id = box.contest_id and c.id = any (new.candidates)) <> cardinality(new.candidates) then
+    perform public.refuse('a lot is drawn among candidates of its contest, each once');
+  end if;
+  return new;
+end
+$$;
+
 -- The clean-up (lib/cleanup.ts) rewrites ballot_box and
 -- credential_entitlement without their dead rows (VACUUM FULL, which the
 -- runtime role runs with MAINTAIN on the two tables, since VACUUM cannot
@@ -149,7 +250,12 @@ $$;
 -- so the clean-up waits until this is zero. The seal's id is the xmin of
 -- every live row of a sealed round; ids are compared by age, the one
 -- ordering of 32-bit transaction ids. The caller's own session is left
--- out. An election without a sealed row has nothing to wait for.
+-- out. An election without a sealed row has nothing to wait for. A vacuum
+-- may have frozen the sealed rows by then: xmin still shows the seal's
+-- id (freezing is a flag on the tuple), so the comparison stands, and a
+-- tuple is frozen only once its transaction precedes every snapshot, so
+-- no snapshot older than the seal exists alongside frozen sealed rows
+-- and none can start later (test/db/cleanup.test.ts).
 create function cleanup_blockers(target uuid) returns integer
   language plpgsql security definer set search_path = pg_catalog as $$
 declare

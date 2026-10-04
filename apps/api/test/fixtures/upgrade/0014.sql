@@ -9,10 +9,7 @@ CREATE TEMP TABLE fixture AS SELECT
   '5d7e9f10-2a3b-4c5d-8e6f-7a8b9c0d1e2f'::uuid AS klassensprecherwahl,
   'a4d5e6f7-0819-4a2b-8c3d-4e5f6a7b8c9d'::uuid AS klassensprecher;
 
-INSERT INTO final_outcome (election_id, contest_id, kind, outcome, tally_version, app_version, git_sha)
-SELECT f.klassensprecherwahl, f.klassensprecher, s.outcome ->> 'kind', s.outcome, s.tally_version, s.app_version, s.git_sha
+SELECT finalize_election(f.klassensprecherwahl, jsonb_build_array(jsonb_build_object('contestId', f.klassensprecher, 'outcome', s.outcome)), s.tally_version, s.app_version, s.git_sha)
   FROM fixture f
   JOIN round_contest rc ON rc.election_id = f.klassensprecherwahl AND rc.contest_id = f.klassensprecher
   JOIN result_snapshot s ON s.round_contest_id = rc.id;
-
-UPDATE election SET state = 'final' WHERE id = (SELECT klassensprecherwahl FROM fixture);
