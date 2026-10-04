@@ -8,6 +8,7 @@ import { createDatabase, type Database } from '../../lib/db.ts'
 import { lifecycleOf, ROUND_STATES_SQL, type ElectionAccess } from '../../lib/election-access.ts'
 import type { ElectionRole } from '../../lib/permissions.ts'
 import type { ElectionState, RoundState } from '@school-election/election-core'
+import type { AppOptions } from '../../app.ts'
 import { buildTestApp, ORIGIN } from './app.ts'
 import { createTestDatabase, withClient } from './db.ts'
 import { CookieJar, startFakeEntra, type FakeEntra } from './fake-entra.ts'
@@ -24,14 +25,14 @@ export interface ElectionApp {
   logs: () => string
 }
 
-export async function electionApp(t: TestContext): Promise<ElectionApp> {
+export async function electionApp(t: TestContext, options: Pick<AppOptions, 'voter'> = {}): Promise<ElectionApp> {
   const entra = await startFakeEntra()
   t.after(() => entra.close())
   const testDb = await createTestDatabase(t)
   const db = createDatabase(testDb.runtimeUrl, () => {})
   t.after(() => db.close())
   const routes: RouteOptions[] = []
-  const { app, logs } = await buildTestApp({}, db, { entraAuthority: entra.authority, onRoute: (route) => routes.push(route) })
+  const { app, logs } = await buildTestApp({}, db, { entraAuthority: entra.authority, onRoute: (route) => routes.push(route), ...options })
   t.after(() => app.close())
   return { app, db, entra, ownerUrl: testDb.ownerUrl, routes, logs }
 }

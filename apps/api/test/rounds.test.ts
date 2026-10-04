@@ -7,16 +7,14 @@ import { test, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { DB, withClient } from './helpers/db.ts'
 import { auditActions, createElection } from './helpers/elections.ts'
-import { lifecycleOf, ok, preparedElection, refused, vote, type RouteSetup } from './helpers/round-routes.ts'
+import { lifecycleOf, ok, oneContest, preparedElection, refused, vote, type RouteSetup } from './helpers/round-routes.ts'
 
 /** The school contest with three candidates, voted in by 1A and 2B, five keys for 1A. */
-const prepared = (t: TestContext): Promise<RouteSetup> => preparedElection(t, {
+const prepared = (t: TestContext): Promise<RouteSetup> => preparedElection(t, oneContest({
   title: 'Schulsprecher/in',
   rulesetId: 'at-school-speaker-v1',
   candidates: [['Berger', 'Paula'], ['Huber', 'Quirin'], ['Wagner', 'Renate']],
-  groups: ['1A', '2B'],
-  keys: 5,
-})
+}, ['1A', '2B'], 5))
 
 test('opening: those who run rounds, from prepared only, once; then the structure, the candidates and the keys are fixed', DB, async (t) => {
   const x = await prepared(t)

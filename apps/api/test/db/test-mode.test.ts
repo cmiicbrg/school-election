@@ -109,6 +109,24 @@ test('the database keeps a test apart: no seal, no direct way out, and the runti
   assert.equal(await roundState(s), 'testing')
 })
 
+test('every change of a round\'s state is a new phase, and nothing but a change of state sets one', DB, async (t) => {
+  const s = await setup(t)
+  const phase = () => withClient(s.ownerUrl, async (client) => (await client.query<{ phase: string }>('select phase from round where id = $1', [ROUND])).rows[0]?.phase ?? '')
+  const phases = [await phase()]
+  for (const step of [start, end, start, end]) {
+    await step(s)
+    phases.push(await phase())
+  }
+  assert.equal(new Set(phases).size, phases.length, 'a test and its end, each time, is a phase of its own')
+  await inTx(s, (client, access) => openRound(client, access))
+  phases.push(await phase())
+  assert.equal(new Set(phases).size, phases.length, 'opening is one more')
+  // The phase is the trigger's: the runtime role may not name the column, and the owner's statement is refused.
+  await assert.rejects(s.db.query('update round set phase = gen_random_uuid() where id = $1', [ROUND]), (err) => sqlState(err) === SQLSTATE.insufficientPrivilege)
+  await withClient(s.ownerUrl, (client) => assert.rejects(client.query('update round set phase = gen_random_uuid() where id = $1', [ROUND]), (err) => sqlState(err) === SQLSTATE.objectNotInPrerequisiteState))
+  assert.equal(await phase(), phases.at(-1))
+})
+
 test('candidates, the title and the description are frozen while a test runs, at the database as in the lifecycle', DB, async (t) => {
   const s = await setup(t)
   await start(s)

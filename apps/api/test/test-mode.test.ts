@@ -8,16 +8,14 @@ import { test, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { DB, withClient } from './helpers/db.ts'
 import { auditActions, createElection } from './helpers/elections.ts'
-import { lifecycleOf, ok, preparedElection, refused, vote, type RouteSetup } from './helpers/round-routes.ts'
+import { lifecycleOf, ok, oneContest, preparedElection, refused, vote, type RouteSetup } from './helpers/round-routes.ts'
 
 /** The class contest with two candidates, voted in by 1A, three keys. */
-const prepared = (t: TestContext): Promise<RouteSetup> => preparedElection(t, {
+const prepared = (t: TestContext): Promise<RouteSetup> => preparedElection(t, oneContest({
   title: 'Klassensprecher/in',
   rulesetId: 'at-representative-v1',
   candidates: [['Berger', 'Paula'], ['Huber', 'Quirin']],
-  groups: ['1A'],
-  keys: 3,
-})
+}, ['1A'], 3))
 
 interface Counted { round: string, contests: { contestId: string, result: { statistics: { validBallots: number } }, outcome: { kind: string } }[] }
 

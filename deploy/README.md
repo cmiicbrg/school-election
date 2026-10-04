@@ -58,7 +58,7 @@ podman unshare chown 10001:70 secrets/db-owner-password
 
 The app image runs as uid 10001, the app and the migrator alike. The PostgreSQL image reads the superuser password as its own user, whose group is 70, so that file is also readable by group 70. `podman unshare` is needed because rootless podman maps these ids to the subordinate ids of `election`; afterwards the files can only be changed or removed through `podman unshare` as well.
 
-- `session-key` seals the session cookies. A new key signs everyone out.
+- `session-key` seals the session cookies, the administrators' and the voters' alike (two cookies, two derived keys). A new key signs everyone out and ends every voting session.
 - `db-owner-password` is the password of the PostgreSQL superuser `postgres`, which only the migrator uses. PostgreSQL takes it from the file only when it creates the database on the very first start.
 - `db-runtime-password` is the password of the app's role, `school_election_app`. The migrator sets it on every run, so a new password takes effect after the next migration run and an app restart.
 - `entra-client-secret` is the client secret from the app registration.

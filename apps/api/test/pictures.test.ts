@@ -197,6 +197,8 @@ test('every API answer but a picture\'s 200 or 304 is no-store', DB, async (t) =
   const id = await createElection(anna)
   const routes = s.routes.filter((route) => route.url.startsWith('/api/'))
   assert.deepEqual(routes.filter((route) => route.config?.contentAddressed).map((route) => `${String(route.method)} ${route.url}`), [
+    'GET /api/voter/picture/:sha256',
+    'HEAD /api/voter/picture/:sha256',
     'GET /api/elections/:id/candidates/:candidateId/picture/:sha256',
     'HEAD /api/elections/:id/candidates/:candidateId/picture/:sha256',
   ])

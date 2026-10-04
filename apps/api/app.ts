@@ -5,6 +5,7 @@ import helmet from '@fastify/helmet'
 import fastifyStatic from '@fastify/static'
 import { TALLY_VERSION } from '@school-election/election-core'
 import type { Config } from './config.ts'
+import type { AttemptLimiter } from './lib/attempt-limiter.ts'
 import type { Database } from './lib/db.ts'
 import { assertElectionGuard, onlyGuardedElectionRoutes } from './lib/election-access.ts'
 import { ErrorResponse, HealthResponse } from './lib/schemas/common.ts'
@@ -19,6 +20,7 @@ import { memberRoutes } from './routes/members.ts'
 import { pictureRoutes } from './routes/pictures.ts'
 import { prepareRoutes } from './routes/prepare.ts'
 import { roundRoutes } from './routes/rounds.ts'
+import { voterRoutes } from './routes/voter.ts'
 
 export interface AppOptions {
   db: Database
@@ -28,6 +30,8 @@ export interface AppOptions {
   entraAuthority?: string
   /** Called with every route as it is registered; tests list them. */
   onRoute?: (route: RouteOptions) => void
+  /** The voter routes' limiter and how a failing answer waits; tests pass their own. */
+  voter?: { limiter?: AttemptLimiter, wait?: (ms: number) => Promise<unknown> }
 }
 
 export async function buildApp(config: Config, options: AppOptions): Promise<FastifyInstance> {
@@ -110,6 +114,11 @@ export async function buildApp(config: Config, options: AppOptions): Promise<Fas
   // Hooks before routes: a plugin context inherits only the hooks that
   // exist when it is registered, and the sign-in routes are one.
   applyHardening(app, config, { webDist })
+  // The voter scope comes before the admin session: a scope inherits the
+  // hooks that exist when it is registered, so the admin session's hook
+  // never runs for a voter request, and the voter session's never for an
+  // admin request. The voter API has no identity to see.
+  await app.register(voterRoutes, { db, config, ...options.voter })
   await registerSessions(app, config)
   await app.register(authRoutes, { config, db, entraAuthority: options.entraAuthority })
   await app.register(electionRoutes, { db })
