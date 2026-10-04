@@ -7,6 +7,13 @@
 // state, never in the URL; a flag in sessionStorage, never a key, lets a
 // reload resume the session. The client of its own (voter/voter-api.ts)
 // sends nobody to the sign-in page: a voter's 401 is back to the code.
+//
+// Every request of the session runs through one lane, one after another,
+// and belongs to the session it started in: another card scanned into
+// this tab starts a new one, and an answer of an older session changes
+// nothing on the page. So an answer that ends a session (the last
+// ballot's, "Beenden"'s) is in before the next card is redeemed, and the
+// cookie set last is the last card's.
 
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -67,11 +74,25 @@ function flag(on: boolean): void {
   }
 }
 
-onMounted(async () => {
+// The lane, and the session each request belongs to.
+let lane: Promise<void> = Promise.resolve()
+let session = 0
+/** The key of the latest card scanned while the lane was busy; only it is redeemed. */
+let queued: string | undefined
+
+/** Runs `fn` after everything before it in the lane; `fn` answers for its own errors. */
+function inLane(fn: () => Promise<void>): void {
+  lane = lane.then(fn, fn)
+}
+
+/** Whether a request that started in session `mine` still speaks for the page. */
+const stale = (mine: number): boolean => mine !== session
+
+onMounted(() => {
   window.addEventListener('hashchange', onHashChange)
   const key = pendingKey()
   if (key !== undefined) enqueue(key)
-  else if (flagged()) await resume()
+  else if (flagged()) inLane(resume)
   else go({ kind: 'code' })
 })
 
@@ -84,62 +105,48 @@ onBeforeUnmount(() => {
  * without loading the page again, take-key.ts took the key out of it
  * before this runs, and the router, which heard the navigation first, is
  * told the address is /v again. The page forgets the session so far at
- * once, whatever step it was on, and starts over with the new key, whose
- * redemption replaces the cookie.
+ * once, whatever step it was on, and starts over with the new key once
+ * the lane is free.
  */
 function onHashChange(): void {
   const key = pendingKey()
   if (key === undefined) return
   void router.replace('/v')
+  session += 1
   election.value = null
   flag(false)
   go({ kind: 'loading' })
   enqueue(key)
 }
 
-// Redemptions one after another: a card that arrives while another is
-// being redeemed waits for that answer, so that the cookie set last is
-// the last card's, and of several cards that arrive meanwhile only the
-// latest is redeemed; an answer to a card that was superseded is dropped.
-let redeeming = false
-let queued: string | undefined
-
+/** A code to redeem, from the fragment or typed: the latest one waiting is redeemed when the lane is free. */
 function enqueue(key: string): void {
   queued = key
-  if (!redeeming) void drain()
+  inLane(async () => {
+    const next = queued
+    if (next === undefined) return
+    queued = undefined
+    await redeemKey(next)
+  })
 }
 
-async function drain(): Promise<void> {
-  redeeming = true
-  try {
-    while (queued !== undefined) {
-      const key = queued
-      queued = undefined
-      await redeemKey(key)
-    }
-  } finally {
-    redeeming = false
-  }
-}
-
-const superseded = (): boolean => queued !== undefined
-
-/** A code, from the fragment or typed: checked here first, so a malformed one is never sent. */
+/** A code, checked here first, so a malformed one is never sent. */
 async function redeemKey(key: string): Promise<void> {
   const hint = keyHint(key)
   if (hint !== null) {
     go({ kind: 'code' }, hint)
     return
   }
+  const mine = session
   message.value = null
   busy.value = true
   try {
     const known = await redeem(key)
-    if (superseded()) return
+    if (stale(mine) || queued !== undefined) return
     flag(true)
     arrived(known)
   } catch (err) {
-    if (superseded()) return
+    if (stale(mine) || queued !== undefined) return
     go({ kind: 'code' }, messageFor(err))
   } finally {
     busy.value = false
@@ -147,9 +154,13 @@ async function redeemKey(key: string): Promise<void> {
 }
 
 async function resume(): Promise<void> {
+  const mine = session
   try {
-    arrived(await contests())
+    const known = await contests()
+    if (stale(mine)) return
+    arrived(known)
   } catch (err) {
+    if (stale(mine)) return
     flag(false)
     go({ kind: 'code' }, messageFor(err))
   }
@@ -183,21 +194,28 @@ function markDone(contest: VoterContest, remaining?: number): void {
   election.value.remaining = remaining ?? election.value.contests.filter((entry) => !entry.done).length
 }
 
-async function submit(confirmInvalid: boolean): Promise<void> {
+function submit(confirmInvalid: boolean): void {
   if (step.value.kind !== 'review') return
   const { contest, ballot } = step.value
+  inLane(() => cast(contest, ballot, confirmInvalid))
+}
+
+async function cast(contest: VoterContest, ballot: VoterBallot, confirmInvalid: boolean): Promise<void> {
+  const mine = session
   message.value = null
   busy.value = true
   try {
-    const cast = await castBallot(contest.roundContestId, toSend(ballot, confirmInvalid))
-    markDone(contest, cast.remaining)
-    if (cast.done) {
+    const answer = await castBallot(contest.roundContestId, toSend(ballot, confirmInvalid))
+    if (stale(mine)) return
+    markDone(contest, answer.remaining)
+    if (answer.done) {
       flag(false)
       go({ kind: 'done' })
     } else {
       go({ kind: 'list' })
     }
   } catch (err) {
+    if (stale(mine)) return
     if (err instanceof VoterError && err.code === 'already_voted') {
       markDone(contest)
       go({ kind: 'list' }, messageFor(err))
@@ -219,20 +237,24 @@ async function submit(confirmInvalid: boolean): Promise<void> {
  * the cookie is still there, so the page stays as it is and says so,
  * rather than showing the next person a page that looks handed over.
  */
-async function end(): Promise<void> {
-  message.value = null
-  busy.value = true
-  try {
-    await endSession()
-  } catch (err) {
-    message.value = messageFor(err)
-    return
-  } finally {
-    busy.value = false
-  }
-  flag(false)
-  election.value = null
-  go({ kind: 'code' })
+function end(): void {
+  inLane(async () => {
+    const mine = session
+    message.value = null
+    busy.value = true
+    try {
+      await endSession()
+    } catch (err) {
+      if (!stale(mine)) message.value = messageFor(err)
+      return
+    } finally {
+      busy.value = false
+    }
+    if (stale(mine)) return
+    flag(false)
+    election.value = null
+    go({ kind: 'code' })
+  })
 }
 </script>
 

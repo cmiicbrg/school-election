@@ -233,9 +233,33 @@ test('ein zweiter Code läuft über ein Neuladen der Seite weiter; nach dem Ende
   expect(await reloaded.evaluate(() => window.location.hash)).toBe('')
   expect(urls.filter((url) => url.includes(third) || url.includes(fourth) || url.includes(fifth))).toEqual([])
 
-  // The test ends: the first key's two ballots, one of them invalid, are gone, its entitlements unused again.
+  // A card scanned while a ballot is on its way: the ballot's answer comes first, the new card is redeemed after it.
+  const sixth = keys[5] ?? ''
+  await reloaded.getByRole('button', { name: `Stimmzettel ausfüllen: ${CLASS_1A}` }).click()
+  await reloaded.getByLabel('2 Punkte · Vertreter/in', { exact: true }).selectOption({ label: 'Lena Bauer' })
+  await reloaded.getByLabel('1 Punkt · Stellvertreter/in', { exact: true }).selectOption({ label: 'Max Fuchs' })
+  await reloaded.getByRole('button', { name: 'Prüfen' }).click()
+  await context.route('**/api/voter/ballot', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    await route.continue()
+  })
+  const order: string[] = []
+  reloaded.on('request', (request) => {
+    const match = /\/api\/voter\/(ballot|session)$/.exec(request.url())
+    if (match?.[1]) order.push(match[1])
+  })
+  await reloaded.getByRole('button', { name: 'Abgeben', exact: true }).click()
+  await reloaded.evaluate((key) => {
+    window.location.hash = `#${key}`
+  }, sixth)
+  await expect(reloaded.getByRole('status')).toHaveText('Einen Moment …')
+  await expect(reloaded.getByRole('status')).toHaveText('Noch 2 Wahlgänge offen.')
+  await context.unroute('**/api/voter/ballot')
+  expect(order).toEqual(['ballot', 'session'])
+
+  // The test ends: the first key's two ballots, one of them invalid, and the fifth's one are gone, their entitlements unused again.
   const ended = await apiPost<{ election: string, round: string, ballots: number, keys: number }>(anna, `${rounds()}/test/end`)
-  expect(ended.body).toEqual({ election: 'prepared', round: 'planned', ballots: 2, keys: 1 })
+  expect(ended.body).toEqual({ election: 'prepared', round: 'planned', ballots: 3, keys: 2 })
   await refused(reloaded, 409, async () => {
     await reloaded.reload()
   })
