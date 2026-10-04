@@ -55,13 +55,16 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   credential_batch_state: { table: ['SELECT'] },
   credential_batch: { table: ['SELECT', 'INSERT'], updateColumns: ['state'] },
   credential: { table: ['SELECT', 'INSERT'] },
-  // A vote uses an entitlement up, and nothing else changes it.
-  credential_entitlement: { table: ['SELECT', 'INSERT'], updateColumns: ['consumed'] },
+  // A vote uses an entitlement up, and nothing else changes it. The
+  // clean-up at finalization rewrites the table without the dead versions
+  // the votes and the seal left (VACUUM FULL, migration 0014).
+  credential_entitlement: { table: ['SELECT', 'INSERT', 'MAINTAIN'], updateColumns: ['consumed'] },
   // The kinds of ballot, which the staging trigger reads (migration 0009).
   ballot_kind: { table: ['SELECT'] },
   // A vote stages its ballot. Nobody reads, changes or removes a staged
-  // ballot: the seal moves them, as the owner.
-  ballot_box: { table: ['INSERT'] },
+  // ballot: the seal moves them, as the owner; the clean-up rewrites the
+  // table without the staged rows the seal deleted (migration 0014).
+  ballot_box: { table: ['INSERT', 'MAINTAIN'] },
   // Sealed ballots are read for the count; the seal alone writes them.
   ballot: { table: ['SELECT'] },
   // The count writes one snapshot per ballot box when the round closes,
@@ -70,6 +73,9 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   // A lot the officials drew is recorded once and read by every member; a
   // trigger refuses any change (migration 0013).
   lot_decision: { table: ['SELECT', 'INSERT'] },
+  // The final outcome of every contest, written once at finalization and
+  // read by every member; a trigger refuses any change (migration 0014).
+  final_outcome: { table: ['SELECT', 'INSERT'] },
 }
 
 /** Functions the runtime role may execute, by their signature as PostgreSQL prints a regprocedure: argument types without spaces between them. */
@@ -88,6 +94,11 @@ export const RUNTIME_FUNCTIONS: readonly string[] = [
   'delete_election(uuid)',
   // The runoff round, created open with its boxes and entitlements, once (migration 0013).
   'activate_runoff(uuid,jsonb)',
+  // The clean-up at finalization: what still holds a snapshot older than
+  // the election's seals, and the flush of the write-ahead log with its
+  // check (migration 0014).
+  'cleanup_blockers(uuid)',
+  'flush_wal(pg_lsn)',
 ]
 
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/
