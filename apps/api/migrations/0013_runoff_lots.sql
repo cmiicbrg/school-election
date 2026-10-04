@@ -171,10 +171,13 @@ create function lot_decision_recorded() returns trigger
 declare
   box record;
 begin
-  select rc.contest_id, r.kind into box
-    from public.round_contest rc join public.round r on r.id = rc.round_id
+  -- The regular round is the kind created planned (0007): flags, not names.
+  select rc.contest_id, k.created_planned as regular into box
+    from public.round_contest rc
+    join public.round r on r.id = rc.round_id
+    join public.round_kind k on k.kind = r.kind
    where rc.id = new.round_contest_id and rc.election_id = new.election_id;
-  if box.kind is distinct from 'regular' then
+  if box.regular is not true then
     perform public.refuse('a lot is recorded on a box of the regular round');
   end if;
   if exists (
@@ -184,8 +187,10 @@ begin
     perform public.refuse('a lot is recorded while no round accepts ballots');
   end if;
   if not exists (
-    select 1 from public.round r join public.round_state rs on rs.state = r.state
-     where r.election_id = new.election_id and r.kind = 'regular' and rs.opened and not rs.accepts_ballots
+    select 1 from public.round r
+      join public.round_state rs on rs.state = r.state
+      join public.round_kind k on k.kind = r.kind and k.created_planned
+     where r.election_id = new.election_id and rs.opened and not rs.accepts_ballots
   ) then
     perform public.refuse('a lot is recorded once the regular round has closed');
   end if;
@@ -236,8 +241,9 @@ create function runoff_pairs(target uuid)
          s.id is null as missing
     from public.round_contest rc
     join public.round r on r.id = rc.round_id
+    join public.round_kind k on k.kind = r.kind and k.created_planned
     left join public.result_snapshot s on s.round_contest_id = rc.id
-   where r.election_id = target and r.kind = 'regular'
+   where r.election_id = target
 $$;
 
 -- The runoff round: created open, with a ballot box per pair and the
@@ -270,8 +276,10 @@ begin
     perform public.refuse('a runoff is activated on an active election');
   end if;
   select rs.opened and not rs.accepts_ballots into regular_closed
-    from public.round r join public.round_state rs on rs.state = r.state
-   where r.election_id = target and r.kind = 'regular';
+    from public.round r
+    join public.round_state rs on rs.state = r.state
+    join public.round_kind k on k.kind = r.kind and k.created_planned
+   where r.election_id = target;
   if regular_closed is not true then
     perform public.refuse('a runoff is activated once the regular round has closed');
   end if;
@@ -313,8 +321,10 @@ begin
       from jsonb_array_elements(pairs) as p
   loop
     if not exists (
-      select 1 from public.round_contest rc join public.round r on r.id = rc.round_id
-       where r.election_id = target and r.kind = 'regular' and rc.contest_id = pair.contest_id
+      select 1 from public.round_contest rc
+        join public.round r on r.id = rc.round_id
+        join public.round_kind k on k.kind = r.kind and k.created_planned
+       where r.election_id = target and rc.contest_id = pair.contest_id
     ) then
       perform public.refuse('a runoff is of a contest of the regular round');
     end if;
