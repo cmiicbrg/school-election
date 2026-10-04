@@ -125,7 +125,7 @@ jobs:
           log="$(docker logs school-election-test-db 2>&1)"
           # The log is the server's own: an empty one would prove nothing.
           grep -q 'database system is ready to accept connections' <<<"$log"
-          for canary in CANARYKEY00000000000 0ca0a0a0a0; do
+          for canary in CANARYKEY0000000000 0ca0a0a0a0; do
             if grep -qiF "$canary" <<<"$log"; then
               echo "The PostgreSQL log contains $canary" >&2
               exit 1
@@ -351,6 +351,15 @@ jobs:
               exit 1
               ;;
           esac
+
+          # The voter routes under load: 500 keys redeemed and voting at
+          # once, over HTTP, against the running image, every ballot staged
+          # and no error. The script runs from the image too, which carries
+          # it with its dependencies; the owner connection seeds and checks.
+          docker run --rm --network host school-election:ci node apps/api/scripts/load-voters.ts \
+            --url http://127.0.0.1:3000 \
+            --database-url "postgres://postgres:ci-owner-password@127.0.0.1:5432/school_election" \
+            --keys 500 --concurrency 100
 
           # A redeploy: restart the container and run the migrations again,
           # which must be a no-op, with no manual step in between.
