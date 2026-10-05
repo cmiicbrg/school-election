@@ -14,7 +14,6 @@ import { activeSlots, RULESETS, type RulesetId } from '@school-election/election
 import { appendAudit } from './audit.ts'
 import type { Database } from './db.ts'
 import { Refusal, type ElectionAccess } from './election-access.ts'
-import { inOrder } from './in-order.ts'
 import { cleanName, compareCandidates, compareLabels, sameCandidateName, type CandidateName } from './names.ts'
 import { pictureUrl, type StoredPicture } from './pictures.ts'
 
@@ -370,7 +369,9 @@ export async function setVoterGroupContests(client: pg.ClientBase, access: Elect
     ...added.map((contest) => ({ action: 'voter-group.contest-added' as const, contest })),
     ...removed.map((contest) => ({ action: 'voter-group.contest-removed' as const, contest })),
   ]
-  await inOrder(changes, ({ action, contest }) => appendAudit(client, access.electionId, { actor: access.actor, action, metadata: { group: groupId, contest } }))
+  for (const { action, contest } of changes) {
+    await appendAudit(client, access.electionId, { actor: access.actor, action, metadata: { group: groupId, contest } })
+  }
   return readVoterGroup(client, access.electionId, groupId)
 }
 

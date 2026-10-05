@@ -29,7 +29,6 @@ import {
 } from '@school-election/election-core'
 import { castBallot } from '../../lib/ballot-box.ts'
 import type { Database } from '../../lib/db.ts'
-import { inOrder } from '../../lib/in-order.ts'
 import { contestOutcomes } from '../../lib/outcome.ts'
 import { createTestDatabase, withClient, type TestDatabase } from './db.ts'
 
@@ -119,7 +118,7 @@ export async function seedPrivacyScenario(t: TestContext, { others = 50, opened 
     await client.query('insert into voter_group (id, election_id, name) values ($1, $2, $3)', [GROUP, ELECTION, '3A'])
     await client.query('insert into round (id, election_id, kind) values ($1, $2, $3)', [ROUND, ELECTION, 'regular'])
     const contests: ScenarioContest[] = []
-    await inOrder(CONTESTS.entries(), async ([index, contest]) => {
+    for (const [index, contest] of CONTESTS.entries()) {
       await client.query('insert into contest (id, election_id, title, ruleset_id) values ($1, $2, $3, $4)', [contest.id, ELECTION, contest.title, contest.rulesetId])
       const candidateIds = Array.from({ length: contest.candidates }, (_, n) => canaryCandidateId(index, n)).toSorted((a, b) => a.localeCompare(b, 'en'))
       await client.query(
@@ -130,7 +129,7 @@ export async function seedPrivacyScenario(t: TestContext, { others = 50, opened 
       await client.query('insert into voter_group_contest (election_id, voter_group_id, contest_id) values ($1, $2, $3)', [ELECTION, GROUP, contest.id])
       await client.query('insert into round_contest (id, election_id, round_id, contest_id) values ($1, $2, $3, $4)', [contest.boxId, ELECTION, ROUND, contest.id])
       contests.push({ contestId: contest.id, boxId: contest.boxId, rulesetId: contest.rulesetId, candidateIds, slots: activeSlots(RULESETS[contest.rulesetId], candidateIds.length).length })
-    })
+    }
     await client.query('update election set state = $2 where id = $1', [ELECTION, 'prepared'])
     await client.query('insert into credential_batch (id, election_id, voter_group_id, round_kind) values ($1, $2, $3, $4)', [BATCH, ELECTION, GROUP, 'regular'])
     const { rows: keys } = await client.query<{ id: string, xmin: string }>(
@@ -227,10 +226,10 @@ function randomVote(credentialId: string, contest: ScenarioContest, random: () =
 
 /** Casts every planned vote through `cast`, one after the other; `plan` is the first round's unless the runoff's is given. */
 export async function voteInterleaved(scenario: PrivacyScenario, cast: Caster, seed = 2026, plan: (scenario: PrivacyScenario, seed: number) => Vote[] = plannedVotes): Promise<void> {
-  await inOrder(plan(scenario, seed), async (vote) => {
+  for (const vote of plan(scenario, seed)) {
     await cast(vote)
     scenario.castOrder.push(vote)
-  })
+  }
 }
 
 const RUNOFF_BATCH = '5e6f7081-92a3-4fbf-8ad1-4c5d6e7f8092'
@@ -483,10 +482,10 @@ export async function assertUnlinkable(scenario: PrivacyScenario): Promise<void>
     for (const row of counts) assert.equal(row.ballots, row.used, row.box)
     const cast = scenario.castOrder.filter((vote) => vote.credentialId === scenario.tracked)
     assert.equal(cast.length, boxes.length, 'the tracked key voted in every box')
-    await inOrder(cast, async (vote) => {
+    for (const vote of cast) {
       const { rowCount } = await client.query('select 1 from ballot where round_contest_id = $1 and kind = $2 and ranking = $3::uuid[]', [vote.boxId, vote.kind, vote.ranking])
       assert.ok((rowCount ?? 0) >= 1, `the tracked ${vote.kind} ballot is in its box`)
-    })
+    }
   })
 }
 

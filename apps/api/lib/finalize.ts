@@ -19,7 +19,6 @@ import { BATCHES_WITH_KEYS } from './batch-keys.ts'
 import type { RoundPhases } from './cleanup.ts'
 import { voidBatches } from './credentials.ts'
 import { Refusal, type ElectionAccess } from './election-access.ts'
-import { inOrder } from './in-order.ts'
 import { contestOutcomes } from './outcome.ts'
 import { isPermitted } from './permissions.ts'
 import { SQLSTATE, sqlState } from './pg-errors.ts'
@@ -67,10 +66,12 @@ async function voidRunoffBatches(client: pg.ClientBase, access: ElectionAccess):
     [access.electionId],
   )
   await voidBatches(client, batches.map((batch) => batch.id))
-  await inOrder(batches, (batch) => appendAudit(client, access.electionId, {
-    actor: access.actor,
-    action: 'credential-batch.voided',
-    metadata: { batch: batch.id, group: batch.voter_group_id, keys: batch.keys },
-  }))
+  for (const batch of batches) {
+    await appendAudit(client, access.electionId, {
+      actor: access.actor,
+      action: 'credential-batch.voided',
+      metadata: { batch: batch.id, group: batch.voter_group_id, keys: batch.keys },
+    })
+  }
   return batches.length
 }

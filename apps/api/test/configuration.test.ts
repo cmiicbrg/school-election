@@ -4,7 +4,6 @@ import type { LightMyRequestResponse } from 'fastify'
 import sharp from 'sharp'
 import { verifyAuditChain, type AuditEvent } from '../lib/audit-chain.ts'
 import { MAX_CANDIDATES } from '../lib/configuration.ts'
-import { inOrder } from '../lib/in-order.ts'
 import { DB, withClient } from './helpers/db.ts'
 import { ANNA, auditActions, BERND, CARLA, createElection, electionApp, forceElectionState, signIn, WANDA, type Browser } from './helpers/elections.ts'
 
@@ -390,8 +389,8 @@ test('a contest holds at most fifty candidates, which is what a lot among all of
   const id = await createElection(anna)
   const base = `/api/elections/${id}`
   const { id: contestId } = ok<{ id: string }>(await anna.request('POST', `${base}/contests`, { title: 'Alle', rulesetId: 'at-school-speaker-v1' }), 201)
-  await inOrder(Array.from({ length: MAX_CANDIDATES }, (_, n) => n), async (n) => {
+  for (let n = 0; n < MAX_CANDIDATES; n++) {
     ok(await anna.request('POST', `${base}/contests/${contestId}/candidates`, { surname: `Nummer${String(n).padStart(2, '0')}`, givenName: 'K' }), 201)
-  })
+  }
   assert.deepEqual(refusal(await anna.request('POST', `${base}/contests/${contestId}/candidates`, { surname: 'Einer zu viel', givenName: 'K' })), [409, 'too_many_candidates'])
 })

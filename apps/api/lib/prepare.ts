@@ -21,7 +21,6 @@ import { readConfiguration, type Configuration } from './configuration.ts'
 import { voidBatches } from './credentials.ts'
 import type { Database } from './db.ts'
 import { Refusal, type ElectionAccess } from './election-access.ts'
-import { inOrder } from './in-order.ts'
 
 /** What stops an election from being prepared. */
 export type Problem
@@ -135,11 +134,13 @@ export async function prepareElection(client: pg.ClientBase, access: ElectionAcc
   const stale = await staleBatches(client, access.electionId)
   if (stale.length > 0 && !confirms(confirmVoid, stale)) return { prepared: false, problems: [], staleBatches: stale }
   await voidBatches(client, stale.map((batch) => batch.id))
-  await inOrder(stale, (batch) => appendAudit(client, access.electionId, {
-    actor: access.actor,
-    action: 'credential-batch.voided',
-    metadata: { batch: batch.id, group: batch.voterGroupId, keys: batch.keys },
-  }))
+  for (const batch of stale) {
+    await appendAudit(client, access.electionId, {
+      actor: access.actor,
+      action: 'credential-batch.voided',
+      metadata: { batch: batch.id, group: batch.voterGroupId, keys: batch.keys },
+    })
+  }
   await client.query(
     `insert into round (election_id, kind) select $1, 'regular'
       where not exists (select 1 from round where election_id = $1 and kind = 'regular')`,
