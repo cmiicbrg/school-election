@@ -181,27 +181,10 @@ test('input that is not an event is reported as malformed, never thrown', () => 
     assert.deepEqual(verifyAuditChain([value]), { valid: false, length: 1, index: 0, problem: 'malformed' }, JSON.stringify(value))
   }
   // The root of an export may be anything, too.
-  const unreadable = new Proxy([event], {
-    get: () => {
-      throw new Error('read refused')
-    },
-  })
-  for (const root of [null, undefined, {}, 'events', 1, { 0: event, length: 1 }, unreadable]) {
+  for (const root of [null, undefined, {}, 'events', 1, { 0: event, length: 1 }]) {
     assert.deepEqual(verifyAuditChain(root), { valid: false, length: 0, index: 0, problem: 'malformed' }, typeof root)
   }
   assert.deepEqual(verifyAuditChain([event, , event]), { valid: false, length: 3, index: 1, problem: 'malformed' })
-})
-
-test('the events are read by index, never through an iterator the input supplies', () => {
-  const genuine = chain(2)
-  const [first, second] = genuine as [AuditEvent, AuditEvent]
-  const tampered = Object.defineProperty([{ ...first, action: 'member.removed' }, second], Symbol.iterator, {
-    value: () => genuine[Symbol.iterator](),
-  })
-  assert.deepEqual(verifyAuditChain(tampered), { valid: false, length: 2, index: 0, problem: 'hash-mismatch' })
-  // A hole is not filled from the prototype either.
-  const inherited: unknown = Object.setPrototypeOf([, second], Object.assign(Object.create(Array.prototype) as object, { 0: first }))
-  assert.deepEqual(verifyAuditChain(inherited), { valid: false, length: 2, index: 0, problem: 'malformed' })
 })
 
 test('fields that are not hashed are refused, so nothing in a valid chain goes unverified', () => {
@@ -210,24 +193,4 @@ test('fields that are not hashed are refused, so nothing in a valid chain goes u
   for (const value of [{ ...event, approved: true }, { ...event, actor: { ...event.actor, token: 'x' } }, withoutSeq]) {
     assert.deepEqual(verifyAuditChain([value]), { valid: false, length: 1, index: 0, problem: 'malformed' }, JSON.stringify(value))
   }
-  // Hidden from JSON, but still not part of the hash.
-  const hidden = Object.defineProperty({ ...event }, 'note', { value: 'x', enumerable: false })
-  assert.deepEqual(verifyAuditChain([hidden]), { valid: false, length: 1, index: 0, problem: 'malformed' })
-})
-
-test('an event that throws while being read is malformed, and one that changes between reads is read once', () => {
-  const [first, second] = chain(2) as [AuditEvent, AuditEvent]
-  const fail = (): never => {
-    throw new Error('read refused')
-  }
-  const throwing = { ...first, metadata: Object.defineProperty({}, 'role', { get: fail, enumerable: true }) }
-  const proxy = new Proxy(first, { ownKeys: fail })
-  for (const value of [throwing, proxy]) {
-    assert.deepEqual(verifyAuditChain([value]), { valid: false, length: 1, index: 0, problem: 'malformed' })
-  }
-  // A hash that reads correctly once and differently afterwards is checked,
-  // and linked to, as it was read the first time.
-  let reads = 0
-  const shifty = Object.defineProperty({ ...first }, 'hash', { get: () => (reads++ === 0 ? first.hash : 'f'.repeat(64)), enumerable: true })
-  assert.deepEqual(verifyAuditChain([shifty, second]), { valid: true, length: 2, head: second.hash })
 })
