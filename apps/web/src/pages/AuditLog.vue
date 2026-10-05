@@ -2,12 +2,13 @@
 // Protokoll: every administrative step of the election, in order, as a
 // sentence with who and when, and whether the chain of hashes holds
 // together, with its last hash, which a witness can note down and compare
-// later: the check proves that nothing inside was changed, not that
-// nothing was cut off the end, which only a hash kept elsewhere proves.
-// For every member, witnesses included, at any time; read again every
-// five seconds while the election is not final, so a page left open
-// shows the steps as they are taken. Nothing of a voter is in it: the
-// log records administration, never voting.
+// later: the check proves that the chain is consistent in itself, and
+// only a hash kept elsewhere proves that nothing was changed or cut off
+// since (apps/api/lib/audit-chain.ts). For every member, witnesses
+// included, at any time; read again every five seconds while the page is
+// open, a final election's included, since an export appends to the log
+// at any time. Nothing of a voter is in it: the log records
+// administration, never voting.
 
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
@@ -45,9 +46,9 @@ const EVERY_MS = 5000
 let timer: ReturnType<typeof setInterval> | undefined
 let reading = false
 
-/** The election and its log read again, once at a time, while the election is not final. */
+/** The election and its log read again, once at a time, for as long as the page is open. */
 async function follow(): Promise<void> {
-  if (reading || election.value?.lifecycle.election === 'final') return
+  if (reading) return
   reading = true
   try {
     await load()
@@ -85,7 +86,7 @@ const names = computed<AuditNames>(() => {
 const chainText = computed(() => {
   const chain = audit.value?.chain
   if (!chain) return ''
-  if (chain.valid) return `Die Protokollkette hält zusammen: ${chain.length} Einträge, jeder mit der Prüfsumme des vorigen; kein Eintrag wurde verändert. Letzte Prüfsumme: ${chain.head ?? 'keine'}. Wer sie sich notiert, kann später sehen, dass auch nichts entfernt wurde.`
+  if (chain.valid) return `Die Protokollkette ist in sich schlüssig: ${chain.length} Einträge, jeder mit der Prüfsumme des vorigen. Letzte Prüfsumme: ${chain.head ?? 'keine'}. Nur der Vergleich mit einer früher notierten Prüfsumme zeigt, dass seither nichts verändert oder entfernt wurde.`
   return `Die Protokollkette ist unterbrochen bei Eintrag ${chain.index + 1}: ${chain.problem}. Bitte die Betreiber:in verständigen.`
 })
 </script>

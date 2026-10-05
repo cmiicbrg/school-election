@@ -41,7 +41,7 @@ test('die Protokollkette stimmt und zählt genau die Schritte der Journey', asyn
 
   // The page shows the same entries, in order, as sentences.
   await page.getByRole('navigation', { name: 'Seiten der Wahl' }).getByRole('link', { name: 'Protokoll' }).click()
-  await expect(page.getByTestId('chain')).toContainText(`Die Protokollkette hält zusammen: ${audit.events.length} Einträge, jeder mit der Prüfsumme des vorigen; kein Eintrag wurde verändert. Letzte Prüfsumme: ${audit.chain.head}.`)
+  await expect(page.getByTestId('chain')).toContainText(`Die Protokollkette ist in sich schlüssig: ${audit.events.length} Einträge, jeder mit der Prüfsumme des vorigen. Letzte Prüfsumme: ${audit.chain.head}.`)
   const entries = page.getByRole('list', { name: 'Protokoll' }).getByRole('listitem')
   await expect(entries).toHaveCount(audit.events.length)
   await expect(entries.first()).toContainText('Wahl „Schulsprecherwahl 2026/27“ angelegt.')

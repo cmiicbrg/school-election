@@ -87,7 +87,7 @@ test('das Protokoll: die Kette ist vollständig, jeder Eintrag ein Satz mit Pers
   await expect(wanda).toHaveURL(`/wahlen/${electionId()}/protokoll`)
   await expect(wanda.getByRole('heading', { level: 1, name: 'Protokoll: Schulsprecherwahl 2026/27' })).toBeVisible()
   const { body: audit } = await apiGet<{ events: unknown[], chain: { valid: boolean, length: number, head: string | null } }>(wanda, `/api/elections/${electionId()}/audit`)
-  await expect(wanda.getByTestId('chain')).toContainText(`Die Protokollkette hält zusammen: ${audit.chain.length} Einträge, jeder mit der Prüfsumme des vorigen; kein Eintrag wurde verändert. Letzte Prüfsumme: ${audit.chain.head}.`)
+  await expect(wanda.getByTestId('chain')).toContainText(`Die Protokollkette ist in sich schlüssig: ${audit.chain.length} Einträge, jeder mit der Prüfsumme des vorigen. Letzte Prüfsumme: ${audit.chain.head}.`)
   const entries = wanda.getByRole('list', { name: 'Protokoll' }).getByRole('listitem')
   await expect(entries).toHaveCount(audit.events.length)
   await expect(entries.first()).toContainText('Anna Lehrerin')
