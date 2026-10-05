@@ -8,7 +8,9 @@
 # scripts/postgres.sh starts the same pinned image for development and
 # CI, and apps/api/test/deploy-flags.test.ts keeps the three lists in
 # step. A PostgreSQL major changes only with the app's major line: the
-# data directory needs a dump and restore (deploy/README.md).
+# data directory needs a dump and restore (deploy/README.md). No USER
+# instruction: the upstream entrypoint starts as root, takes ownership of
+# a fresh data directory, and steps down to the postgres user itself.
 
 FROM docker.io/library/postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
 
