@@ -8,7 +8,6 @@ import type { EntraIdentity } from './app-user.ts'
 import { appendAudit, lockElections } from './audit.ts'
 import type { Database } from './db.ts'
 import { lifecycleOf, Refusal, ROUND_STATE_COLUMNS, ROUND_STATE_JOINS, type ElectionAccess } from './election-access.ts'
-import { inOrder } from './in-order.ts'
 import type { ElectionRole, InvitedRole } from './permissions.ts'
 
 export interface Member {
@@ -123,9 +122,11 @@ export async function bindInvitations(client: pg.ClientBase, userId: string, per
   )
   // One event per binding, each in its election's chain, one after
   // another on this transaction's connection.
-  await inOrder(bound.rows, (row) => appendAudit(client, row.election_id, {
-    actor: { tid: person.tid, oid: person.oid, name: person.displayName },
-    action: 'member.bound',
-    metadata: { email: row.invited_email, role: row.role },
-  }))
+  for (const row of bound.rows) {
+    await appendAudit(client, row.election_id, {
+      actor: { tid: person.tid, oid: person.oid, name: person.displayName },
+      action: 'member.bound',
+      metadata: { email: row.invited_email, role: row.role },
+    })
+  }
 }

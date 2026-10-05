@@ -5,7 +5,6 @@
 // session ends with the last ballot.
 
 import { expect, type BrowserContext, type Page } from '@playwright/test'
-import { inOrder } from '../../apps/api/lib/in-order.ts'
 
 export interface Ballot {
   /** The contest's title, as the list of contests names it. */
@@ -18,7 +17,7 @@ export async function voteOnPhone(context: BrowserContext, key: string, ballots:
   const page = await context.newPage()
   await page.goto(`/v#${key}`)
   await expect(page.getByRole('list', { name: 'Wahlgänge' })).toBeVisible()
-  await inOrder(ballots, (ballot) => castOne(page, ballot))
+  for (const ballot of ballots) await castOne(page, ballot)
   await expect(page.getByRole('heading', { name: 'Danke!' })).toBeVisible()
   await page.close()
 }
@@ -28,7 +27,7 @@ async function castOne(page: Page, ballot: Ballot): Promise<void> {
   await page.getByRole('button', { name: `Stimmzettel ausfüllen: ${ballot.contest}` }).click()
   const rows = page.getByRole('combobox')
   await expect(rows).toHaveCount(ballot.ranking.length)
-  await inOrder(ballot.ranking.entries(), ([index, name]) => rows.nth(index).selectOption({ label: name }))
+  for (const [index, name] of ballot.ranking.entries()) await rows.nth(index).selectOption({ label: name })
   await page.getByRole('button', { name: 'Prüfen' }).click()
   await expect(page.getByRole('status')).toHaveText('Gültige Stimme.')
   await page.getByRole('button', { name: 'Abgeben', exact: true }).click()
