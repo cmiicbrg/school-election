@@ -50,6 +50,8 @@ test('every known action has a sentence that names what its metadata carries, an
     assert.ok(sentence.length > 0 && !sentence.includes('undefined') && !sentence.includes('NaN'), `${action}: ${sentence}`)
   }
   assert.equal(eventText('member.invited', samples['member.invited'] ?? {}, NAMES), 'w@schule.example.org als Zeugin/Zeuge eingeladen.')
+  assert.equal(eventText('election.updated', samples['election.updated'] ?? {}, NAMES), 'Titel und Beschreibung geändert: „Neu“; Beschreibung: „x“.', 'a change of the description alone is readable')
+  assert.equal(eventText('election.updated', { title: 'Neu', description: '' }, NAMES), 'Titel und Beschreibung geändert: „Neu“; Beschreibung: keine.')
   assert.equal(eventText('candidate.added', samples['candidate.added'] ?? {}, NAMES), 'Paula Berger zu „Wahlgang c1“ hinzugefügt.')
   assert.equal(eventText('contest.updated', samples['contest.updated'] ?? {}, NAMES), 'Wahlgang „Schulsprecher/in“ geändert: Schulsprecherwahl: sechs Reihungen, 6 bis 1 Punkt.', 'a change of the rules is readable')
   assert.equal(eventText('election.prepared', samples['election.prepared'] ?? {}, NAMES), 'Wahl vorbereitet: 2 Wahlgänge, 1 Klasse oder Gruppe, 5 Kandidat:innen.')

@@ -32,8 +32,10 @@ export function stepText(rulesetId: RulesetId, step: TraceStep, names: Names): s
   switch (step.step) {
     case 'count':
       return countText(step)
-    case 'majority':
-      return `Absolute Mehrheit: mindestens ${plural(step.required, 'erste Stelle', 'erste Stellen')} nötig. ${step.elected === null ? 'Niemand erreicht sie.' : `${names.candidate(step.elected)} erreicht sie.`}`
+    case 'majority': {
+      const reached = step.elected === null ? 'Niemand erreicht sie.' : `${names.candidate(step.elected)} erreicht sie.`
+      return `Absolute Mehrheit: mindestens ${plural(step.required, 'erste Stelle', 'erste Stellen')} nötig. ${reached}`
+    }
     case 'compare':
       return compareText(step, names)
     case 'runoff':
@@ -66,7 +68,7 @@ function compareText(step: Extract<TraceStep, { step: 'compare' }>, names: Names
   const places = plural(step.seats, 'Platz', 'Plätze')
   const sentences = [`Vergleich nach ${BASIS[step.basis]} um ${places}: ${valuesText(step.values, names)}.`]
   if (step.advancing.length > 0) {
-    const last = step.values.filter((value) => step.advancing.includes(value.candidateId)).at(-1)
+    const last = step.values.findLast((value) => step.advancing.includes(value.candidateId))
     const next = step.values.find((value) => !step.advancing.includes(value.candidateId))
     const who = listed(step.advancing.map(names.candidate))
     const verb = step.advancing.length === 1 ? 'kommt weiter' : 'kommen weiter'
