@@ -34,32 +34,25 @@ export interface Contest {
 export const BALLOT_KINDS = ['ranking', 'no', 'invalid'] as const
 export type BallotKind = typeof BALLOT_KINDS[number]
 
-declare const validBallot: unique symbol
-
 /**
- * A ballot accepted by validateBallot and bound to that contest. `ranking`
- * holds the complete ranking for kind 'ranking' and is empty otherwise: an
- * invalid vote counts only as invalid, so its partial content is not kept.
+ * A ballot accepted by validateBallot, carrying the contest it was validated
+ * for: `contestKey` names the contest's identity and everything that decides
+ * how a ballot counts, the ruleset and the set of candidates (contestKey),
+ * so a ballot is refused by any other contest, even one with the same
+ * configuration (isBallotFor). `ranking` holds the complete ranking for kind
+ * 'ranking' and is empty otherwise: an invalid vote counts only as invalid,
+ * so its partial content is not kept.
  */
 export interface CastBallot {
   readonly kind: BallotKind
   readonly ranking: readonly string[]
-  readonly [validBallot]: true
+  readonly contestKey: string
 }
-
-// Which contest each CastBallot was validated for, keyed by the exact frozen
-// object validateBallot returned. The binding covers the contest's identity
-// and everything that decides how a ballot counts, the ruleset and the set
-// of candidates, so a ballot is refused by any other contest, even one with
-// the same configuration. A WeakMap rather than a property on the ballot: a
-// copy such as { ...ballot, ranking: [...] } or a hand-built object has no
-// entry, so only the unmodified original is ever accepted for counting.
-const boundContest = new WeakMap<CastBallot, string>()
 
 // Errors carry positions and counts, never candidate ids: a rejected ballot
 // may end up in a log line or an HTTP response, and its content must not.
 export type BallotError
-  = | { readonly kind: 'malformed', readonly reason: 'unknown-form' | 'not-an-array' | 'sparse-array' | 'invalid-entry' }
+  = | { readonly kind: 'malformed', readonly reason: 'unknown-form' | 'not-an-array' | 'invalid-entry' }
     | { readonly kind: 'no-not-offered' }
     | { readonly kind: 'inactive-slot', readonly activeSlots: number, readonly entries: number }
     | { readonly kind: 'incomplete', readonly activeSlots: number, readonly filled: number }
@@ -102,11 +95,8 @@ export function validateBallot(contest: Contest, input: unknown): BallotResult {
     case 'no':
       return offersNo(contest) ? cast(contest, 'no', []) : fail({ kind: 'no-not-offered' })
     case 'ranking': {
-      // formOf returned a form, so input is a non-array object. Own properties
-      // only, like `kind`: an inherited confirmInvalid is not the voter's
-      // confirmation.
-      const ranking = ownProperty(input as object, 'ranking')
-      const confirmInvalid = ownProperty(input as object, 'confirmInvalid')
+      // formOf returned a form, so input is a non-array object.
+      const { ranking, confirmInvalid } = input as { ranking?: unknown, confirmInvalid?: unknown }
       const checked = checkRanking(contest, slotCount, ranking)
       if ('error' in checked) return fail(checked.error)
       if (checked.filled === slotCount) return cast(contest, 'ranking', checked.ranking)
@@ -121,12 +111,8 @@ export function validateBallot(contest: Contest, input: unknown): BallotResult {
 
 function formOf(input: unknown): 'ranking' | 'no' | undefined {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return undefined
-  const kind = ownProperty(input, 'kind')
+  const { kind } = input as { kind?: unknown }
   return kind === 'ranking' || kind === 'no' ? kind : undefined
-}
-
-function ownProperty(object: object, key: string): unknown {
-  return Object.hasOwn(object, key) ? (object as Record<string, unknown>)[key] : undefined
 }
 
 function checkRanking(
@@ -144,27 +130,20 @@ function checkRanking(
 
   const candidates = new Set(contest.candidateIds)
   const seen = new Set<string>()
-  // Copied by index once, so the values checked are exactly the values kept:
-  // spreading or iterating could run an array's own iterator and yield
-  // something other than what was validated.
-  const entries = Array.from({ length: input.length }, (_, i) => Object.hasOwn(input, i) ? input[i] as unknown : HOLE)
-  for (let position = 0; position < entries.length; position++) {
-    const entry = entries[position]
-    if (entry === HOLE) return { error: { kind: 'malformed', reason: 'sparse-array' } }
+  const entries = input as unknown[]
+  for (const [position, entry] of entries.entries()) {
     if (entry === null) continue
     if (typeof entry !== 'string') return { error: { kind: 'malformed', reason: 'invalid-entry' } }
     if (!candidates.has(entry)) return { error: { kind: 'unknown-candidate', position } }
     if (seen.has(entry)) return { error: { kind: 'duplicate-candidate', position } }
     seen.add(entry)
   }
-  return { ranking: entries as string[], filled: seen.size }
+  return { ranking: [...entries] as string[], filled: seen.size }
 }
 
-const HOLE = Symbol('hole')
-
+/** The ballot as the contest accepted it: a frozen copy of the ranking, and the contest it is for. */
 function cast(contest: Contest, kind: BallotKind, ranking: readonly string[]): BallotResult {
-  const ballot = Object.freeze({ kind, ranking: Object.freeze([...ranking]) }) as unknown as CastBallot
-  boundContest.set(ballot, contestKey(contest))
+  const ballot: CastBallot = Object.freeze({ kind, ranking: Object.freeze([...ranking]), contestKey: contestKey(contest) })
   return { ok: true, ballot }
 }
 
@@ -183,8 +162,9 @@ function compareCodeUnits(a: string, b: string): number {
   return a > b ? 1 : 0
 }
 
+/** Whether the ballot was validated for the contest with this key (contestKey). */
 export function isBallotFor(ballot: CastBallot, key: string): boolean {
-  return boundContest.get(ballot) === key
+  return ballot.contestKey === key
 }
 
 function isDenseNonEmptyStrings(values: unknown): boolean {

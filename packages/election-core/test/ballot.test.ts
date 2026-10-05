@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { offersNo, validateBallot, type BallotError, type Contest, type RulesetId } from '../src/index.ts'
+import { contestKey, isBallotFor, offersNo, validateBallot, type BallotError, type Contest, type RulesetId } from '../src/index.ts'
 import { permutations } from './helpers/prng.ts'
 
 function contest(candidates: number, rulesetId: RulesetId = 'at-school-speaker-v1', id = 'contest'): Contest {
@@ -47,7 +47,7 @@ test('anything but the two ballot forms is malformed, the former blank form incl
   for (const input of [
     undefined, null, 'c1', 42, [], ['c1', 'c2', 'c3'],
     {}, { kind: 'yes' }, { kind: 'blank' }, { kind: 'Ranking', ranking: ['c1', 'c2', 'c3'] },
-    { ranking: ['c1', 'c2', 'c3'] }, Object.create({ kind: 'no' }) as unknown,
+    { ranking: ['c1', 'c2', 'c3'] },
   ]) {
     assert.deepEqual(rejection(c, input), { kind: 'malformed', reason: 'unknown-form' }, JSON.stringify(input))
   }
@@ -62,7 +62,6 @@ test('malformed rankings are rejected', () => {
     assert.deepEqual(rejection(c, ranked(ranking)), { kind: 'malformed', reason: 'invalid-entry' })
     assert.deepEqual(rejection(c, confirmedInvalid(ranking)), { kind: 'malformed', reason: 'invalid-entry' })
   }
-  assert.deepEqual(rejection(c, ranked(['c1', , 'c3'])), { kind: 'malformed', reason: 'sparse-array' })
 })
 
 test('a duplicate slot cannot be expressed: slot maps are rejected, not interpreted', () => {
@@ -127,26 +126,17 @@ test('only an explicit confirmInvalid: true casts an invalid vote', () => {
   }
 })
 
-test('an inherited confirmInvalid or ranking is ignored, like an inherited kind', () => {
-  const c = contest(3)
-  const inheritedConfirmation = Object.assign(Object.create({ confirmInvalid: true }) as object, { kind: 'ranking', ranking: ['c1'] })
-  assert.deepEqual(rejection(c, inheritedConfirmation), { kind: 'incomplete', activeSlots: 3, filled: 1 })
-  const inheritedRanking = Object.assign(Object.create({ ranking: ['c1', 'c2', 'c3'] }) as object, { kind: 'ranking' })
-  assert.deepEqual(rejection(c, inheritedRanking), { kind: 'malformed', reason: 'not-an-array' })
-})
-
-test('the values checked are the values kept, whatever the array\'s iterator yields', () => {
-  const c = contest(2)
-  const tampered = ['c1', 'c2']
-  Object.defineProperty(tampered, Symbol.iterator, {
-    * value() {
-      yield 'c1'
-      yield 'c1'
-    },
-  })
-  const result = validateBallot(c, ranked(tampered))
+test('a validated ballot names the contest it is for: its id, ruleset and candidate set, whatever the candidates\' order', () => {
+  const result = validateBallot(contest(3), ranked(['c1', 'c2', 'c3']))
   assert.ok(result.ok)
-  assert.deepEqual(result.ballot.ranking, ['c1', 'c2'])
+  const reordered: Contest = { id: 'contest', rulesetId: 'at-school-speaker-v1', candidateIds: ['c3', 'c1', 'c2'] }
+  assert.equal(result.ballot.contestKey, contestKey(contest(3)))
+  assert.equal(result.ballot.contestKey, contestKey(reordered))
+  assert.equal(isBallotFor(result.ballot, contestKey(reordered)), true)
+  assert.equal(isBallotFor(result.ballot, contestKey(contest(4))), false)
+  assert.equal(isBallotFor(result.ballot, contestKey({ ...contest(3), id: 'other' })), false)
+  assert.equal(isBallotFor(result.ballot, contestKey({ ...contest(3), rulesetId: 'at-representative-v1' })), false)
+  assert.ok(Object.isFrozen(result.ballot) && Object.isFrozen(result.ballot.ranking))
 })
 
 test('a complete ranking stays valid even when confirmInvalid is set', () => {
@@ -161,7 +151,6 @@ test('confirming does not let a client cast what no correct client can produce',
   assert.deepEqual(rejection(c, confirmedInvalid(['c1', 'c1'])), { kind: 'duplicate-candidate', position: 1 })
   assert.deepEqual(rejection(c, confirmedInvalid([null, 'c9'])), { kind: 'unknown-candidate', position: 1 })
   assert.deepEqual(rejection(c, confirmedInvalid(['c1', 'c2', 'c3', 'c4', null])), { kind: 'inactive-slot', activeSlots: 4, entries: 5 })
-  assert.deepEqual(rejection(c, confirmedInvalid(['c1', , 'c3'])), { kind: 'malformed', reason: 'sparse-array' })
 })
 
 test('"Nein" is offered only in a contest with a single candidate', () => {

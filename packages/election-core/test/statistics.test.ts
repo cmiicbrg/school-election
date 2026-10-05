@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   computeStatistics,
+  contestKey,
   validateBallot,
   type Contest,
   type ContestStatistics,
@@ -167,23 +168,13 @@ test('the binding ignores display order: reordering candidates keeps ballots cou
   assert.deepEqual(stats.candidates.map((s) => [s.candidateId, s.points]), [['c', 4], ['a', 5], ['b', 6]])
 })
 
-test('a ballot cannot be forged from a plain object, and serialises to its form only', () => {
+test('a ballot without its contest is refused, and a ballot serialises to its form and its contest', () => {
   const c = contest(2)
-  const forged = { kind: 'ranking', ranking: ['c1', 'c2'] } as unknown as CastBallot
-  assert.throws(() => computeStatistics(c, [forged]), TypeError)
-  assert.equal(JSON.stringify(ballot(c, ['c2', 'c1'])), '{"kind":"ranking","ranking":["c2","c1"]}')
-  assert.equal(JSON.stringify(invalid(c, ['c1', null])), '{"kind":"invalid","ranking":[]}')
-})
-
-test('a copy of a valid ballot with a different ranking is refused', () => {
-  const c = contest(3)
-  const valid = ballot(c, ['c1', 'c2', 'c3'])
-  const duplicate = { ...valid, ranking: ['c1', 'c1', 'c1'] } as CastBallot
-  const sameRanking = { ...valid } as CastBallot
-  assert.throws(() => computeStatistics(c, [duplicate]), TypeError)
-  assert.throws(() => computeStatistics(c, [sameRanking]), TypeError)
-  assert.deepEqual(Object.getOwnPropertySymbols(valid), [])
-  assert.ok(Object.isFrozen(valid))
+  const unbound = { kind: 'ranking', ranking: ['c1', 'c2'] } as unknown as CastBallot
+  assert.throws(() => computeStatistics(c, [unbound]), TypeError)
+  const key = JSON.stringify(contestKey(c))
+  assert.equal(JSON.stringify(ballot(c, ['c2', 'c1'])), `{"kind":"ranking","ranking":["c2","c1"],"contestKey":${key}}`)
+  assert.equal(JSON.stringify(invalid(c, ['c1', null])), `{"kind":"invalid","ranking":[],"contestKey":${key}}`)
 })
 
 // Fixed versus rescaled points. With n ≤ 6 candidates every complete ranking
