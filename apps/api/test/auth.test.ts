@@ -19,10 +19,12 @@ interface Setup {
   entra: FakeEntra
   db: Database
   logs: () => string
+  /** '' at the root of a host; the app's base path otherwise. */
+  basePath: string
 }
 
-async function setup(t: TestContext, { withDatabase = true } = {}): Promise<Setup> {
-  const entra = await startFakeEntra()
+async function setup(t: TestContext, { withDatabase = true, basePath = '' } = {}): Promise<Setup> {
+  const entra = await startFakeEntra({ redirectUri: `${ORIGIN}${basePath}/api/auth/callback` })
   t.after(() => entra.close())
   let db = stubDatabase()
   if (withDatabase) {
@@ -30,16 +32,16 @@ async function setup(t: TestContext, { withDatabase = true } = {}): Promise<Setu
     db = createDatabase(testDb.runtimeUrl, () => {})
     t.after(() => db.close())
   }
-  const { app, logs } = await buildTestApp({}, db, { entraAuthority: entra.authority })
-  app.get('/api/test/teacher-only', { preHandler: requireGlobalRole('teacher') }, () => ({ ok: true }))
+  const { app, logs } = await buildTestApp(basePath === '' ? {} : { PUBLIC_URL: `${ORIGIN}${basePath}` }, db, { entraAuthority: entra.authority })
+  app.get(`${basePath}/api/test/teacher-only`, { preHandler: requireGlobalRole('teacher') }, () => ({ ok: true }))
   t.after(() => app.close())
-  return { app, entra, db, logs }
+  return { app, entra, db, logs, basePath }
 }
 
 /** Login, the user at Entra, the callback: what a browser does. */
 async function signIn(s: Setup, jar: CookieJar, options: AuthorizeOptions & { returnTo?: string, beforeCallback?: (callback: URL) => void } = {}) {
   const query = options.returnTo === undefined ? '' : `?returnTo=${encodeURIComponent(options.returnTo)}`
-  const login = await s.app.inject({ method: 'GET', url: `/api/auth/login${query}`, headers: { cookie: jar.header() } })
+  const login = await s.app.inject({ method: 'GET', url: `${s.basePath}/api/auth/login${query}`, headers: { cookie: jar.header() } })
   assert.equal(login.statusCode, 302)
   jar.update(login)
   const callback = new URL(s.entra.authorize(String(login.headers.location), options), ORIGIN)
@@ -131,6 +133,36 @@ test('an unsafe return path falls back to the start page', DB, async (t) => {
   for (const returnTo of ['//evil.example', 'https://evil.example/', '/\\evil.example']) {
     const res = await signIn(s, new CookieJar(), { returnTo })
     assert.equal(res.headers.location, '/', returnTo)
+  }
+})
+
+test('under a base path, sign-in lives below it: the redirect URI, the cookies and the return path carry it', DB, async (t) => {
+  const s = await setup(t, { basePath: '/wahl' })
+  const jar = new CookieJar()
+  const login = await s.app.inject({ method: 'GET', url: '/wahl/api/auth/login?returnTo=/wahl/wahlen/neu' })
+  assert.equal(login.statusCode, 302)
+  jar.update(login)
+  const params = Object.fromEntries(new URL(String(login.headers.location)).searchParams)
+  assert.equal(params.redirect_uri, `${ORIGIN}/wahl/api/auth/callback`)
+  // __Host- forbids a path, so the cookies are __Secure- with the app's paths.
+  const state = login.cookies.find((cookie) => cookie.name === '__Secure-oauth2-redirect-state')
+  assert.deepEqual([state?.path, state?.secure, state?.httpOnly, state?.sameSite], ['/wahl/api/auth', true, true, 'Lax'])
+  assert.ok(!login.cookies.some((cookie) => cookie.name === STATE_COOKIE || cookie.name === ADMIN_SESSION_COOKIE))
+  const callback = new URL(s.entra.authorize(String(login.headers.location), {}), ORIGIN)
+  assert.equal(callback.pathname, '/wahl/api/auth/callback')
+  const res = await s.app.inject({ method: 'GET', url: callback.pathname + callback.search, headers: { cookie: jar.header() } })
+  jar.update(res)
+  assert.equal(res.statusCode, 303)
+  assert.equal(res.headers.location, '/wahl/wahlen/neu')
+  const session = res.cookies.find((cookie) => cookie.name === '__Secure-admin-session')
+  assert.deepEqual([session?.path, session?.secure, session?.httpOnly, session?.sameSite], ['/wahl', true, true, 'Lax'])
+  assert.equal((await s.app.inject({ method: 'GET', url: '/wahl/api/auth/me', headers: { cookie: jar.header() } })).statusCode, 200)
+  assert.equal((await s.app.inject({ method: 'GET', url: '/wahl/api/test/teacher-only', headers: { cookie: jar.header() } })).statusCode, 200)
+  // The root is not this app's.
+  assert.equal((await s.app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie: jar.header() } })).statusCode, 404)
+  // A return path outside the base path, or of the API, falls back to the app's start page.
+  for (const returnTo of ['/admin', '/wahlen/neu', '/wahl/api/auth/logout', '//evil.example']) {
+    assert.equal((await signIn(s, new CookieJar(), { returnTo })).headers.location, '/wahl/', returnTo)
   }
 })
 

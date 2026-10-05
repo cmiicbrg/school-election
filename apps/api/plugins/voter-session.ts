@@ -15,6 +15,7 @@ import type { VotingState } from '../lib/voter.ts'
 import { sessionKey } from './session.ts'
 
 export const VOTER_SESSION_COOKIE = '__Secure-voter-session'
+/** The cookie's path below the app's base path: the voter routes alone. */
 export const VOTER_SESSION_PATH = '/api/voter'
 /** Long enough to vote in every contest at a crowded table; short enough that a copied cookie is soon worthless. */
 export const VOTER_SESSION_SECONDS = 20 * 60
@@ -49,6 +50,6 @@ export async function registerVoterSession(scope: FastifyInstance, config: Confi
     expiry: VOTER_SESSION_SECONDS,
     // Strict: the voter page is the only page that sends it, and it is
     // never carried on a navigation from elsewhere.
-    cookie: { path: VOTER_SESSION_PATH, httpOnly: true, secure: true, sameSite: 'strict', maxAge: VOTER_SESSION_SECONDS },
+    cookie: { path: `${config.basePath}${VOTER_SESSION_PATH}`, httpOnly: true, secure: true, sameSite: 'strict', maxAge: VOTER_SESSION_SECONDS },
   }])
 }

@@ -136,7 +136,7 @@ test('message lines are never logged as stack frames', async (t) => {
 })
 
 test('a local debug log leaves the error message out too', async (t) => {
-  const { app, logs } = await appWithTestRoutes({ PUBLIC_ORIGIN: 'http://localhost:5173', LOG_LEVEL: 'debug' })
+  const { app, logs } = await appWithTestRoutes({ PUBLIC_URL: 'http://localhost:5173', LOG_LEVEL: 'debug' })
   t.after(() => app.close())
   await app.inject({ method: 'POST', url: '/api/test/throw', headers: sameOrigin, payload: {} })
   assert.match(logs(), /request failed/)
@@ -167,11 +167,19 @@ test('unknown API paths get JSON; other page paths get the web app', async (t) =
     assert.equal(api.headers['cache-control'], 'no-store', url)
   }
 
-  const page = await app.inject({ method: 'GET', url: '/admin/elections/42?tab=x' })
-  assert.equal(page.statusCode, 200)
-  assert.match(String(page.headers['content-type']), /text\/html/)
-  assert.match(page.body, /<title>app<\/title>/)
-  assert.equal(page.headers['cache-control'], 'no-cache')
+  for (const url of ['/', '/admin/elections/42?tab=x']) {
+    const page = await app.inject({ method: 'GET', url })
+    assert.equal(page.statusCode, 200, url)
+    assert.match(String(page.headers['content-type']), /text\/html/)
+    assert.match(page.body, /<title>app<\/title>/)
+    // The page is told the base path, and its asset references are made absolute.
+    assert.match(page.body, /<meta name="base-path" content="\/">/)
+    assert.match(page.body, /src="\/assets\/index-abc\.js"/)
+    assert.equal(page.headers['cache-control'], 'no-cache', url)
+  }
+  const asset = await app.inject({ method: 'GET', url: '/assets/index-abc.js' })
+  assert.equal(asset.statusCode, 200)
+  assert.equal(asset.headers['cache-control'], 'public, max-age=31536000, immutable')
 
   // The voter page is a page path like any other, with the same policy; a
   // fragment on it is the browser's alone and never reaches the server.
@@ -189,6 +197,40 @@ test('unknown API paths get JSON; other page paths get the web app', async (t) =
     assert.deepEqual(asset.json(), { error: 'not_found' })
   }
   assert.equal((await app.inject({ method: 'POST', url: '/admin/x', headers: sameOrigin })).statusCode, 404)
+})
+
+test('under a base path, the app answers below it alone, and the page carries the path', async (t) => {
+  const { app } = await buildTestApp({ PUBLIC_URL: `${ORIGIN}/wahl`, WEB_DIST_DIR: fakeWebDist() })
+  t.after(() => app.close())
+  assert.equal((await app.inject({ method: 'GET', url: '/wahl/api/health' })).statusCode, 200)
+  // Nothing outside the base path is this app's: not the root, not the API there, not a file.
+  for (const url of ['/', '/api/health', '/api', '/wahlen/neu', '/assets/index-abc.js', '/wahl2/wahlen', '/other/wahl/wahlen']) {
+    const res = await app.inject({ method: 'GET', url })
+    assert.equal(res.statusCode, 404, url)
+    assert.deepEqual(res.json(), { error: 'not_found' }, url)
+  }
+  for (const url of ['/wahl', '/wahl/', '/wahl/wahlen/42?tab=x', '/wahl/v']) {
+    const page = await app.inject({ method: 'GET', url })
+    assert.equal(page.statusCode, 200, url)
+    assert.match(String(page.headers['content-type']), /text\/html/)
+    assert.match(page.body, /<meta name="base-path" content="\/wahl\/">/)
+    assert.match(page.body, /src="\/wahl\/assets\/index-abc\.js"/)
+    assert.equal(page.headers['cache-control'], 'no-cache')
+  }
+  const asset = await app.inject({ method: 'GET', url: '/wahl/assets/index-abc.js' })
+  assert.equal(asset.statusCode, 200)
+  assert.equal(asset.headers['cache-control'], 'public, max-age=31536000, immutable')
+  for (const url of ['/wahl/api/nope', '/wahl/api']) {
+    const api = await app.inject({ method: 'GET', url })
+    assert.equal(api.statusCode, 404, url)
+    assert.deepEqual(api.json(), { error: 'not_found' })
+    assert.equal(api.headers['cache-control'], 'no-store', url)
+  }
+  for (const url of ['/wahl/assets/missing.js', '/wahl/assets']) {
+    const missing = await app.inject({ method: 'GET', url })
+    assert.equal(missing.statusCode, 404, url)
+    assert.deepEqual(missing.json(), { error: 'not_found' })
+  }
 })
 
 test('without a web build, page paths get a JSON 404', async (t) => {

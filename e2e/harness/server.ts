@@ -67,7 +67,7 @@ try {
   cleanups.push(() => db.close())
   const config = loadConfig({
     ...SERVER_ENV,
-    PUBLIC_ORIGIN: ORIGIN,
+    PUBLIC_URL: ORIGIN,
     HOST: '127.0.0.1',
     PORT: String(PORT),
     WEB_DIST_DIR: path.join(ROOT, 'apps', 'web', 'dist'),

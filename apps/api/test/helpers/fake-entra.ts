@@ -172,7 +172,7 @@ export async function startFakeEntra({ redirectUri = `${ORIGIN}/api/auth/callbac
     requests,
     issued,
     authorize(authorizationUrl, options = {}) {
-      return `/api/auth/callback?${issue(authorizationUrl, options).query}`
+      return `${new URL(redirectUri).pathname}?${issue(authorizationUrl, options).query}`
     },
     close: () => new Promise((resolve) => server.close(() => resolve())),
   }

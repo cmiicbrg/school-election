@@ -19,22 +19,26 @@ export interface ElectionApp {
   db: Database
   entra: FakeEntra
   ownerUrl: string
+  /** The app's base path: '' at the root of a host, or the path of the PUBLIC_URL the test gave. */
+  basePath: string
   /** Every route the app registered. */
   routes: RouteOptions[]
   /** Every log line the app has written so far, raw. */
   logs: () => string
 }
 
-export async function electionApp(t: TestContext, options: Pick<AppOptions, 'voter'> = {}): Promise<ElectionApp> {
-  const entra = await startFakeEntra()
+export async function electionApp(t: TestContext, options: Pick<AppOptions, 'voter'> & { env?: Record<string, string> } = {}): Promise<ElectionApp> {
+  const { env = {}, ...appOptions } = options
+  const basePath = env.PUBLIC_URL === undefined ? '' : new URL(env.PUBLIC_URL).pathname.replace(/\/$/, '')
+  const entra = await startFakeEntra({ redirectUri: `${ORIGIN}${basePath}/api/auth/callback` })
   t.after(() => entra.close())
   const testDb = await createTestDatabase(t)
   const db = createDatabase(testDb.runtimeUrl, () => {})
   t.after(() => db.close())
   const routes: RouteOptions[] = []
-  const { app, logs } = await buildTestApp({}, db, { entraAuthority: entra.authority, onRoute: (route) => routes.push(route), ...options })
+  const { app, logs } = await buildTestApp(env, db, { entraAuthority: entra.authority, onRoute: (route) => routes.push(route), ...appOptions })
   t.after(() => app.close())
-  return { app, db, entra, ownerUrl: testDb.ownerUrl, routes, logs }
+  return { app, db, entra, ownerUrl: testDb.ownerUrl, basePath, routes, logs }
 }
 
 export { ANNA, BERND, CARLA, WANDA, type Person } from './personas.ts'
@@ -46,7 +50,7 @@ export interface Browser {
 
 export async function signIn(s: ElectionApp, person: Person): Promise<Browser> {
   const jar = new CookieJar()
-  const login = await s.app.inject({ method: 'GET', url: '/api/auth/login' })
+  const login = await s.app.inject({ method: 'GET', url: `${s.basePath}/api/auth/login` })
   assert.equal(login.statusCode, 302)
   jar.update(login)
   const callback = new URL(s.entra.authorize(String(login.headers.location), { claims: claimsOf(person) }), ORIGIN)

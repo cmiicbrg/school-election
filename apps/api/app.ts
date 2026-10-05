@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import type { Writable } from 'node:stream'
-import Fastify, { LogController, type FastifyError, type FastifyInstance, type FastifyRequest, type RouteOptions } from 'fastify'
+import Fastify, { LogController, type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest, type RouteOptions } from 'fastify'
 import helmet from '@fastify/helmet'
 import fastifyStatic from '@fastify/static'
 import { TALLY_VERSION } from '@school-election/election-core'
@@ -10,6 +10,7 @@ import type { Database } from './lib/db.ts'
 import { assertElectionGuard } from './lib/election-access.ts'
 import { ErrorResponse, HealthResponse } from './lib/schemas/common.ts'
 import { pathOf } from './lib/url.ts'
+import { loadWebIndex, sendWebIndex } from './lib/web-index.ts'
 import { applyHardening } from './plugins/hardening.ts'
 import { registerSessions } from './plugins/session.ts'
 import { authRoutes } from './routes/auth.ts'
@@ -109,34 +110,38 @@ export async function buildApp(config: Config, options: AppOptions): Promise<Fas
   // Before any route exists: an election route without the election guard
   // stops the app from starting.
   app.addHook('onRoute', (route) => {
-    assertElectionGuard(route)
+    assertElectionGuard(route, config.basePath)
     options.onRoute?.(route)
   })
 
   const webDist = existsSync(config.webDistDir) ? config.webDistDir : undefined
+  // The page every page path gets, told the base path (lib/web-index.ts).
+  const webIndex = webDist === undefined ? undefined : await loadWebIndex(webDist, config.basePath)
   // Hooks before routes: a plugin context inherits only the hooks that
   // exist when it is registered, and the sign-in routes are one.
-  applyHardening(app, config, { webDist })
+  applyHardening(app, config, { webIndex })
+  // Every route under the base path: at the root of a host there is none.
+  const under = config.basePath === '' ? {} : { prefix: config.basePath }
   // The voter scope comes before the admin session: a scope inherits the
   // hooks that exist when it is registered, so the admin session's hook
   // never runs for a voter request, and the voter session's never for an
   // admin request. The voter API has no identity to see.
-  await app.register(voterRoutes, { db, config, ...options.voter })
+  await app.register(voterRoutes, { db, config, ...options.voter, ...under })
   await registerSessions(app, config)
-  await app.register(authRoutes, { config, db, entraAuthority: options.entraAuthority })
-  await app.register(electionRoutes, { db })
-  await app.register(memberRoutes, { db })
-  await app.register(configurationRoutes, { db })
-  await app.register(pictureRoutes, { db })
-  await app.register(prepareRoutes, { db })
-  await app.register(batchRoutes, { db })
-  await app.register(roundRoutes, { db, config })
-  await app.register(lotRoutes, { db })
-  await app.register(finalizeRoutes, { db, config })
-  await app.register(resultRoutes, { db })
-  await app.register(exportRoutes, { db, config })
+  await app.register(authRoutes, { config, db, entraAuthority: options.entraAuthority, ...under })
+  await app.register(electionRoutes, { db, ...under })
+  await app.register(memberRoutes, { db, ...under })
+  await app.register(configurationRoutes, { db, ...under })
+  await app.register(pictureRoutes, { db, ...under })
+  await app.register(prepareRoutes, { db, ...under })
+  await app.register(batchRoutes, { db, ...under })
+  await app.register(roundRoutes, { db, config, ...under })
+  await app.register(lotRoutes, { db, ...under })
+  await app.register(finalizeRoutes, { db, config, ...under })
+  await app.register(resultRoutes, { db, ...under })
+  await app.register(exportRoutes, { db, config, ...under })
 
-  app.get('/api/health', { schema: { response: { '200': HealthResponse, '503': HealthResponse, '4xx': ErrorResponse } } }, async (_request, reply) => {
+  app.get(`${config.basePath}/api/health`, { schema: { response: { '200': HealthResponse, '503': HealthResponse, '4xx': ErrorResponse } } }, async (_request, reply) => {
     const { version, gitSha } = config.build
     try {
       await db.query('select 1')
@@ -147,9 +152,19 @@ export async function buildApp(config: Config, options: AppOptions): Promise<Fas
     }
   })
 
-  if (webDist) {
+  if (webDist && webIndex !== undefined) {
+    // The app's start page, with and without the trailing slash; every
+    // other page path gets the same page from the not-found handler
+    // (plugins/hardening.ts). The static plugin serves the build's files
+    // alone: its own index handling would send the page as built, not
+    // told its base path.
+    const page = (_request: FastifyRequest, reply: FastifyReply) => sendWebIndex(reply, webIndex)
+    app.get(`${config.basePath}/`, page)
+    if (config.basePath !== '') app.get(config.basePath, page)
     await app.register(fastifyStatic, {
       root: webDist,
+      prefix: `${config.basePath}/`,
+      index: false,
       // Vite fingerprints everything under assets/, so those can be cached
       // for good; index.html must be revalidated so a deploy takes effect.
       setHeaders(reply, filePath) {

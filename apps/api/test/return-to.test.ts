@@ -18,5 +18,13 @@ test('anything that could leave the site, or is not a page, falls back', () => {
     '/api', '/api/auth/logout', '/api/../api/x',
   ]
   for (const value of refused) assert.equal(safeReturnTo(value), '/', JSON.stringify(value))
-  assert.equal(safeReturnTo('//evil.example', '/admin'), '/admin')
+})
+
+test('under a base path, a return path stays below it, and the fallback is the app\'s start page', () => {
+  for (const path of ['/wahl', '/wahl/', '/wahl/wahlen/42?tab=open']) {
+    assert.equal(safeReturnTo(path, '/wahl'), path)
+  }
+  for (const value of ['/', '/admin', '/wahlen', '/wahl2/x', '/wahl/api', '/wahl/api/auth/logout', '//evil.example', '/wahl/v#key', undefined]) {
+    assert.equal(safeReturnTo(value, '/wahl'), '/wahl/', JSON.stringify(value))
+  }
 })

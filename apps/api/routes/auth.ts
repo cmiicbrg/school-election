@@ -68,7 +68,7 @@ export async function authRoutes(app: FastifyInstance, { config, db, entraAuthor
     global: false,
     errorResponseBuilder: (_request, context) => Object.assign(new Error('rate limited'), { statusCode: context.statusCode, code: 'rate_limited' }),
   })
-  const entra = await registerEntra(app, config.entra, `${config.publicOrigin}/api/auth/callback`, entraAuthority)
+  const entra = await registerEntra(app, config.entra, `${config.publicUrl}/api/auth/callback`, config.basePath, entraAuthority)
 
   // Sets the state cookie and the pending sign-in; changes nothing on the
   // server. After an sso_reload the same URL would fail silently again, so
@@ -79,7 +79,7 @@ export async function authRoutes(app: FastifyInstance, { config, db, entraAuthor
     schema: { querystring: LoginQuery, response: { '4xx': ErrorResponse } },
   }, async (request, reply) => {
     const nonce = randomBytes(32).toString('base64url')
-    request.adminSession.set('signIn', { nonce, returnTo: safeReturnTo(request.query.returnTo), startedAt: Date.now() })
+    request.adminSession.set('signIn', { nonce, returnTo: safeReturnTo(request.query.returnTo, config.basePath), startedAt: Date.now() })
     const interactive = request.query.sso_reload === 'true'
     return reply.redirect(await entra.authorizationUrl(request, reply, nonce, interactive), 302)
   })
@@ -119,7 +119,7 @@ export async function authRoutes(app: FastifyInstance, { config, db, entraAuthor
     })
     session.set('user', { id, displayName: signIn.displayName, roles: signIn.roles, issuedAt: Date.now() })
     // Checked at login and sealed since; checked again all the same.
-    return reply.redirect(safeReturnTo(pending.returnTo), 303)
+    return reply.redirect(safeReturnTo(pending.returnTo, config.basePath), 303)
   })
 
   app.post('/api/auth/logout', (request, reply) => {

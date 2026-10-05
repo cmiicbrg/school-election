@@ -292,11 +292,11 @@ jobs:
           # Bounded: if the regression this checks for lets the server start,
           # the probe must fail here rather than block until the job timeout.
           if out="$(timeout 30 docker run --rm school-election:ci 2>&1)"; then
-            echo "Expected the image to refuse to start without PUBLIC_ORIGIN" >&2
+            echo "Expected the image to refuse to start without PUBLIC_URL" >&2
             exit 1
           fi
           echo "$out"
-          for setting in 'PUBLIC_ORIGIN must be set' 'ENTRA_TENANT_ID must be set' 'ENTRA_CLIENT_SECRET_FILE must be set' 'SESSION_KEY_FILE must be set'; do
+          for setting in 'PUBLIC_URL must be set' 'ENTRA_TENANT_ID must be set' 'ENTRA_CLIENT_SECRET_FILE must be set' 'SESSION_KEY_FILE must be set'; do
             if ! printf '%s' "$out" | grep -qF "$setting"; then
               echo "Expected the refusal to say: $setting" >&2
               exit 1
@@ -341,7 +341,7 @@ jobs:
             -v "$RUNNER_TEMP/runtime-password:/run/secrets/runtime-password:ro" \
             -v "$RUNNER_TEMP/entra-client-secret:/run/secrets/entra-client-secret:ro" \
             -v "$RUNNER_TEMP/session-key:/run/secrets/session-key:ro" \
-            -e PUBLIC_ORIGIN=http://127.0.0.1:3000 \
+            -e PUBLIC_URL=http://127.0.0.1:3000 \
             -e DATABASE_URL=postgres://school_election_app@127.0.0.1:5432/school_election \
             -e DATABASE_PASSWORD_FILE=/run/secrets/runtime-password \
             -e ENTRA_TENANT_ID="$tenant" \
