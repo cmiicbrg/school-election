@@ -28,7 +28,7 @@ export interface Candidate {
   id: string
   surname: string
   givenName: string
-  /** The URL of the stored picture, or null. */
+  /** The app's path of the stored picture (below the base path, as every API path), or null. */
   picture: string | null
 }
 

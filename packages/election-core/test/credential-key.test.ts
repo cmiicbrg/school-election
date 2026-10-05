@@ -94,10 +94,12 @@ test('anything else is refused, and says why', () => {
   assert.deepEqual(parseKey(key.slice(0, 19) + (key[19] === 'Z' ? 'Y' : 'Z')), { ok: false, problem: 'check' })
 })
 
-test('the card URL carries the key in its fragment, on the public origin', () => {
+test('the card URL carries the key in its fragment, at the app\'s address, base path included', () => {
   const [key = ''] = sampleKeys(5, 1)
   assert.equal(keyUrl('https://wahl.example.org', key), `https://wahl.example.org/v#${key}`)
   assert.equal(keyUrl('https://wahl.example.org/', key), `https://wahl.example.org/v#${key}`)
+  assert.equal(keyUrl('https://www.example.org/wahl', key), `https://www.example.org/wahl/v#${key}`)
+  assert.equal(keyUrl('https://www.example.org/wahl/', key), `https://www.example.org/wahl/v#${key}`)
   const url = new URL(keyUrl('https://wahl.example.org', key))
   assert.equal(url.pathname + url.search, '/v')
   assert.equal(url.hash, `#${key}`)

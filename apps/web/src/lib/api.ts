@@ -5,8 +5,9 @@
 // one. A 204 is an answer without content, undefined to the caller.
 
 import { ApiError, problemOf, signInUrl } from './api-rules.ts'
+import { withBase } from './base.ts'
 
-let goToSignIn: () => void = () => window.location.assign(signInUrl(window.location.pathname + window.location.search))
+let goToSignIn: () => void = () => window.location.assign(withBase(signInUrl(window.location.pathname + window.location.search)))
 
 /** How a 401 takes the browser to sign-in: the app registers the router, so it is a navigation within the app. */
 export function onUnauthenticated(handler: () => void): void {
@@ -56,7 +57,7 @@ async function send(method: string, path: string, body?: unknown): Promise<Respo
   // an empty JSON body, and some routes (replacing a batch, preparing) take none.
   const headers: Record<string, string> = { accept: 'application/json' }
   if (body !== undefined) headers['content-type'] = 'application/json'
-  const response = await fetch(path, {
+  const response = await fetch(withBase(path), {
     method,
     credentials: 'same-origin',
     headers,

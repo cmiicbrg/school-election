@@ -5,6 +5,7 @@
 
 import { computed, ref } from 'vue'
 import { apiGet, apiPost } from './api.ts'
+import { withBase } from './base.ts'
 
 export interface Me {
   id: string
@@ -25,5 +26,5 @@ export async function loadSession(): Promise<Me | null> {
 export async function signOut(): Promise<void> {
   await apiPost('/api/auth/logout')
   session.value = null
-  window.location.assign('/anmelden')
+  window.location.assign(withBase('/anmelden'))
 }

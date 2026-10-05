@@ -6,9 +6,12 @@
 // repository's root.
 
 import { defineConfig, devices } from '@playwright/test'
+import { BASE_PATH } from './e2e/support/base.ts'
 
 const PORT = Number(process.env.E2E_PORT ?? 3100)
-const baseURL = `http://127.0.0.1:${PORT}`
+// The app's address with its base path and a trailing slash, so that the
+// relative paths the specs navigate to (e2e/support/base.ts) resolve under it.
+const baseURL = `http://127.0.0.1:${PORT}${BASE_PATH}/`
 const ci = process.env.CI === 'true'
 
 export default defineConfig({
@@ -42,7 +45,7 @@ export default defineConfig({
   // not the default SIGKILL, so that it drops its database.
   webServer: {
     command: 'npm run build && node e2e/harness/server.ts',
-    url: `${baseURL}/api/health`,
+    url: `${baseURL}api/health`,
     reuseExistingServer: false,
     gracefulShutdown: { signal: 'SIGTERM', timeout: 10_000 },
     timeout: 120_000,

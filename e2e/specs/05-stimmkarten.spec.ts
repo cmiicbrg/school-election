@@ -9,6 +9,7 @@ import { electionId, journey, remember } from '../support/journey.ts'
 import { ANNA, WANDA } from '../support/personas.ts'
 import { decodeQr } from '../support/qr.ts'
 import { shot } from '../support/screenshot.ts'
+import { BASE_PATH } from '../support/base.ts'
 import { openAs } from '../support/sign-in.ts'
 
 test.describe.configure({ mode: 'serial' })
@@ -71,7 +72,7 @@ test('die Druckseite: sechs Karten je Seite, und der QR-Code der ersten Karte is
   const shownKey = ((await first.getByTestId('key').textContent()) ?? '').replaceAll('-', '')
   expect(shownKey).toMatch(/^[0-9A-HJKMNP-TV-Z]{20}$/)
   const qr = await first.getByTestId('qr').getAttribute('src')
-  expect(decodeQr(qr ?? '')).toBe(`${new URL(page.url()).origin}/v#${shownKey}`)
+  expect(decodeQr(qr ?? '')).toBe(`${new URL(page.url()).origin}${BASE_PATH}/v#${shownKey}`)
   const stored = await keysOf(batch)
   expect(stored).toHaveLength(25)
   expect(stored[0]).toBe(shownKey)

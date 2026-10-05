@@ -16,6 +16,7 @@ import { RouterLink } from 'vue-router'
 import type { LotRequest, RoundKind, RulesetId } from '@school-election/election-core'
 import LotForm from './LotForm.vue'
 import { apiDownload, apiGet, apiPost } from '../lib/api.ts'
+import { BASE_URL, withBase } from '../lib/base.ts'
 import { errorMessage } from '../lib/api-rules.ts'
 import { useDialogFocus } from '../lib/dialog-focus.ts'
 import { fileNameOf } from '../lib/download.ts'
@@ -62,7 +63,7 @@ const names = computed<Names>(() => {
 })
 const contestTitle = (id: string): string => props.configuration.contests.find((contest) => contest.id === id)?.title ?? ''
 const rulesetOf = (id: string): RulesetId => props.configuration.contests.find((contest) => contest.id === id)?.rulesetId ?? 'single-choice-v1'
-const address = computed(() => voterAddress(window.location.origin))
+const address = computed(() => voterAddress(BASE_URL))
 
 const stateLine = computed(() => {
   const { lifecycle } = props.election
@@ -278,7 +279,8 @@ function lotsOf(contest: ContestResult): LotRequest[] {
   return contest.outcome.kind === 'lot-required' ? [...contest.outcome.lots] : []
 }
 
-const printPath = (batch: BatchSummary): string => `/elections/${props.election.id}/batches/${batch.id}/print`
+/** A plain link to the print page, base path included: the router does not add it here. */
+const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.election.id}/batches/${batch.id}/print`)
 </script>
 
 <template>

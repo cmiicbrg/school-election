@@ -30,6 +30,16 @@ test('without a fragment, or on another page, nothing is taken and nothing repla
   assert.equal(pendingKey(), undefined)
 })
 
+test('under a base path the voter page is below it, and the entry is replaced by that path', () => {
+  const history = fakeHistory()
+  assert.equal(takeKey({ pathname: '/wahl/v', hash: '#7KM4P9VX2RNCWQ5DH3TB' }, history, '/wahl'), '7KM4P9VX2RNCWQ5DH3TB')
+  assert.deepEqual(history.calls, [[{ marker: 1 }, '', '/wahl/v']])
+  assert.equal(pendingKey(), '7KM4P9VX2RNCWQ5DH3TB')
+  const elsewhere = fakeHistory()
+  assert.equal(takeKey({ pathname: '/v', hash: '#7KM4P9VX2RNCWQ5DH3TB' }, elsewhere, '/wahl'), undefined, 'the root is not the app')
+  assert.deepEqual(elsewhere.calls, [])
+})
+
 test('whatever the fragment holds is handed over as it is: the page checks it, never this module', () => {
   const history = fakeHistory()
   assert.equal(takeKey({ pathname: '/v', hash: '#not a key' }, history), 'not a key')

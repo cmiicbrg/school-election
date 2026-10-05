@@ -8,6 +8,7 @@ import { computed, reactive, ref } from 'vue'
 import { useDialogFocus } from '../lib/dialog-focus.ts'
 import type { Lifecycle, RoundKind } from '@school-election/election-core'
 import { apiPost } from '../lib/api.ts'
+import { withBase } from '../lib/base.ts'
 import { errorMessage } from '../lib/api-rules.ts'
 import { ROUND_LABELS, type Role } from '../lib/labels.ts'
 import { mayReadKeys, type SetupRules } from '../lib/setup-rules.ts'
@@ -44,8 +45,9 @@ const groups = computed(() => props.configuration.voterGroups.map((group) => ({
 const anyIssue = computed(() => props.rules.issue.regular || props.rules.issue.runoff)
 const anyReplace = computed(() => props.batches.some((batch) => batch.state === 'issued' && props.rules.replace[batch.roundKind]))
 
+/** The print page's address for a plain link, which opens in a tab of its own: base path included, since the router does not add it here. */
 function printPath(batch: BatchSummary): string {
-  return `/elections/${props.electionId}/batches/${batch.id}/print`
+  return withBase(`/elections/${props.electionId}/batches/${batch.id}/print`)
 }
 
 /** Sheets print until the batch's round opens; once it has closed, the codes with their use can be seen. */
@@ -202,7 +204,7 @@ function groupName(batch: BatchSummary): string {
     >
       {{ done.text }}
       <a
-        :href="`/elections/${electionId}/batches/${done.batchId}/print`"
+        :href="withBase(`/elections/${electionId}/batches/${done.batchId}/print`)"
         target="_blank"
         rel="noopener"
       >Jetzt drucken</a>

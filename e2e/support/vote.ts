@@ -5,6 +5,7 @@
 // session ends with the last ballot.
 
 import { expect, type BrowserContext, type Page } from '@playwright/test'
+import { at } from './base.ts'
 
 export interface Ballot {
   /** The contest's title, as the list of contests names it. */
@@ -15,7 +16,7 @@ export interface Ballot {
 
 export async function voteOnPhone(context: BrowserContext, key: string, ballots: readonly Ballot[]): Promise<void> {
   const page = await context.newPage()
-  await page.goto(`/v#${key}`)
+  await page.goto(at(`/v#${key}`))
   await expect(page.getByRole('list', { name: 'Wahlgänge' })).toBeVisible()
   for (const ballot of ballots) await castOne(page, ballot)
   await expect(page.getByRole('heading', { name: 'Danke!' })).toBeVisible()

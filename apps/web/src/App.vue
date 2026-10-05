@@ -10,6 +10,7 @@ import { computed, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { isBarePath } from './router.ts'
 import { signInUrl } from './lib/api-rules.ts'
+import { withBase } from './lib/base.ts'
 import { loadSession, session, signOut } from './lib/session.ts'
 
 const route = useRoute()
@@ -22,7 +23,7 @@ watch([bare, session, () => route.fullPath], ([isBare, who, path]) => {
   if (who === undefined) {
     void loadSession()
   } else if (who === null && route.path !== '/anmelden') {
-    void router.replace(signInUrl(path))
+    void router.replace(signInUrl(withBase(path)))
   }
 }, { immediate: true })
 

@@ -2,6 +2,7 @@
 // the stand-in's page with the personas, and back to the page they wanted.
 
 import { expect, type Page } from '@playwright/test'
+import { at, urlOf } from './base.ts'
 import type { Person } from './personas.ts'
 
 /** From the app's sign-in page, where a signed-out person lands, to the app as `person`. */
@@ -15,9 +16,9 @@ export async function signInAs(page: Page, person: Person): Promise<void> {
 
 /** Opens `path` as `person` in a page of its own, signing in on the way. */
 export async function openAs(page: Page, person: Person, path: string): Promise<void> {
-  await page.goto(path)
+  await page.goto(at(path))
   await signInAs(page, person)
-  await expect(page).toHaveURL(path)
+  await expect(page).toHaveURL(urlOf(path))
 }
 
 export async function signOut(page: Page): Promise<void> {

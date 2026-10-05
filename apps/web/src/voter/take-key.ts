@@ -5,7 +5,8 @@
 // loading the page again. The page hears the same event, after this, and
 // starts over with the key taken here.
 
+import { BASE_PATH } from '../lib/base.ts'
 import { takeKey } from './bootstrap.ts'
 
-takeKey(window.location, window.history)
-window.addEventListener('hashchange', () => takeKey(window.location, window.history))
+takeKey(window.location, window.history, BASE_PATH)
+window.addEventListener('hashchange', () => takeKey(window.location, window.history, BASE_PATH))

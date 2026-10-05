@@ -5,6 +5,7 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import { onUnauthenticated } from './lib/api.ts'
 import { signInUrl } from './lib/api-rules.ts'
+import { withBase } from './lib/base.ts'
 import { session } from './lib/session.ts'
 import { router } from './router.ts'
 import './styles.css'
@@ -13,11 +14,13 @@ import './styles.css'
 // session the page knew about is gone, so the sign-in page does not send
 // a person it takes for signed in straight back. A page's requests fail
 // together: the first one takes the browser there, the others find it on
-// the sign-in page already and leave the return path alone.
+// the sign-in page already and leave the return path alone. The return
+// path is the page's full path, base path included, as the server wants
+// it back.
 onUnauthenticated(() => {
   session.value = null
   const route = router.currentRoute.value
-  if (route.path !== '/anmelden') void router.replace(signInUrl(route.fullPath))
+  if (route.path !== '/anmelden') void router.replace(signInUrl(withBase(route.fullPath)))
 })
 
 createApp(App).use(router).mount('#app')

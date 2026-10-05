@@ -16,8 +16,9 @@ export interface Card {
   url: string
 }
 
-export function cardsOf(keys: readonly string[], origin: string): Card[] {
-  return keys.map((key) => ({ key, grouped: formatKey(key), url: keyUrl(origin, key) }))
+/** The cards for `keys`, pointing at the app at `base`: its address with the base path, such as https://www.example.org/wahl. */
+export function cardsOf(keys: readonly string[], base: string): Card[] {
+  return keys.map((key) => ({ key, grouped: formatKey(key), url: keyUrl(base, key) }))
 }
 
 /** The items in pages of `perPage`, the last one shorter. */
@@ -35,9 +36,10 @@ export function pageCount(count: number, perPage = CARDS_PER_PAGE): number {
 /** The round a batch is for, as a card names it. */
 export const ROUND_LABELS: Readonly<Record<RoundKind, string>> = { regular: 'Wahl', runoff: 'Stichwahl' }
 
-/** The address a voter types instead of scanning: the host and the voter page, without a scheme. */
-export function voterAddress(origin: string): string {
-  return `${new URL(origin).host}/v`
+/** The address a voter types instead of scanning: the host, the base path and the voter page, without a scheme. */
+export function voterAddress(base: string): string {
+  const url = new URL(base)
+  return `${url.host}${url.pathname.replace(/\/$/, '')}/v`
 }
 
 /**

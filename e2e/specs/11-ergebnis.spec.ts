@@ -9,6 +9,7 @@ import { apiGet } from '../support/api.ts'
 import { electionId } from '../support/journey.ts'
 import { WANDA } from '../support/personas.ts'
 import { shot } from '../support/screenshot.ts'
+import { urlOf } from '../support/base.ts'
 import { openAs } from '../support/sign-in.ts'
 
 test.describe.configure({ mode: 'serial' })
@@ -31,7 +32,7 @@ const article = (title: string) => wanda.getByRole('article', { name: title, exa
 
 test('das Ergebnis: die Zahlen jeder Runde als Tabelle, die Herleitung Schritt für Schritt, die Lose, die Positionen, die Versionen', async () => {
   await wanda.getByRole('navigation', { name: 'Seiten der Wahl' }).getByRole('link', { name: 'Ergebnis und Herleitung' }).click()
-  await expect(wanda).toHaveURL(`/wahlen/${electionId()}/ergebnis`)
+  await expect(wanda).toHaveURL(urlOf(`/wahlen/${electionId()}/ergebnis`))
   await expect(wanda.getByRole('heading', { level: 1, name: 'Ergebnis: Schulsprecherwahl 2026/27' })).toBeVisible()
   await expect(wanda.getByTestId('finalized')).toHaveText(/^Abgeschlossen am \d{1,2}\.\d{1,2}\.\d{4}, \d{2}:\d{2} durch Anna Lehrerin: Ergebnis festgestellt$/)
 
@@ -84,7 +85,7 @@ test('das Ergebnis: die Zahlen jeder Runde als Tabelle, die Herleitung Schritt f
 
 test('das Protokoll: die Kette ist vollständig, jeder Eintrag ein Satz mit Person und Zeit, vom Anlegen bis zum Export', async () => {
   await wanda.getByRole('link', { name: 'Protokoll' }).click()
-  await expect(wanda).toHaveURL(`/wahlen/${electionId()}/protokoll`)
+  await expect(wanda).toHaveURL(urlOf(`/wahlen/${electionId()}/protokoll`))
   await expect(wanda.getByRole('heading', { level: 1, name: 'Protokoll: Schulsprecherwahl 2026/27' })).toBeVisible()
   const { body: audit } = await apiGet<{ events: unknown[], chain: { valid: boolean, length: number, head: string | null } }>(wanda, `/api/elections/${electionId()}/audit`)
   await expect(wanda.getByTestId('chain')).toContainText(`Die Protokollkette ist in sich schlüssig: ${audit.chain.length} Einträge, jeder mit der Prüfsumme des vorigen. Letzte Prüfsumme: ${audit.chain.head}.`)
@@ -106,7 +107,7 @@ test('das Protokoll: die Kette ist vollständig, jeder Eintrag ein Satz mit Pers
 test('die Hilfe zum Wahltag, über den Link der Wahl', async () => {
   await wanda.getByRole('link', { name: 'Zur Wahl' }).click()
   await wanda.getByRole('navigation', { name: 'Seiten der Wahl' }).getByRole('link', { name: 'Ablauf am Wahltag' }).click()
-  await expect(wanda).toHaveURL('/hilfe/wahltag')
+  await expect(wanda).toHaveURL(urlOf('/hilfe/wahltag'))
   await expect(wanda.getByRole('heading', { level: 1, name: 'Ablauf am Wahltag' })).toBeVisible()
   await expect(wanda.getByRole('heading', { level: 2 })).toHaveText(['Vor dem Wahltag', 'Am Wahltag', 'Zwischenfälle', 'Was Zeug:innen sehen'])
   await expect(wanda.getByText('Die Wahl wurde zu früh geschlossen')).toBeVisible()

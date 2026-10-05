@@ -11,6 +11,7 @@ import { expectFailure, refused } from '../support/console.ts'
 import { batchId, electionId, journey } from '../support/journey.ts'
 import { ANNA } from '../support/personas.ts'
 import { shot } from '../support/screenshot.ts'
+import { at, BASE_PATH, urlOf } from '../support/base.ts'
 import { openAs } from '../support/sign-in.ts'
 
 test.describe.configure({ mode: 'serial' })
@@ -64,9 +65,9 @@ test('die Lehrkraft startet den Probelauf; der Code aus dem QR-Code verlässt di
   await expect(run().getByTestId('state')).toHaveText('Der Probelauf läuft: Stimmen zählen nicht, und nichts bleibt.')
   await expect(run().getByTestId('turnout')).toContainText('Wahl: 0 von 25 Stimmkarten verwendet')
   await shot(anna, '24-probelauf')
-  await page.goto(`/v#${firstKey()}`)
+  await page.goto(at(`/v#${firstKey()}`))
   await expect(page.getByRole('heading', { name: 'Schulsprecherwahl 2026/27' })).toBeVisible()
-  await expect(page).toHaveURL('/v')
+  await expect(page).toHaveURL(urlOf('/v'))
   expect(await page.evaluate(() => window.location.hash)).toBe('')
   expect(requested.filter((url) => url.includes(firstKey()))).toEqual([])
   await expect(page.getByText('Probelauf: Diese Stimmen zählen nicht.')).toBeVisible()
@@ -153,7 +154,7 @@ test('derselbe Code getippt: Tippfehler werden vor dem Senden erkannt, die Karte
   typed.on('request', (request) => {
     if (request.url().endsWith('/api/voter/session')) sent.push(request.url())
   })
-  await typed.goto('/v')
+  await typed.goto(at('/v'))
   await expect(typed.getByRole('heading', { name: 'Stimmabgabe' })).toBeVisible()
   await expect(typed.getByLabel('Code')).toBeFocused()
   await shot(typed, '18-handy-code')
@@ -180,7 +181,7 @@ test('derselbe Code getippt: Tippfehler werden vor dem Senden erkannt, die Karte
   await expect(typed.getByRole('list', { name: 'Wahlgänge' }).getByText('abgegeben')).toHaveCount(2)
   // "Fertig" that does not reach the server leaves the page as it is: the cookie is still there.
   await other.route('**/api/voter/session/end', (route) => route.abort())
-  expectFailure(new URL('/api/voter/session/end', typed.url()).toString())
+  expectFailure(new URL(`${BASE_PATH}/api/voter/session/end`, typed.url()).toString())
   await typed.getByRole('button', { name: 'Fertig' }).click()
   await expect(typed.getByRole('alert')).toHaveText('Das hat nicht geklappt. Bitte versuchen Sie es noch einmal.')
   await expect(typed.getByRole('status')).toHaveText('Sie haben in allen Wahlgängen abgestimmt.')
@@ -196,13 +197,13 @@ test('ein zweiter Code läuft über ein Neuladen der Seite weiter; nach dem Ende
   expect(second).toMatch(/^[0-9A-HJKMNP-TV-Z]{20}$/)
   const context = await browser.newContext({ ...devices['Pixel 7'] })
   const reloaded = await context.newPage()
-  await reloaded.goto('/v')
+  await reloaded.goto(at('/v'))
   await reloaded.getByLabel('Code').fill(second)
   await reloaded.getByRole('button', { name: 'Weiter' }).click()
   await expect(reloaded.getByRole('status')).toHaveText('Noch 2 Wahlgänge offen.')
   await reloaded.reload()
   await expect(reloaded.getByRole('status')).toHaveText('Noch 2 Wahlgänge offen.')
-  await expect(reloaded).toHaveURL('/v')
+  await expect(reloaded).toHaveURL(urlOf('/v'))
 
   // A third card scanned into the same tab, while the page is on a ballot: the browser changes the
   // fragment without loading the page again; the ballot is gone at once, the key leaves the address
@@ -238,7 +239,7 @@ test('ein zweiter Code läuft über ein Neuladen der Seite weiter; nach dem Ende
   await context.unroute('**/api/voter/session')
   expect(redeemed).toEqual([third, fifth])
   await expect.poll(cookieOf).not.toBe(before)
-  await expect(reloaded).toHaveURL('/v')
+  await expect(reloaded).toHaveURL(urlOf('/v'))
   expect(await reloaded.evaluate(() => window.location.hash)).toBe('')
   expect(urls.filter((url) => url.includes(third) || url.includes(fourth) || url.includes(fifth))).toEqual([])
 

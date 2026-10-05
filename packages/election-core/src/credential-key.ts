@@ -101,9 +101,12 @@ export function formatKey(key: string): string {
 
 /**
  * The URL a card's QR code carries: the voter page with the key in the
- * fragment, which the browser never sends to the server. The origin is
- * the public origin, such as https://wahl.example.org.
+ * fragment, which the browser never sends to the server. `base` is the
+ * app's address, an origin such as https://wahl.example.org, or an origin
+ * with the path the app runs under, such as https://www.example.org/wahl;
+ * a trailing slash on it changes nothing.
  */
-export function keyUrl(origin: string, key: string): string {
-  return `${new URL(origin).origin}/v#${key}`
+export function keyUrl(base: string, key: string): string {
+  const url = new URL(base)
+  return `${url.origin}${url.pathname.replace(/\/$/, '')}/v#${key}`
 }
