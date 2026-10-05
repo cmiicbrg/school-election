@@ -51,6 +51,7 @@ test('every known action has a sentence that names what its metadata carries, an
   }
   assert.equal(eventText('member.invited', samples['member.invited'] ?? {}, NAMES), 'w@schule.example.org als Zeugin/Zeuge eingeladen.')
   assert.equal(eventText('candidate.added', samples['candidate.added'] ?? {}, NAMES), 'Paula Berger zu „Wahlgang c1“ hinzugefügt.')
+  assert.equal(eventText('contest.updated', samples['contest.updated'] ?? {}, NAMES), 'Wahlgang „Schulsprecher/in“ geändert: Schulsprecherwahl: sechs Reihungen, 6 bis 1 Punkt.', 'a change of the rules is readable')
   assert.equal(eventText('election.prepared', samples['election.prepared'] ?? {}, NAMES), 'Wahl vorbereitet: 2 Wahlgänge, 1 Klasse oder Gruppe, 5 Kandidat:innen.')
   assert.equal(eventText('credential-batch.replaced', samples['credential-batch.replaced'] ?? {}, NAMES), 'Stapel für „Klasse g1“ (Stichwahl) ersetzt: 1 neue Stimmkarte, die alten ungültig.')
   assert.equal(eventText('result.computed', samples['result.computed'] ?? {}, NAMES), 'Ergebnis ausgezählt: „Wahlgang c1“, Wahl, 4 Stimmen: Losentscheid erforderlich. Prüfsumme der Auszählung: ff.')

@@ -4,8 +4,8 @@
 // key with its metadata rather than hidden: the log is complete or it is
 // nothing.
 
-import type { OutcomeKind, RoundKind } from '@school-election/election-core'
-import { ROLE_LABELS, ROUND_LABELS, type Role } from './labels.ts'
+import type { OutcomeKind, RoundKind, RulesetId } from '@school-election/election-core'
+import { ROLE_LABELS, ROUND_LABELS, RULESET_LABELS, type Role } from './labels.ts'
 
 export interface AuditNames {
   contest: (id: string) => string
@@ -28,6 +28,7 @@ const num = (metadata: Metadata, key: string): number => Number(metadata[key] ??
 const role = (metadata: Metadata): string => ROLE_LABELS[text(metadata, 'role') as Role] ?? text(metadata, 'role')
 const round = (metadata: Metadata): string => ROUND_LABELS[text(metadata, 'round') as RoundKind] ?? text(metadata, 'round')
 const outcome = (metadata: Metadata): string => OUTCOME_LABELS[text(metadata, 'outcome') as OutcomeKind] ?? text(metadata, 'outcome')
+const ruleset = (metadata: Metadata): string => RULESET_LABELS[text(metadata, 'rulesetId') as RulesetId] ?? text(metadata, 'rulesetId')
 const person = (metadata: Metadata): string => `${text(metadata, 'givenName')} ${text(metadata, 'surname')}`.trim()
 const plural = (n: number, one: string, many: string): string => (n === 1 ? `1 ${one}` : `${n} ${many}`)
 
@@ -45,9 +46,9 @@ export function eventText(action: string, metadata: Metadata, names: AuditNames)
     case 'member.removed':
       return `${text(metadata, 'email')} (${role(metadata)}) entfernt.`
     case 'contest.created':
-      return `Wahlgang „${text(metadata, 'title')}“ angelegt.`
+      return `Wahlgang „${text(metadata, 'title')}“ angelegt: ${ruleset(metadata)}.`
     case 'contest.updated':
-      return `Wahlgang „${text(metadata, 'title')}“ geändert.`
+      return `Wahlgang „${text(metadata, 'title')}“ geändert: ${ruleset(metadata)}.`
     case 'contest.removed':
       return `Wahlgang „${text(metadata, 'title')}“ entfernt, mit ${plural(num(metadata, 'candidates'), 'Kandidat:in', 'Kandidat:innen')}.`
     case 'candidate.added':

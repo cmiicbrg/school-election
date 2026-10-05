@@ -4,10 +4,12 @@
 // together, with its last hash, which a witness can note down and compare
 // later: the check proves that nothing inside was changed, not that
 // nothing was cut off the end, which only a hash kept elsewhere proves.
-// For every member, witnesses included, at any time. Nothing of a voter
-// is in it: the log records administration, never voting.
+// For every member, witnesses included, at any time; read again every
+// five seconds while the election is not final, so a page left open
+// shows the steps as they are taken. Nothing of a voter is in it: the
+// log records administration, never voting.
 
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { apiGet } from '../lib/api.ts'
 import { errorMessage } from '../lib/api-rules.ts'
@@ -39,8 +41,27 @@ async function load(): Promise<void> {
   }
 }
 
+const EVERY_MS = 5000
+let timer: ReturnType<typeof setInterval> | undefined
+let reading = false
+
+/** The election and its log read again, once at a time, while the election is not final. */
+async function follow(): Promise<void> {
+  if (reading || election.value?.lifecycle.election === 'final') return
+  reading = true
+  try {
+    await load()
+  } finally {
+    reading = false
+  }
+}
+
 onMounted(() => {
   void load()
+  timer = setInterval(() => void follow(), EVERY_MS)
+})
+onUnmounted(() => {
+  if (timer !== undefined) clearInterval(timer)
 })
 watch(() => props.id, () => {
   election.value = undefined

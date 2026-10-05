@@ -47,6 +47,7 @@ test('die Protokollkette stimmt und zählt genau die Schritte der Journey', asyn
   await expect(entries.first()).toContainText('Wahl „Schulsprecherwahl 2026/27“ angelegt.')
   await expect(entries.last()).toContainText('Wahl vorbereitet: 2 Wahlgänge, 2 Klassen oder Gruppen, 5 Kandidat:innen.')
   await expect(entries.filter({ hasText: 'Paula Berger zu „Schulsprecher/in“ hinzugefügt.' })).toHaveCount(1)
+  await expect(entries.filter({ hasText: 'Wahlgang „Klassensprecher/in 1A“ angelegt: Vertretung und Stellvertretung: zwei Reihungen, 2 und 1 Punkt.' })).toHaveCount(1)
   await shot(page, '07a-protokoll-vorbereitet')
 })
 
