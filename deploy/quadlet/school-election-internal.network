@@ -1,0 +1,5 @@
+# The network the database sits on alone: no route off the host. Quadlet
+# creates it when a unit that names it starts.
+[Network]
+NetworkName=school-election-internal
+Internal=true

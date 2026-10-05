@@ -1,7 +1,8 @@
 // The PostgreSQL settings the app requires are written down three times: in
 // the startup check (lib/db-settings.ts), in the launcher that development
-// and CI use (scripts/postgres.sh) and in the deployment example
-// (deploy/compose.example.yml). These tests fail as soon as they disagree.
+// and CI use (scripts/postgres.sh) and in the command of the deployment's
+// PostgreSQL image (deploy/postgres/Dockerfile). These tests fail as soon
+// as they disagree.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -12,20 +13,25 @@ import { ALLOWED_SETTINGS, REQUIRED_SETTINGS } from '../lib/db-settings.ts'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 const LAUNCHER = 'scripts/postgres.sh'
-const COMPOSE = 'deploy/compose.example.yml'
+const DOCKERFILE = 'deploy/postgres/Dockerfile'
 
 const read = (file: string) => readFile(path.join(root, file), 'utf8')
 
 /**
- * Every setting on a line of its own, in order: `-c name=value`, and the
- * `--name=value` form PostgreSQL also accepts. Any name counts, including
- * a module's dotted ones, so a setting the check does not know is caught.
+ * Every setting on a line of its own, in order: `-c name=value` and the
+ * `--name=value` form PostgreSQL also accepts in the launcher, and
+ * `"-c", "name=value"` in the Dockerfile's exec-form command. Any name
+ * counts, including a module's dotted ones, so a setting the check does
+ * not know is caught.
  */
 async function flags(file: string): Promise<[string, string][]> {
-  return [...(await read(file)).matchAll(/^\s*(?:-c |--)([^=\s]+)=(\S*)$/gm)].map((match) => [match[1] ?? '', match[2] ?? ''])
+  const text = await read(file)
+  const shell = [...text.matchAll(/^\s*(?:-c |--)([^=\s]+)=(\S*)$/gm)]
+  const exec = [...text.matchAll(/^\s*"-c", "([^="]+)=([^"]*)"[,\]]? ?\\?$/gm)]
+  return [...shell, ...exec].map((match) => [match[1] ?? '', match[2] ?? ''])
 }
 
-for (const file of [LAUNCHER, COMPOSE]) {
+for (const file of [LAUNCHER, DOCKERFILE]) {
   test(`${file} sets every setting the startup check requires, and no other`, async () => {
     const list = await flags(file)
     const set = new Map(list)
@@ -40,11 +46,17 @@ for (const file of [LAUNCHER, COMPOSE]) {
   })
 }
 
-test('development, CI and the deployment example start PostgreSQL with the same flags', async () => {
-  assert.deepEqual(await flags(COMPOSE), await flags(LAUNCHER))
+test('development, CI and the deployment image start PostgreSQL with the same flags', async () => {
+  assert.deepEqual(await flags(DOCKERFILE), await flags(LAUNCHER))
 })
 
-test('CI starts PostgreSQL only through the launcher', async () => {
+test('the launcher starts the image the deployment is built from', async () => {
+  const pinned = /^FROM (docker\.io\/library\/postgres:\S+@sha256:[0-9a-f]{64})$/m.exec(await read(DOCKERFILE))?.[1]
+  assert.ok(pinned, 'the Dockerfile pins the image by tag and digest')
+  assert.match(await read(LAUNCHER), /deploy\/postgres\/Dockerfile/)
+})
+
+test('CI starts PostgreSQL through the launcher or the deployment image, never with flags of its own', async () => {
   const ci = await read('.github/workflows/ci.yml')
   assert.match(ci, /scripts\/postgres\.sh /)
   assert.doesNotMatch(ci, /library\/postgres|-c [a-z_]+=/)

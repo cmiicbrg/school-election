@@ -17,6 +17,8 @@ export const ErrorResponse = StrictObject({
 export const HealthResponse = StrictObject({
   status: Type.Union([Type.Literal('ok'), Type.Literal('degraded')]),
   db: Type.Union([Type.Literal('up'), Type.Literal('down')]),
+  /** Whether any round of any election accepts ballots now: an update or a restart would interrupt voting. False when the database cannot be asked. */
+  busy: Type.Boolean(),
   /** The running release and commit, so an operator can confirm what a deploy started. */
   version: Type.String(),
   gitSha: Type.String(),

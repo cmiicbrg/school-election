@@ -1,0 +1,61 @@
+# The app: the image this repository publishes, following the v1 line.
+# podman-auto-update pulls a new v1 nightly and restarts this unit, the
+# migrations first (README.md, Updates). The host's values come from
+# ~/school-election/.env, the secrets from files; everything else is fixed
+# here, so the file is the same on every host.
+[Unit]
+Description=school-election
+Requires=school-election-postgres.service
+After=school-election-postgres.service
+
+[Container]
+Image=ghcr.io/cmiicbrg/school-election:v1
+AutoUpdate=registry
+ContainerName=school-election
+Network=school-election-internal.network
+Network=school-election-egress.network
+# Loopback only: nginx on the host is the way in.
+PublishPort=127.0.0.1:3000:3000
+# PUBLIC_URL, TRUST_PROXY, LOG_LEVEL, ENTRA_TENANT_ID, ENTRA_CLIENT_ID.
+EnvironmentFile=%h/school-election/.env
+# The unprivileged runtime role the migrator creates. Only its password,
+# the Entra client secret and the session key reach the app; the
+# superuser password stays with the database and the migrator.
+Environment=DATABASE_URL=postgres://school_election_app@school-election-postgres:5432/school_election
+Environment=DATABASE_PASSWORD_FILE=/run/secrets/db-runtime-password
+Environment=ENTRA_CLIENT_SECRET_FILE=/run/secrets/entra-client-secret
+Environment=SESSION_KEY_FILE=/run/secrets/session-key
+Volume=%h/school-election/secrets/db-runtime-password:/run/secrets/db-runtime-password:ro,z
+Volume=%h/school-election/secrets/entra-client-secret:/run/secrets/entra-client-secret:ro,z
+Volume=%h/school-election/secrets/session-key:/run/secrets/session-key:ro,z
+ReadOnly=true
+Tmpfs=/tmp:mode=1777,size=16m
+DropCapability=ALL
+NoNewPrivileges=true
+# The health check lives under the app's base path, which PUBLIC_URL names.
+HealthCmd=node -e 'const p = new URL(process.env.PUBLIC_URL).pathname; fetch("http://127.0.0.1:3000" + (p.endsWith("/") ? p.slice(0, -1) : p) + "/api/health").then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))'
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=20s
+Notify=healthy
+
+[Service]
+Restart=always
+# The first start pulls the image and runs every migration.
+TimeoutStartSec=300
+# The migrations, before every start and with the image this unit will
+# run: after an auto-update that is the one just pulled, so the app never
+# starts on an old schema. As the PostgreSQL superuser; a run with nothing
+# to do changes nothing.
+ExecStartPre=/usr/bin/podman run --rm --network school-election-internal \
+  --read-only --cap-drop ALL --security-opt no-new-privileges \
+  -e MIGRATION_DATABASE_URL=postgres://postgres@school-election-postgres:5432/school_election \
+  -e MIGRATION_DATABASE_PASSWORD_FILE=/run/secrets/db-owner-password \
+  -e DB_RUNTIME_PASSWORD_FILE=/run/secrets/db-runtime-password \
+  -v %h/school-election/secrets/db-owner-password:/run/secrets/db-owner-password:ro,z \
+  -v %h/school-election/secrets/db-runtime-password:/run/secrets/db-runtime-password:ro,z \
+  ghcr.io/cmiicbrg/school-election:v1 node apps/api/scripts/migrate.ts
+
+[Install]
+WantedBy=default.target

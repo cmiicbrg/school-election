@@ -141,14 +141,19 @@ export async function buildApp(config: Config, options: AppOptions): Promise<Fas
   await app.register(resultRoutes, { db, ...under })
   await app.register(exportRoutes, { db, config, ...under })
 
+  // The health check also says whether a round accepts ballots anywhere:
+  // the deployment's nightly update asks it and stays away while one does
+  // (deploy/not-busy.sh). The answer is no count and names no election.
   app.get(`${config.basePath}/api/health`, { schema: { response: { '200': HealthResponse, '503': HealthResponse, '4xx': ErrorResponse } } }, async (_request, reply) => {
     const { version, gitSha } = config.build
     try {
-      await db.query('select 1')
-      return { status: 'ok' as const, db: 'up' as const, version, gitSha, tallyVersion: TALLY_VERSION }
+      const { rows } = await db.query<{ busy: boolean }>(
+        'select exists (select 1 from round r join round_state s on s.state = r.state where s.accepts_ballots) as busy',
+      )
+      return { status: 'ok' as const, db: 'up' as const, busy: rows[0]?.busy === true, version, gitSha, tallyVersion: TALLY_VERSION }
     } catch (err) {
       reply.log.warn({ err }, 'health: database unreachable')
-      return reply.code(503).send({ status: 'degraded', db: 'down', version, gitSha, tallyVersion: TALLY_VERSION })
+      return reply.code(503).send({ status: 'degraded', db: 'down', busy: false, version, gitSha, tallyVersion: TALLY_VERSION })
     }
   })
 
