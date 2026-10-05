@@ -1,14 +1,12 @@
 // Die Stimmabgabe am Handy: der Code aus dem QR-Code, die Wahlgänge, der
 // Stimmzettel mit einer Zeile je Platz, das Prüfen, eine absichtlich
 // ungültige Stimme, das Ende, und der Code getippt, mit Tippfehlern. Im
-// Probelauf der Lehrkraft, der nichts behält. Bis die Seite Probelauf
-// und Wahl selbst startet (PR 21), startet und beendet dieser Spec den
-// Probelauf über die API aus Annas Seite: die eine erklärte Ausnahme von
-// "alle Daten über die Seiten".
+// Probelauf der Lehrkraft, den sie auf ihrer Seite startet, beobachtet
+// und beendet, und der nichts behält.
 
 import { devices, type BrowserContext, type Page } from '@playwright/test'
 import { expect, test } from '../support/test.ts'
-import { apiGet, apiPost } from '../support/api.ts'
+import { apiGet } from '../support/api.ts'
 import { expectFailure, refused } from '../support/console.ts'
 import { batchId, electionId, journey } from '../support/journey.ts'
 import { ANNA } from '../support/personas.ts'
@@ -56,12 +54,16 @@ function voidKey(): string {
   return key
 }
 
-const rounds = () => `/api/elections/${electionId()}/rounds/regular`
+const run = () => anna.getByRole('region', { name: 'Ablauf' })
 const contests = () => page.getByRole('list', { name: 'Wahlgänge' }).getByRole('listitem')
 const row = (label: string) => page.getByLabel(label, { exact: true })
 
 test('die Lehrkraft startet den Probelauf; der Code aus dem QR-Code verlässt die Adresse, bevor die Seite lädt', async () => {
-  expect((await apiPost(anna, `${rounds()}/test`)).status).toBe(200)
+  await expect(run().getByTestId('state')).toHaveText('Vorbereitet. Sobald die Stimmkarten gedruckt sind, kann die Wahl geöffnet werden.')
+  await run().getByRole('button', { name: 'Probelauf starten' }).click()
+  await expect(run().getByTestId('state')).toHaveText('Der Probelauf läuft: Stimmen zählen nicht, und nichts bleibt.')
+  await expect(run().getByTestId('turnout')).toContainText('Wahl: 0 von 25 Stimmkarten verwendet')
+  await shot(anna, '24-probelauf')
   await page.goto(`/v#${firstKey()}`)
   await expect(page.getByRole('heading', { name: 'Schulsprecherwahl 2026/27' })).toBeVisible()
   await expect(page).toHaveURL('/v')
@@ -135,6 +137,13 @@ test('der Klassensprecher-Stimmzettel mit einer leeren Zeile: ungültig, nur mit
   await shot(page, '23-handy-fertig')
   expect((await phone.cookies()).map((cookie) => cookie.name)).not.toContain('__Secure-voter-session')
   expect(requested.filter((url) => url.includes(firstKey()))).toEqual([])
+
+  // The teacher's page: one card used, and the rehearsal's count so far, the invalid vote counted as such.
+  await expect(run().getByTestId('turnout')).toContainText('Wahl: 1 von 25 Stimmkarten verwendet')
+  await run().getByRole('button', { name: 'Zwischenstand' }).click()
+  const interim = run().getByRole('list', { name: 'Zwischenstand' })
+  await expect(interim).toContainText(`${CLASS_1A}: 1 Stimme, davon 1 ungültig.`)
+  await expect(interim).toContainText(`${SCHOOL}: 1 Stimme. Erste Stellen: Paula Berger 1, Quirin Huber-Mayer 0, Renate Wagner 0.`)
 })
 
 test('derselbe Code getippt: Tippfehler werden vor dem Senden erkannt, die Karte eines ersetzten Stapels abgewiesen, ein verbrauchter Code zeigt, dass alles abgegeben ist', async ({ browser }) => {
@@ -257,9 +266,10 @@ test('ein zweiter Code läuft über ein Neuladen der Seite weiter; nach dem Ende
   await context.unroute('**/api/voter/ballot')
   expect(order).toEqual(['ballot', 'session'])
 
-  // The test ends: the first key's two ballots, one of them invalid, and the fifth's one are gone, their entitlements unused again.
-  const ended = await apiPost<{ election: string, round: string, ballots: number, keys: number }>(anna, `${rounds()}/test/end`)
-  expect(ended.body).toEqual({ election: 'prepared', round: 'planned', ballots: 3, keys: 2 })
+  // The test ends on the teacher's page: the first key's two ballots, one of them invalid, and the fifth's one are gone, their entitlements unused again.
+  await run().getByRole('button', { name: 'Probelauf beenden' }).click()
+  await expect(run().getByRole('status')).toHaveText('Probelauf beendet: 3 Stimmen entfernt, 2 Codes wieder frei.')
+  await expect(run().getByTestId('state')).toHaveText('Vorbereitet. Sobald die Stimmkarten gedruckt sind, kann die Wahl geöffnet werden.')
   await refused(reloaded, 409, async () => {
     await reloaded.reload()
   })

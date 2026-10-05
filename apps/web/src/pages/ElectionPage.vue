@@ -1,12 +1,13 @@
 <script setup lang="ts">
-// One election, in sections: Einrichten, Mitglieder, Vorbereiten and
-// Stimmkarten. The page reads everything it shows from the API, and
-// again after every change a section reports; what each section may
-// offer comes from the caller's permissions and the lifecycle.
+// One election, in sections: Einrichten, Mitglieder, Vorbereiten,
+// Stimmkarten and Ablauf. The page reads everything it shows from the
+// API, and again after every change a section reports; what each section
+// may offer comes from the caller's permissions and the lifecycle.
 
 import { computed, onMounted, ref, watch } from 'vue'
 import MembersSection from '../components/MembersSection.vue'
 import PrepareSection from '../components/PrepareSection.vue'
+import RunSection from '../components/RunSection.vue'
 import SetupSection from '../components/SetupSection.vue'
 import SheetsSection from '../components/SheetsSection.vue'
 import { apiGet } from '../lib/api.ts'
@@ -117,6 +118,12 @@ function reload(): void {
       :rules="rules"
       :role="election.role"
       :lifecycle="election.lifecycle"
+      @changed="reload"
+    />
+    <RunSection
+      :election="election"
+      :configuration="configuration"
+      :batches="batches"
       @changed="reload"
     />
   </template>

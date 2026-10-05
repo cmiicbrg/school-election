@@ -2,7 +2,7 @@
 // apps/api, in the fields the pages use. The API's allow-lists are the
 // authority; a field not here is one the pages do not read.
 
-import type { Lifecycle, RulesetId, RoundKind } from '@school-election/election-core'
+import type { ContestStatistics, Lifecycle, Outcome, RoundKind, RoundState, RulesetId } from '@school-election/election-core'
 import type { Role } from './labels.ts'
 import type { Permission } from './setup-rules.ts'
 
@@ -80,4 +80,66 @@ export interface StaleBatch {
   id: string
   voterGroupId: string
   keys: number
+}
+
+/** How many have voted in a round: counts only. */
+export interface Turnout {
+  round: RoundState | null
+  keys: { issued: number, used: number }
+  contests: { contestId: string, issued: number, used: number }[]
+}
+
+/** A stored snapshot of a box's result, in the fields the short result reads. */
+export interface Snapshot {
+  contestId: string
+  tallyVersion: number
+  appVersion: string
+  gitSha: string
+  result: { kind: string, statistics: ContestStatistics }
+  outcome: unknown
+}
+
+export interface RoundResults {
+  round: RoundState
+  contests: Snapshot[]
+}
+
+export interface TestEnded {
+  ballots: number
+  keys: number
+}
+
+export interface RecordedLot {
+  id: string
+  lotId: string
+  candidates: string[]
+  drawn: string[]
+  reason: string
+  actorName: string
+  recordedAt: string
+}
+
+export interface ContestResult {
+  contestId: string
+  first: Snapshot
+  runoff: Snapshot | null
+  lots: RecordedLot[]
+  /** election-core's outcome as it stands, or as declared once the election is final. */
+  outcome: Outcome
+}
+
+export interface ElectionResult {
+  contests: ContestResult[]
+  finalized: { reason: string, actorName: string, at: string } | null
+}
+
+export interface RunoffActivated {
+  contests: { contestId: string, candidates: string[] }[]
+  keys: number
+}
+
+export interface ElectionFinalized {
+  state: string
+  contests: { contestId: string, kind: string }[]
+  batchesVoided: number
 }
