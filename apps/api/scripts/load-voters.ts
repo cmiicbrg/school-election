@@ -80,7 +80,7 @@ interface Outcome {
 /** One voter: redeems the key, casts a ranking of two of the three candidates, in the order the key's position suggests. */
 async function voter(seeded: Seeded, key: string, index: number): Promise<Outcome> {
   const started = performance.now()
-  const headers = { 'content-type': 'application/json', 'origin': url, 'sec-fetch-site': 'same-origin' }
+  const headers = { 'content-type': 'application/json', 'origin': new URL(url).origin, 'sec-fetch-site': 'same-origin' }
   try {
     const session = await fetch(`${url}/api/voter/session`, { method: 'POST', headers, body: JSON.stringify({ key }) })
     if (session.status !== 200) return { ms: performance.now() - started, error: `session ${session.status}` }

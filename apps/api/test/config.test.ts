@@ -4,7 +4,7 @@ import { ConfigError, loadConfig, loadMigrationConfig, readSecret } from '../con
 import { AUTH_ENV, DB_ENV, secretFile, SERVER_ENV, TENANT_ID } from './helpers/env.ts'
 
 const base = SERVER_ENV
-const valid = { ...base, PUBLIC_ORIGIN: 'https://wahl.example.org' }
+const valid = { ...base, PUBLIC_URL: 'https://wahl.example.org' }
 
 function problem(env: Record<string, string>): string {
   try {
@@ -25,26 +25,38 @@ test('a minimal valid configuration loads with safe defaults', () => {
   assert.deepEqual(config.trustProxy, ['127.0.0.0/8', '::1/128'])
 })
 
-test('PUBLIC_ORIGIN is required, and every problem is named in one message', () => {
+test('PUBLIC_URL is required, and every problem is named in one message', () => {
   const message = problem({ PORT: 'x', LOG_LEVEL: 'loud' })
-  assert.match(message, /PUBLIC_ORIGIN must be set/)
+  assert.match(message, /PUBLIC_URL must be set/)
   assert.match(message, /PORT must be an integer/)
   assert.match(message, /LOG_LEVEL must be info, warn or error/)
 })
 
-test('PUBLIC_ORIGIN must be https, except on loopback', () => {
-  assert.match(problem({ ...base, PUBLIC_ORIGIN: 'http://wahl.example.org' }), /must use https/)
-  assert.match(problem({ ...base, PUBLIC_ORIGIN: 'http://10.0.0.5:3000' }), /must use https/)
+test('PUBLIC_URL must be https, except on loopback', () => {
+  assert.match(problem({ ...base, PUBLIC_URL: 'http://wahl.example.org' }), /must use https/)
+  assert.match(problem({ ...base, PUBLIC_URL: 'http://10.0.0.5:3000' }), /must use https/)
   for (const origin of ['http://localhost:5173', 'http://127.0.0.1:3000', 'http://[::1]:3000', 'https://wahl.example.org:8443']) {
-    assert.equal(loadConfig({ ...base, PUBLIC_ORIGIN: origin }).publicOrigin, new URL(origin).origin)
+    assert.equal(loadConfig({ ...base, PUBLIC_URL: origin }).publicOrigin, new URL(origin).origin)
   }
 })
 
-test('PUBLIC_ORIGIN must be a bare origin', () => {
-  for (const origin of ['https://wahl.example.org/app', 'https://wahl.example.org/?a=1', 'https://user:pw@wahl.example.org', 'wahl.example.org', 'ftp://wahl.example.org']) {
-    assert.throws(() => loadConfig({ ...base, PUBLIC_ORIGIN: origin }), ConfigError, origin)
+test('PUBLIC_URL is an origin, or an origin with a path of plain segments, and nothing else', () => {
+  for (const value of ['https://wahl.example.org/?a=1', 'https://wahl.example.org/wahl?', 'https://wahl.example.org/wahl#x', 'https://user:pw@wahl.example.org', 'wahl.example.org', 'ftp://wahl.example.org',
+    'https://www.example.org/wahl//', 'https://www.example.org/wahl%20x', 'https://www.example.org/v1.2']) {
+    assert.throws(() => loadConfig({ ...base, PUBLIC_URL: value }), ConfigError, value)
   }
-  assert.equal(loadConfig({ ...base, PUBLIC_ORIGIN: 'https://wahl.example.org/' }).publicOrigin, 'https://wahl.example.org')
+  const root = loadConfig({ ...base, PUBLIC_URL: 'https://wahl.example.org/' })
+  assert.deepEqual([root.publicUrl, root.publicOrigin, root.basePath], ['https://wahl.example.org', 'https://wahl.example.org', ''])
+  for (const value of ['https://www.example.org/wahl', 'https://www.example.org/wahl/']) {
+    const under = loadConfig({ ...base, PUBLIC_URL: value })
+    assert.deepEqual([under.publicUrl, under.publicOrigin, under.basePath], ['https://www.example.org/wahl', 'https://www.example.org', '/wahl'], value)
+  }
+  assert.equal(loadConfig({ ...base, PUBLIC_URL: 'https://www.example.org/schule/wahl-2026' }).basePath, '/schule/wahl-2026')
+  assert.equal(loadConfig({ ...base, PUBLIC_URL: 'http://localhost:5173/wahl' }).publicUrl, 'http://localhost:5173/wahl')
+})
+
+test('PUBLIC_ORIGIN, the setting\'s earlier name, is refused by name', () => {
+  assert.match(problem({ ...valid, PUBLIC_ORIGIN: 'https://wahl.example.org' }), /PUBLIC_ORIGIN is no longer read; set PUBLIC_URL/)
 })
 
 test('TRUST_PROXY takes addresses and CIDRs only', () => {
@@ -55,13 +67,13 @@ test('TRUST_PROXY takes addresses and CIDRs only', () => {
 })
 
 test('debug logging is refused unless both the origin and the listening address are loopback', () => {
-  assert.match(problem({ ...valid, LOG_LEVEL: 'debug' }), /LOG_LEVEL=debug is allowed only with a loopback PUBLIC_ORIGIN and HOST/)
+  assert.match(problem({ ...valid, LOG_LEVEL: 'debug' }), /LOG_LEVEL=debug is allowed only with a loopback PUBLIC_URL and HOST/)
   assert.match(problem({ ...valid, LOG_LEVEL: 'trace' }), /LOG_LEVEL=trace/)
   for (const HOST of ['0.0.0.0', '::', '192.168.1.10']) {
-    assert.match(problem({ ...base, PUBLIC_ORIGIN: 'http://localhost:5173', HOST, LOG_LEVEL: 'debug' }), /LOG_LEVEL=debug/, HOST)
+    assert.match(problem({ ...base, PUBLIC_URL: 'http://localhost:5173', HOST, LOG_LEVEL: 'debug' }), /LOG_LEVEL=debug/, HOST)
   }
-  assert.equal(loadConfig({ ...base, PUBLIC_ORIGIN: 'http://localhost:5173', LOG_LEVEL: 'debug' }).logLevel, 'debug')
-  assert.equal(loadConfig({ ...base, PUBLIC_ORIGIN: 'http://localhost:5173', HOST: '::1', LOG_LEVEL: 'trace' }).logLevel, 'trace')
+  assert.equal(loadConfig({ ...base, PUBLIC_URL: 'http://localhost:5173', LOG_LEVEL: 'debug' }).logLevel, 'debug')
+  assert.equal(loadConfig({ ...base, PUBLIC_URL: 'http://localhost:5173', HOST: '::1', LOG_LEVEL: 'trace' }).logLevel, 'trace')
   assert.equal(loadConfig({ ...valid, LOG_LEVEL: 'warn' }).logLevel, 'warn')
 })
 
@@ -73,7 +85,7 @@ test('PORT must be a valid port', () => {
 test('NODE_ENV changes none of these outcomes', () => {
   const cases: Record<string, string>[] = [
     valid,
-    { ...base, PUBLIC_ORIGIN: 'http://wahl.example.org' },
+    { ...base, PUBLIC_URL: 'http://wahl.example.org' },
     { ...valid, LOG_LEVEL: 'debug' },
     { ...valid, TRUST_PROXY: 'true' },
     {},
@@ -109,7 +121,7 @@ test('the runtime database password comes from a file, never from the URL', () =
   assert.equal(loadConfig(valid).databaseUrl, 'postgres://school_election_app:test-password@127.0.0.1:5432/school_election')
   assert.match(problem({ ...valid, DATABASE_URL: 'postgres://school_election_app:inline@127.0.0.1/school_election' }), /DATABASE_URL must not contain a password/)
   assert.match(problem({ ...valid, DATABASE_PASSWORD: 'inline' }), /DATABASE_PASSWORD must not be set/)
-  assert.match(problem({ PUBLIC_ORIGIN: valid.PUBLIC_ORIGIN }), /DATABASE_URL must be set/)
+  assert.match(problem({ PUBLIC_URL: valid.PUBLIC_URL }), /DATABASE_URL must be set/)
   for (const url of ['mysql://u@h/db', 'postgres://127.0.0.1/db', 'postgres://u@127.0.0.1/', 'not a url']) {
     assert.match(problem({ ...valid, DATABASE_URL: url }), /DATABASE_URL/, url)
   }
@@ -156,7 +168,7 @@ test('the Entra and session settings are mandatory, and each missing one is name
   const config = loadConfig(valid)
   assert.deepEqual(config.entra, { tenantId: TENANT_ID, clientId: AUTH_ENV.ENTRA_CLIENT_ID, clientSecret: 'test~client.secret_value' })
   assert.equal(config.sessionSecret.length, 32)
-  const message = problem({ ...DB_ENV, PUBLIC_ORIGIN: valid.PUBLIC_ORIGIN })
+  const message = problem({ ...DB_ENV, PUBLIC_URL: valid.PUBLIC_URL })
   for (const name of ['ENTRA_TENANT_ID must be set', 'ENTRA_CLIENT_ID must be set', 'ENTRA_CLIENT_SECRET_FILE must be set', 'SESSION_KEY_FILE must be set']) {
     assert.ok(message.includes(name), name)
   }
@@ -184,9 +196,9 @@ test('the client secret must be printable ASCII', () => {
 })
 
 test('DEBUG, which makes dependencies print to stderr, is refused outside local development', () => {
-  assert.match(problem({ ...valid, DEBUG: 'simple-oauth2:*' }), /DEBUG is allowed only with a loopback PUBLIC_ORIGIN and HOST/)
-  assert.match(problem({ ...base, PUBLIC_ORIGIN: 'http://localhost:5173', HOST: '0.0.0.0', DEBUG: '*' }), /DEBUG/)
-  assert.doesNotThrow(() => loadConfig({ ...base, PUBLIC_ORIGIN: 'http://localhost:5173', DEBUG: '*' }))
+  assert.match(problem({ ...valid, DEBUG: 'simple-oauth2:*' }), /DEBUG is allowed only with a loopback PUBLIC_URL and HOST/)
+  assert.match(problem({ ...base, PUBLIC_URL: 'http://localhost:5173', HOST: '0.0.0.0', DEBUG: '*' }), /DEBUG/)
+  assert.doesNotThrow(() => loadConfig({ ...base, PUBLIC_URL: 'http://localhost:5173', DEBUG: '*' }))
   assert.doesNotThrow(() => loadConfig({ ...valid, DEBUG: ' ' }))
 })
 

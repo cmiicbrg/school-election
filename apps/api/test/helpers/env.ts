@@ -33,5 +33,5 @@ export const AUTH_ENV = {
   SESSION_KEY_FILE: secretFile('session-key', `${randomBytes(32).toString('hex')}\n`),
 }
 
-/** Everything a server needs besides PUBLIC_ORIGIN. */
+/** Everything a server needs besides PUBLIC_URL. */
 export const SERVER_ENV = { ...DB_ENV, ...AUTH_ENV }

@@ -19,8 +19,13 @@ import { boundedName, type EntraIdentity } from './app-user.ts'
 import { isGlobalRole, type GlobalRole } from './auth.ts'
 
 export const ENTRA_AUTHORITY = 'https://login.microsoftonline.com'
-/** Holds the state of a started sign-in until its callback. */
+/** Holds the state of a started sign-in until its callback; at the root of a host, where __Host- binds it to the host and the path /. */
 export const STATE_COOKIE = '__Host-oauth2-redirect-state'
+
+/** The state cookie for a base path: under one it carries the sign-in routes' path, which __Host- forbids, so the name is __Secure- there. */
+export function stateCookie(basePath: string): { name: string, path: string } {
+  return basePath === '' ? { name: STATE_COOKIE, path: '/' } : { name: '__Secure-oauth2-redirect-state', path: `${basePath}/api/auth` }
+}
 /** How long a started sign-in may take. */
 export const SIGN_IN_SECONDS = 10 * 60
 
@@ -56,8 +61,9 @@ export class SignInError extends Error {
  * sign-in routes see it). `authority` is where Entra is reached; tests point
  * it at a local stand-in. The expected issuer is Entra's in every case.
  */
-export async function registerEntra(app: FastifyInstance, config: EntraConfig, redirectUri: string, authority = ENTRA_AUTHORITY): Promise<EntraClient> {
+export async function registerEntra(app: FastifyInstance, config: EntraConfig, redirectUri: string, basePath = '', authority = ENTRA_AUTHORITY): Promise<EntraClient> {
   const tenant = `/${config.tenantId}`
+  const cookie = stateCookie(basePath)
   await app.register(oauth2, {
     name: 'entra',
     // openid for the ID token, email and profile for the address and the
@@ -76,9 +82,9 @@ export async function registerEntra(app: FastifyInstance, config: EntraConfig, r
       http: { timeout: 10_000 },
     },
     callbackUri: redirectUri,
-    redirectStateCookieName: STATE_COOKIE,
+    redirectStateCookieName: cookie.name,
     hostPrefixedCookies: true,
-    cookie: { httpOnly: true, sameSite: 'lax', maxAge: SIGN_IN_SECONDS },
+    cookie: { path: cookie.path, httpOnly: true, sameSite: 'lax', maxAge: SIGN_IN_SECONDS },
   })
   const client = app.getDecorator<OAuth2Namespace>('entra')
   const keys = createRemoteJWKSet(new URL(`${authority}${tenant}/discovery/v2.0/keys`))
@@ -94,7 +100,7 @@ export async function registerEntra(app: FastifyInstance, config: EntraConfig, r
     // The comparison the code exchange makes again: the cookie as the login
     // set it, against the state Entra sent back.
     stateMatches(request, state) {
-      const expected = request.cookies[STATE_COOKIE]
+      const expected = request.cookies[cookie.name]
       return expected !== undefined && expected !== '' && state === expected
     },
     async exchangeCode(request, reply) {

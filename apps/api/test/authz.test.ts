@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { canEditStructure, canManageMembers } from '@school-election/election-core'
 import { assertElectionGuard, changeElection, requireElectionAccess } from '../lib/election-access.ts'
 import { ELECTION_ACTIONS, ELECTION_ROLES, isPermitted, permissionsOf, type ElectionAction, type ElectionRole } from '../lib/permissions.ts'
-import { buildTestApp, stubDatabase } from './helpers/app.ts'
+import { buildTestApp, ORIGIN, stubDatabase } from './helpers/app.ts'
 import { DB, withClient } from './helpers/db.ts'
 import { ANNA, auditActions, BERND, CARLA, createElection, electionApp, electionPath, forceElectionState, signIn, WANDA, type Browser } from './helpers/elections.ts'
 
@@ -43,8 +43,9 @@ test('every /api/elections/:id route starts with requireElectionAccess, no other
   // Every route is under /api/ with a static segment next, so a route with
   // a parameter or a wildcard there, say /api/:resource/:id, which the
   // router would try for an election path no election route matches, does
-  // not exist. (The web app's files are the static plugin's /*, registered
-  // with a build only, which serves files and nothing of an election.)
+  // not exist. (With a build the app also has its start page's route and
+  // the static plugin's /*, which serve the page and the build's files and
+  // nothing of an election.)
   assert.ok(s.routes.length > 0)
   for (const route of s.routes) {
     assert.match(route.url, /^\/api\/[a-z-]+(\/|$)/, `${String(route.method)} ${route.url}`)
@@ -64,6 +65,24 @@ test('every /api/elections/:id route starts with requireElectionAccess, no other
     if (method !== 'HEAD') assert.deepEqual(outsider.json(), { error: 'not_found' }, name)
   }
   assert.deepEqual(await auditActions(anna, id), ['election.created'])
+})
+
+test('under a base path, every route and the guard live below it', DB, async (t) => {
+  const s = await electionApp(t, { env: { PUBLIC_URL: `${ORIGIN}/wahl` } })
+  assert.ok(s.routes.length > 0)
+  for (const route of s.routes) {
+    assert.match(route.url, /^\/wahl\/api\/[a-z-]+(\/|$)/, `${String(route.method)} ${route.url}`)
+    assert.doesNotThrow(() => assertElectionGuard(route, '/wahl'), route.url)
+  }
+  const anna = await signIn(s, ANNA)
+  const created = await anna.request('POST', '/wahl/api/elections', { title: 'Unter einem Pfad' })
+  assert.equal(created.statusCode, 201, created.body)
+  const id = created.json<{ id: string }>().id
+  assert.equal((await anna.request('GET', `/wahl/api/elections/${id}`)).statusCode, 200)
+  for (const url of ['/api/elections', `/api/elections/${id}`]) {
+    const res = await anna.request('GET', url)
+    assert.deepEqual([res.statusCode, res.json()], [404, { error: 'not_found' }], url)
+  }
 })
 
 test('the app refuses to register an election route without the guard', async (t) => {

@@ -5,6 +5,7 @@ import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import type { Config } from '../config.ts'
 import { pathOf } from '../lib/url.ts'
+import { sendWebIndex } from '../lib/web-index.ts'
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 
@@ -19,7 +20,9 @@ declare module 'fastify' {
   }
 }
 
-export function applyHardening(app: FastifyInstance, config: Config, { webDist }: { webDist?: string }): void {
+/** `webIndex` is the web app's page, told the base path (lib/web-index.ts); without a build there is none. */
+export function applyHardening(app: FastifyInstance, config: Config, { webIndex }: { webIndex?: string }): void {
+  const { basePath } = config
   // CSRF: a state-changing request must come from our own pages. Browsers
   // send Sec-Fetch-Site on every request; only "same-origin" passes. Older
   // browsers without it still send Origin on a POST, which must then be our
@@ -49,27 +52,32 @@ export function applyHardening(app: FastifyInstance, config: Config, { webDist }
   // Its refusals (401, 404, ...) are no-store like every other answer.
   app.addHook('onSend', (request, reply, payload, done) => {
     const cacheable = request.routeOptions.config.contentAddressed === true && (reply.statusCode === 200 || reply.statusCode === 304)
-    if (isApiPath(pathOf(request.url)) && !cacheable) reply.header('cache-control', 'no-store')
+    if (isApiPath(pathOf(request.url), basePath) && !cacheable) reply.header('cache-control', 'no-store')
     done(null, payload)
   })
 
-  // Unknown API paths get JSON. Any other GET that is not a file is a route
-  // of the web app (history-mode routing), so it gets index.html. Nothing
-  // under /assets/ is a page: a missing build file must stay a 404, not turn
-  // into a successful HTML response.
+  // Unknown API paths get JSON. Any other GET under the base path that is
+  // not a file is a route of the web app (history-mode routing), so it
+  // gets the page. Nothing under assets/ is a page: a missing build file
+  // must stay a 404, not turn into a successful HTML response. A path
+  // outside the base path is nobody's.
   app.setNotFoundHandler((request, reply) => {
     const urlPath = pathOf(request.url)
     const isPage = (request.method === 'GET' || request.method === 'HEAD')
-      && !isApiPath(urlPath)
-      && urlPath !== '/assets' && !urlPath.startsWith('/assets/')
+      && isUnder(urlPath, basePath)
+      && !isApiPath(urlPath, basePath)
+      && !isUnder(urlPath, `${basePath}/assets`)
       && path.extname(urlPath) === ''
-    if (isPage && webDist) {
-      return reply.header('cache-control', 'no-cache').type('text/html').sendFile('index.html', webDist)
-    }
+    if (isPage && webIndex !== undefined) return sendWebIndex(reply, webIndex)
     return reply.code(404).send({ error: 'not_found' })
   })
 }
 
-function isApiPath(urlPath: string): boolean {
-  return urlPath === '/api' || urlPath.startsWith('/api/')
+/** Whether a path is `prefix` itself or below it; everything is under the root's empty prefix. */
+function isUnder(urlPath: string, prefix: string): boolean {
+  return prefix === '' || urlPath === prefix || urlPath.startsWith(`${prefix}/`)
+}
+
+function isApiPath(urlPath: string, basePath: string): boolean {
+  return isUnder(urlPath, `${basePath}/api`)
 }

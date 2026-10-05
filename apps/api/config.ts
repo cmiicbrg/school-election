@@ -13,8 +13,17 @@ import { fileURLToPath } from 'node:url'
 export interface Config {
   host: string
   port: number
-  /** The origin browsers use, e.g. https://wahl.example.org. */
+  /**
+   * The address browsers use, without a trailing slash: an origin such as
+   * https://wahl.example.org, or an origin with a path such as
+   * https://www.example.org/wahl when the app runs under a path of a
+   * shared host. Everything the app emits or compares derives from it.
+   */
+  publicUrl: string
+  /** Its origin, which the CSRF check compares against. */
   publicOrigin: string
+  /** Its path, '' at the root of a host or '/wahl': every route, cookie path and link starts with it. */
+  basePath: string
   /** Addresses and CIDRs of the proxies whose X-Forwarded-* headers count. */
   trustProxy: string[]
   logLevel: LogLevel
@@ -77,13 +86,16 @@ export function loadConfig(env: Env): Config {
     }
   }
 
-  const publicOrigin = check(() => parsePublicOrigin(env.PUBLIC_ORIGIN), undefined)
+  const publicUrl = check(() => parsePublicUrl(env.PUBLIC_URL), undefined)
+  check(() => refuseRenamed(env), undefined)
   const host = env.HOST?.trim() || '127.0.0.1'
-  const local = (publicOrigin?.loopback ?? false) && isLoopbackHost(host)
+  const local = (publicUrl?.loopback ?? false) && isLoopbackHost(host)
   const config: Config = {
     host,
     port: check(() => parsePort(env.PORT), 0),
-    publicOrigin: publicOrigin?.origin ?? '',
+    publicUrl: publicUrl?.url ?? '',
+    publicOrigin: publicUrl?.origin ?? '',
+    basePath: publicUrl?.basePath ?? '',
     trustProxy: check(() => parseTrustProxy(env.TRUST_PROXY), []),
     logLevel: check(() => parseLogLevel(env.LOG_LEVEL, local), 'info'),
     webDistDir: env.WEB_DIST_DIR?.trim() || path.resolve(here, '..', 'web', 'dist'),
@@ -207,25 +219,43 @@ export function readSecret(env: Env, name: string, readFile = (file: string) => 
   return value
 }
 
-function parsePublicOrigin(raw: string | undefined): { origin: string, loopback: boolean } {
+// The one address everything the app emits or compares derives from: the
+// Entra redirect URI, the routes it serves, the cookie paths, the return
+// paths of a sign-in, the page it sends and the links on the cards. An
+// origin, or an origin with a path where the app runs under a path of a
+// shared host; nothing else, since a query, a fragment or credentials
+// would make every derived address ambiguous. The path is plain segments
+// (no dot segments, no escapes), kept without its trailing slash.
+function parsePublicUrl(raw: string | undefined): { url: string, origin: string, basePath: string, loopback: boolean } {
   const value = raw?.trim()
-  if (!value) throw new ConfigError('PUBLIC_ORIGIN must be set, e.g. https://wahl.example.org')
+  if (!value) throw new ConfigError('PUBLIC_URL must be set, e.g. https://wahl.example.org, or https://www.example.org/wahl under a path')
   let url: URL
   try {
     url = new URL(value)
   } catch {
-    throw new ConfigError(`PUBLIC_ORIGIN is not a URL: ${value}`)
+    throw new ConfigError(`PUBLIC_URL is not a URL: ${value}`)
   }
-  // An origin only: anything after it would make the CSRF comparison and
-  // every generated link ambiguous.
-  if (url.origin === 'null' || `${url.origin}/` !== url.href) {
-    throw new ConfigError(`PUBLIC_ORIGIN must be an origin without path, query or credentials, e.g. ${url.protocol}//${url.host}`)
+  if (url.origin === 'null' || url.username !== '' || url.password !== '' || url.search !== '' || url.hash !== '' || /[?#]$/.test(value)) {
+    throw new ConfigError(`PUBLIC_URL must be an address without query, fragment or credentials, e.g. ${url.protocol}//${url.host}`)
+  }
+  const basePath = url.pathname.replace(/\/$/, '')
+  if (basePath !== '' && !/^(?:\/[A-Za-z0-9_-]+)+$/.test(basePath)) {
+    throw new ConfigError(`PUBLIC_URL may end in a path of plain segments such as /wahl, got ${url.pathname}`)
   }
   const loopback = isLoopbackHost(url.hostname)
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
-    throw new ConfigError(`PUBLIC_ORIGIN must use https (http only for a loopback address), got ${url.origin}`)
+    throw new ConfigError(`PUBLIC_URL must use https (http only for a loopback address), got ${url.origin}`)
   }
-  return { origin: url.origin, loopback }
+  return { url: `${url.origin}${basePath}`, origin: url.origin, basePath, loopback }
+}
+
+// The setting's earlier name, which took the origin alone. A deployment
+// that still sets it is told, rather than running with a value it does
+// not know it has.
+function refuseRenamed(env: Env): void {
+  if (env.PUBLIC_ORIGIN !== undefined) {
+    throw new ConfigError('PUBLIC_ORIGIN is no longer read; set PUBLIC_URL to the address browsers use, with its path if the app runs under one')
+  }
 }
 
 function isLoopbackHost(hostname: string): boolean {
@@ -273,7 +303,7 @@ function parseLogLevel(raw: string | undefined, local: boolean): LogLevel {
   if (value === 'info' || value === 'warn' || value === 'error') return value
   if ((value === 'debug' || value === 'trace') && local) return value
   if (value === 'debug' || value === 'trace') {
-    throw new ConfigError(`LOG_LEVEL=${value} is allowed only with a loopback PUBLIC_ORIGIN and HOST`)
+    throw new ConfigError(`LOG_LEVEL=${value} is allowed only with a loopback PUBLIC_URL and HOST`)
   }
   throw new ConfigError(`LOG_LEVEL must be info, warn or error, got ${value}`)
 }
@@ -284,7 +314,7 @@ function parseLogLevel(raw: string | undefined, local: boolean): LogLevel {
 // LOG_LEVEL applies.
 function refuseDebugNamespaces(raw: string | undefined, local: boolean): void {
   if (raw?.trim() && !local) {
-    throw new ConfigError('DEBUG is allowed only with a loopback PUBLIC_ORIGIN and HOST; unset it')
+    throw new ConfigError('DEBUG is allowed only with a loopback PUBLIC_URL and HOST; unset it')
   }
 }
 

@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Writable } from 'node:stream'
@@ -33,14 +33,16 @@ export async function buildTestApp(env: Record<string, string> = {}, db: Databas
       done()
     },
   })
-  const config = loadConfig({ ...SERVER_ENV, PUBLIC_ORIGIN: ORIGIN, WEB_DIST_DIR: path.join(tmpdir(), 'no-web-build-here'), ...env })
+  const config = loadConfig({ ...SERVER_ENV, PUBLIC_URL: ORIGIN, WEB_DIST_DIR: path.join(tmpdir(), 'no-web-build-here'), ...env })
   const app = await buildApp(config, { db, logStream, ...options })
   return { app, logs: () => captured }
 }
 
-/** A throwaway web build containing only index.html. */
+/** A throwaway web build: index.html as Vite writes it, with the base-path tag and one relative asset reference, and that asset. */
 export function fakeWebDist(): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'school-election-web-'))
-  writeFileSync(path.join(dir, 'index.html'), '<!doctype html><title>app</title>')
+  writeFileSync(path.join(dir, 'index.html'), '<!doctype html><title>app</title><meta name="base-path" content="/"><script type="module" src="./assets/index-abc.js"></script>')
+  mkdirSync(path.join(dir, 'assets'))
+  writeFileSync(path.join(dir, 'assets', 'index-abc.js'), 'console.log(1)\n')
   return dir
 }
