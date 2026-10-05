@@ -34,79 +34,22 @@ test('every role and action is permitted exactly as the matrix says', () => {
   assert.deepEqual(permissionsOf('owner'), [...ELECTION_ACTIONS])
 })
 
-const ELECTION_ROUTES = [
-  'DELETE /api/elections/:id',
-  'DELETE /api/elections/:id/candidates/:candidateId',
-  'DELETE /api/elections/:id/candidates/:candidateId/picture',
-  'DELETE /api/elections/:id/contests/:contestId',
-  'DELETE /api/elections/:id/members/:memberId',
-  'DELETE /api/elections/:id/voter-groups/:groupId',
-  'GET /api/elections',
-  'GET /api/elections/:id',
-  'GET /api/elections/:id/audit',
-  'GET /api/elections/:id/batches',
-  'GET /api/elections/:id/batches/:batchId',
-  'GET /api/elections/:id/candidates/:candidateId/picture/:sha256',
-  'GET /api/elections/:id/configuration',
-  'GET /api/elections/:id/members',
-  'GET /api/elections/:id/preparation',
-  'GET /api/elections/:id/result',
-  'GET /api/elections/:id/rounds/regular/result',
-  'GET /api/elections/:id/rounds/regular/test-result',
-  'GET /api/elections/:id/rounds/regular/turnout',
-  'GET /api/elections/:id/rounds/runoff/result',
-  'GET /api/elections/:id/rounds/runoff/turnout',
-  'HEAD /api/elections',
-  'HEAD /api/elections/:id',
-  'HEAD /api/elections/:id/audit',
-  'HEAD /api/elections/:id/batches',
-  'HEAD /api/elections/:id/batches/:batchId',
-  'HEAD /api/elections/:id/candidates/:candidateId/picture/:sha256',
-  'HEAD /api/elections/:id/configuration',
-  'HEAD /api/elections/:id/members',
-  'HEAD /api/elections/:id/preparation',
-  'HEAD /api/elections/:id/result',
-  'HEAD /api/elections/:id/rounds/regular/result',
-  'HEAD /api/elections/:id/rounds/regular/test-result',
-  'HEAD /api/elections/:id/rounds/regular/turnout',
-  'HEAD /api/elections/:id/rounds/runoff/result',
-  'HEAD /api/elections/:id/rounds/runoff/turnout',
-  'PATCH /api/elections/:id',
-  'PATCH /api/elections/:id/candidates/:candidateId',
-  'PATCH /api/elections/:id/contests/:contestId',
-  'PATCH /api/elections/:id/voter-groups/:groupId',
-  'POST /api/elections',
-  'POST /api/elections/:id/batches',
-  'POST /api/elections/:id/batches/:batchId/replace',
-  'POST /api/elections/:id/contests',
-  'POST /api/elections/:id/contests/:contestId/candidates',
-  'POST /api/elections/:id/export',
-  'POST /api/elections/:id/finalize',
-  'POST /api/elections/:id/lots',
-  'POST /api/elections/:id/members',
-  'POST /api/elections/:id/prepare',
-  'POST /api/elections/:id/rounds/regular/close',
-  'POST /api/elections/:id/rounds/regular/open',
-  'POST /api/elections/:id/rounds/regular/test',
-  'POST /api/elections/:id/rounds/regular/test/end',
-  'POST /api/elections/:id/rounds/runoff/activate',
-  'POST /api/elections/:id/rounds/runoff/close',
-  'POST /api/elections/:id/unprepare',
-  'POST /api/elections/:id/voter-groups',
-  'PUT /api/elections/:id/candidates/:candidateId/picture',
-  'PUT /api/elections/:id/voter-groups/:groupId/contests',
-]
-
-test('every /api/elections/:id route starts with requireElectionAccess, and answers 401 and 404 before anything else', DB, async (t) => {
+test('every /api/elections/:id route starts with requireElectionAccess, no other route can match an election path, and the guard answers 401 and 404 before anything else', DB, async (t) => {
   const s = await electionApp(t)
   const anna = await signIn(s, ANNA)
   const bernd = await signIn(s, BERND)
   const id = await createElection(anna)
 
-  const routes = s.routes.filter((route) => route.url.startsWith('/api/elections'))
-  const listed = routes.map((route) => `${String(route.method)} ${route.url}`).sort()
-  assert.deepEqual(listed, ELECTION_ROUTES, 'a new election route needs a look at its guard, and an entry here')
-  const guarded = routes.filter((route) => route.url.startsWith('/api/elections/'))
+  // Every route is under /api/ with a static segment next, so a route with
+  // a parameter or a wildcard there, say /api/:resource/:id, which the
+  // router would try for an election path no election route matches, does
+  // not exist. (The web app's files are the static plugin's /*, registered
+  // with a build only, which serves files and nothing of an election.)
+  assert.ok(s.routes.length > 0)
+  for (const route of s.routes) {
+    assert.match(route.url, /^\/api\/[a-z-]+(\/|$)/, `${String(route.method)} ${route.url}`)
+  }
+  const guarded = s.routes.filter((route) => route.url.startsWith('/api/elections/'))
   assert.ok(guarded.length > 0)
   for (const route of guarded) {
     const name = `${String(route.method)} ${route.url}`
@@ -136,29 +79,6 @@ test('the app refuses to register an election route without the guard', async (t
   assert.throws(() => app.post('/api/elections/', { onRequest: guard() }, handler), /:id/)
   assert.doesNotThrow(() => app.get('/api/elections/:id/fine', { onRequest: guard() }, handler))
   assert.doesNotThrow(() => app.get('/api/elections/:id/also-fine', { onRequest: [guard(), async () => {}] }, handler))
-})
-
-test('a route that matches election paths through a parameter or a wildcard does not serve them', DB, async (t) => {
-  const s = await electionApp(t)
-  // Registered without complaint: its pattern does not start with /api/elections/.
-  s.app.get('/api/:resource/:id/leak', async (request) => ({ leaked: request.params }))
-  s.app.post('/api/:resource/*', async () => ({ leaked: true }))
-  const anna = await signIn(s, ANNA)
-  const id = await createElection(anna)
-  for (const [method, url] of [
-    ['GET', `/api/elections/${id}/leak`],
-    ['GET', `/api/%65lections/${id}/leak`],
-    ['HEAD', `/api/elections/${id}/leak`],
-    ['POST', `/api/elections/${id}/anything`],
-  ] as const) {
-    const res = await anna.request(method, url, method === 'POST' ? {} : undefined)
-    assert.equal(res.statusCode, 404, `${method} ${url}`)
-    if (method !== 'HEAD') assert.deepEqual(res.json(), { error: 'not_found' }, `${method} ${url}`)
-  }
-  // Elsewhere such a route works as before, and the guarded routes still answer.
-  assert.equal((await anna.request('GET', `/api/other/${id}/leak`)).statusCode, 200)
-  assert.equal((await anna.request('GET', `/api/elections/${id}`)).statusCode, 200)
-  assert.equal((await anna.request('GET', `/api/%65lections/${id}`)).statusCode, 200)
 })
 
 test('teacher A can neither read nor change teacher B\'s election, and a guessed id is the same 404', DB, async (t) => {
