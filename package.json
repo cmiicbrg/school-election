@@ -18,6 +18,7 @@
     "migrate": "npm run migrate --workspace apps/api",
     "verify": "node apps/api/scripts/verify.ts",
     "test": "node --test \"scripts/**/*.test.mjs\" && npm test --workspaces --if-present",
+    "test:coverage": "mkdir -p coverage && node --test --test-concurrency=1 --experimental-test-coverage --test-coverage-include='apps/**' --test-coverage-include='packages/**' --test-coverage-include='scripts/**' --test-coverage-exclude='**/node_modules/**' --test-coverage-exclude='**/dist/**' --test-coverage-exclude='**/test/**' --test-coverage-exclude='**/*.test.*' --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=spec --test-reporter-destination=stdout \"scripts/**/*.test.mjs\" \"packages/*/test/**/*.test.ts\" \"apps/*/test/**/*.test.ts\"",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p e2e/tsconfig.json",
     "lint": "npm run lint:js && npm run lint:md && npm run lint:deps && npm run typecheck",
     "lint:js": "eslint . --max-warnings 0",

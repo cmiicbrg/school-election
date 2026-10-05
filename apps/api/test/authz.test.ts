@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { canManageMembers } from '@school-election/election-core'
+import { canEditStructure, canManageMembers } from '@school-election/election-core'
 import { assertElectionGuard, changeElection, requireElectionAccess } from '../lib/election-access.ts'
 import { ELECTION_ACTIONS, ELECTION_ROLES, isPermitted, permissionsOf, type ElectionAction, type ElectionRole } from '../lib/permissions.ts'
 import { buildTestApp, stubDatabase } from './helpers/app.ts'
@@ -256,4 +256,43 @@ test('a change checks access again under the election\'s lock: a removal or a st
   await forceElectionState(s.ownerUrl, id, 'draft')
   const removed = await post(anna)
   assert.deepEqual([removed.statusCode, removed.json()], [404, { error: 'not_found' }])
+})
+
+test('two changes of one election run one after the other: the second waits for the first to commit and sees its lifecycle', DB, async (t) => {
+  const s = await electionApp(t)
+  // The first change moves the election on and holds the election's lock until released; the second needs a draft.
+  let entered = () => {}
+  let release = () => {}
+  const inside = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  t.after(() => release())
+  const guard = () => requireElectionAccess(s.db, 'configure', canEditStructure)
+  s.app.post('/api/elections/:id/test-prepare', { onRequest: guard() }, async (request) => changeElection(s.db, request, async (client, access) => {
+    await client.query(`update election set state = 'prepared' where id = $1`, [access.electionId])
+    entered()
+    await held
+    return { was: access.lifecycle.election }
+  }))
+  s.app.post('/api/elections/:id/test-structure', { onRequest: guard() }, async (request) => changeElection(s.db, request, async (_client, access) => ({ was: access.lifecycle.election })))
+  const anna = await signIn(s, ANNA)
+  const id = await createElection(anna)
+
+  const first = anna.request('POST', `/api/elections/${id}/test-prepare`, {})
+  await inside
+  // The second passes its guard, since the first has not committed, and then waits for the lock.
+  const second = anna.request('POST', `/api/elections/${id}/test-structure`, {})
+  for (let waited = 0; ; waited++) {
+    const { rows: [lock] } = await s.db.query<{ n: number }>(`select count(*)::int as n from pg_locks where locktype = 'advisory' and not granted`)
+    if (lock?.n === 1) break
+    assert.ok(waited < 400, 'the second change waits for the first')
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  release()
+  assert.deepEqual((await first).json(), { was: 'draft' })
+  const res = await second
+  assert.deepEqual([res.statusCode, res.json()], [409, { error: 'not_draft' }])
 })

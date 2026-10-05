@@ -124,10 +124,9 @@ export type VoidConfirmation = boolean | readonly string[]
  * again. Without a confirmation, preparing stops and names them.
  */
 export async function prepareElection(client: pg.ClientBase, access: ElectionAccess, { confirmVoid = false }: { confirmVoid?: VoidConfirmation } = {}): Promise<PrepareResult> {
-  // The configuration triggers hold a share lock on the election's row
-  // until their change commits. Taking the row first waits for those and
-  // keeps new ones out, so what is read here is what gets prepared, even
-  // for a change that did not come through changeElection.
+  // Every configuration change runs in changeElection and so waits for
+  // this transaction's lock; the election's row is taken as well, first,
+  // in the order the vote path and the seal take their locks.
   await client.query('select 1 from election where id = $1 for no key update', [access.electionId])
   const { problems, warnings, summary } = await readPreparation(client, access.electionId)
   if (problems.length > 0) return { prepared: false, problems }

@@ -3,7 +3,7 @@
 // has its own routes (routes/configuration.ts); every change runs inside
 // changeElection, so it holds the election's lock and its audit event
 // commits with it. Whether a change is allowed now is the route's lifecycle
-// guard; triggers keep the same windows in the database (migration 0007).
+// guard, asked again by changeElection under the election's lock.
 //
 // Lists come out in one order, computed here and nowhere else: contests by
 // title, voter groups by name, candidates by surname and given name

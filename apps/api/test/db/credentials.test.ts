@@ -1,5 +1,7 @@
-// The credential tables as the runtime role meets them: the windows for
-// batches and keys, and the freeze of entitlements once their round opens.
+// The credential tables as the runtime role meets them: a batch voided
+// once, a key never changed, entitlements only for keys of an issued batch
+// for their round, and their freeze once the round accepts ballots. When
+// batches are issued and voided is the lifecycle's (packages/election-core).
 
 import { test, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -133,42 +135,37 @@ test('a function the migrations define as SECURITY DEFINER is not bound by the f
   assert.deepEqual(rows, [{ consumed: true }])
 })
 
-test('batches are issued once prepared and voided once, until their round opens; keys go only into an issued batch and never change', DB, async (t) => {
+test('a batch is voided once and a key never changes; an entitlement is for a key of an issued batch, never a runoff key\'s for a regular box', DB, async (t) => {
   const { ownerUrl, runtimeUrl } = await setup(t)
   const issue = (kind: string) => `insert into credential_batch (election_id, voter_group_id, round_kind) values ('${ELECTION}', '${GROUP}', '${kind}')`
   await withClient(runtimeUrl, async (client) => {
     await client.query(issue('regular'))
-    await client.query(issue('runoff'))
-    await refused(client, '42501', [`update credential_batch set voter_group_id = '${GROUP}'`])
-    await client.query(`update credential_batch set state = 'void' where id = '${BATCH}'`)
-    await refused(client, '55000', [
-      `update credential_batch set state = 'issued' where id = '${BATCH}'`,
-      `update credential_batch set state = 'void' where id = '${BATCH}'`,
-      `insert into credential (election_id, batch_id, key) values ('${ELECTION}', '${BATCH}', '22222222222222222222')`,
-      entitle(KEY_A),
-    ])
-  })
-  // Voting has started: regular batches are fixed, runoff batches are not.
-  await moveOn(ownerUrl, 'active', 'open')
-  await withClient(runtimeUrl, async (client) => {
-    await refused(client, '55000', [issue('regular'), `update credential_batch set state = 'void' where round_kind = 'regular' and state = 'issued'`])
     const { rows: [runoff] } = await client.query<{ id: string }>(`${issue('runoff')} returning id`)
     await client.query(`insert into credential (election_id, batch_id, key) values ('${ELECTION}', '${runoff?.id}', '33333333333333333333')`)
     // A runoff key has no entitlement for a regular ballot box.
     await refused(client, '55000', [entitle('33333333333333333333')])
-    await client.query(`update credential_batch set state = 'void' where id = '${runoff?.id}'`)
+    await refused(client, '42501', [`update credential_batch set voter_group_id = '${GROUP}'`, `update credential set key = '44444444444444444444'`])
+    await client.query(`update credential_batch set state = 'void' where id = '${BATCH}'`)
+    await refused(client, '55000', [
+      `update credential_batch set state = 'issued' where id = '${BATCH}'`,
+      `update credential_batch set state = 'void' where id = '${BATCH}'`,
+      entitle(KEY_A),
+    ])
   })
-  // A final election issues nothing; a draft has no keys to issue.
-  await moveOn(ownerUrl, 'final', 'closed')
-  await withClient(runtimeUrl, (client) => refused(client, '55000', [issue('runoff'), `update credential_batch set state = 'void' where round_kind = 'runoff' and state = 'issued'`]))
+  // The owner's direct statements are bound the same way.
+  await withClient(ownerUrl, (client) => refused(client, '55000', [
+    `update credential_batch set state = 'issued' where id = '${BATCH}'`,
+    `update credential_batch set round_kind = 'runoff' where id = '${BATCH}'`,
+    `update credential set key = '44444444444444444444' where key = '${KEY_A}'`,
+  ]))
 })
 
-test('a draft issues no keys, and removing a voter group in a draft removes its batches', DB, async (t) => {
+test('removing a voter group removes its batches, keys and entitlements', DB, async (t) => {
   const { ownerUrl, runtimeUrl } = await setup(t)
   await withClient(runtimeUrl, async (client) => {
     await client.query(entitle(KEY_A))
+    // Back to draft first, as unpreparing does before a group can go: the lifecycle's order.
     await client.query(`update election set state = 'draft' where id = '${ELECTION}'`)
-    await refused(client, '55000', [`insert into credential_batch (election_id, voter_group_id, round_kind) values ('${ELECTION}', '${GROUP}', 'regular')`])
     await client.query(`delete from voter_group where id = '${GROUP}'`)
   })
   const { rows: [counts] } = await withClient(ownerUrl, (client) => client.query<{ batches: number, keys: number, entitlements: number }>(
