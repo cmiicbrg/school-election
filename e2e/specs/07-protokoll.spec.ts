@@ -7,6 +7,7 @@ import { apiGet } from '../support/api.ts'
 import { electionId } from '../support/journey.ts'
 import { ANNA } from '../support/personas.ts'
 import { shot } from '../support/screenshot.ts'
+import { at } from '../support/base.ts'
 import { openAs } from '../support/sign-in.ts'
 
 test('die Protokollkette stimmt und zählt genau die Schritte der Journey', async ({ page }) => {
@@ -54,6 +55,6 @@ test('die Protokollkette stimmt und zählt genau die Schritte der Journey', asyn
 test('vor dem Schließen gibt es kein Ergebnis zu lesen, und die Wahl verlinkt es noch nicht', async ({ page }) => {
   await openAs(page, ANNA, `/wahlen/${electionId()}`)
   await expect(page.getByRole('navigation', { name: 'Seiten der Wahl' }).getByRole('link', { name: 'Ergebnis und Herleitung' })).toHaveCount(0)
-  await page.goto(`/wahlen/${electionId()}/ergebnis`)
+  await page.goto(at(`/wahlen/${electionId()}/ergebnis`))
   await expect(page.getByTestId('early')).toHaveText('Das Ergebnis gibt es, sobald die Wahl geschlossen ist. Solange eine Runde läuft, sieht niemand Zwischenstände.')
 })

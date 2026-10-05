@@ -14,6 +14,7 @@ import { refused } from '../support/console.ts'
 import { batchId, electionId } from '../support/journey.ts'
 import { ANNA, CARLA, WANDA } from '../support/personas.ts'
 import { shot } from '../support/screenshot.ts'
+import { at, BASE_PATH } from '../support/base.ts'
 import { openAs } from '../support/sign-in.ts'
 import { voteOnPhone } from '../support/vote.ts'
 
@@ -146,7 +147,7 @@ test('die Zeugin sieht das Los ohne Formular; die Wahlleitung trägt die Ziehung
 test('Stichwahl aktivieren: der Hinweis auf die Stichwahl-Stimmkarten je Klasse, der Dialog, dann läuft sie mit neuen Codes, und die alten gelten nicht', async () => {
   const sheets = run(anna).getByRole('list', { name: 'Stichwahl-Stimmkarten' })
   await expect(sheets).toContainText('1A: 10 Stichwahl-Stimmkarten')
-  await expect(sheets.getByRole('link', { name: 'Drucken (10)' })).toHaveAttribute('href', `/elections/${electionId()}/batches/${batchId('1A runoff')}/print`)
+  await expect(sheets.getByRole('link', { name: 'Drucken (10)' })).toHaveAttribute('href', `${BASE_PATH}/elections/${electionId()}/batches/${batchId('1A runoff')}/print`)
   await expect(sheets).toContainText('Für 2B gibt es noch keine Stichwahl-Stimmkarten')
   await run(anna).getByRole('button', { name: 'Stichwahl aktivieren' }).click()
   await expect(dialog('Stichwahl aktivieren?')).toContainText('Die Stimmkarten der ersten Runde gelten nicht mehr.')
@@ -158,7 +159,7 @@ test('Stichwahl aktivieren: der Hinweis auf die Stichwahl-Stimmkarten je Klasse,
 
   const old = await phone.newPage()
   await refused(old, 409, async () => {
-    await old.goto(`/v#${key(5)}`)
+    await old.goto(at(`/v#${key(5)}`))
   })
   await expect(old.getByRole('alert')).toHaveText('Die Wahl ist beendet. Es können keine Stimmen mehr abgegeben werden.')
   await old.close()

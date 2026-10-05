@@ -3,6 +3,12 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   plugins: [vue()],
+  // Relative asset references: the build does not know under which path
+  // the app will run. The server makes them absolute under its base path
+  // when it sends index.html, and names the base path to the app
+  // (src/lib/base.ts); inside the bundle, URLs resolve from the module or
+  // stylesheet that carries them.
+  base: './',
   build: {
     // Every asset is a file under /assets, never a data: URL in the CSS:
     // the content security policy allows fonts from this origin only, and

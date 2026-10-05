@@ -12,8 +12,9 @@ test('a card carries the key grouped in fours and a URL with the key in the frag
   assert.equal(url.pathname, '/v')
   assert.equal(url.search, '')
   assert.equal(url.hash, '#7KM4P9VX2RNCWQ5DH3TB')
-  // The origin is taken as an origin: a path or a trailing slash on it changes nothing.
-  assert.equal(cardsOf(KEYS, 'https://wahl.example.org/some/page')[0]?.url, card?.url)
+  // The app's address with its base path: a trailing slash changes nothing, the path is kept.
+  assert.equal(cardsOf(KEYS, 'https://wahl.example.org/')[0]?.url, card?.url)
+  assert.equal(cardsOf(KEYS, 'https://www.example.org/wahl')[0]?.url, 'https://www.example.org/wahl/v#7KM4P9VX2RNCWQ5DH3TB')
 })
 
 test('six cards to a page, the last page shorter, and none for no keys', () => {
@@ -46,6 +47,8 @@ test('the labels and the typed address', () => {
   assert.deepEqual(ROUND_LABELS, { regular: 'Wahl', runoff: 'Stichwahl' })
   assert.equal(voterAddress('https://wahl.example.org'), 'wahl.example.org/v')
   assert.equal(voterAddress('http://127.0.0.1:3100'), '127.0.0.1:3100/v')
+  assert.equal(voterAddress('https://www.example.org/wahl'), 'www.example.org/wahl/v')
+  assert.equal(voterAddress('https://www.example.org/wahl/'), 'www.example.org/wahl/v')
 })
 
 test('a refusal keeps the API\'s code and message, and sign-in comes back to a path of this app only', () => {

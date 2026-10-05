@@ -10,6 +10,7 @@ import { computed, reactive, ref, useId, watch } from 'vue'
 import { RULESET_IDS, type RulesetId } from '@school-election/election-core'
 import CandidatePicture from './CandidatePicture.vue'
 import { apiDelete, apiPatch, apiPost, apiPut } from '../lib/api.ts'
+import { withBase } from '../lib/base.ts'
 import { ApiError, errorMessage } from '../lib/api-rules.ts'
 import { lockedText, RULESET_LABELS } from '../lib/labels.ts'
 import type { PreparedPicture } from '../lib/picture.ts'
@@ -302,7 +303,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         >
           <CandidatePicture
             :name="fullName(candidate)"
-            :src="candidate.picture"
+            :src="candidate.picture === null ? null : withBase(candidate.picture)"
             :disabled="!rules.candidates"
             :busy="pictureBusy === candidate.id"
             :error="pictureErrors[candidate.id] ?? null"

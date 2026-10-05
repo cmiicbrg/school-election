@@ -5,16 +5,17 @@ import { expect, test } from '../support/test.ts'
 import { refused } from '../support/console.ts'
 import { ANNA } from '../support/personas.ts'
 import { shot } from '../support/screenshot.ts'
+import { at, encodedPath, urlOf } from '../support/base.ts'
 import { openAs, signInAs, signOut } from '../support/sign-in.ts'
 
 test.describe.configure({ mode: 'serial' })
 
 test('wer nicht angemeldet ist, landet auf der Anmeldeseite und kommt angemeldet zu Meine Wahlen', async ({ page }) => {
-  await page.goto('/')
-  await expect(page).toHaveURL(/\/anmelden\?returnTo=(%2F|\/)$/)
+  await page.goto(at('/'))
+  await expect(page).toHaveURL(new RegExp(`/anmelden\\?returnTo=${encodedPath('/')}$`))
   await shot(page, '01-anmeldung')
   await signInAs(page, ANNA)
-  await expect(page).toHaveURL(/\/$/)
+  await expect(page).toHaveURL(urlOf('/'))
   await expect(page.getByRole('heading', { name: 'Meine Wahlen' })).toBeVisible()
   await expect(page.getByText('Sie sind noch bei keiner Wahl Mitglied.')).toBeVisible()
   await shot(page, '02-meine-wahlen-leer')
@@ -23,8 +24,8 @@ test('wer nicht angemeldet ist, landet auf der Anmeldeseite und kommt angemeldet
 })
 
 test('ein Link in die App führt nach der Anmeldung dorthin', async ({ page }) => {
-  await page.goto('/wahlen/neu')
-  await expect(page).toHaveURL(/\/anmelden\?returnTo=(%2F|\/)wahlen(%2F|\/)neu$/)
+  await page.goto(at('/wahlen/neu'))
+  await expect(page).toHaveURL(new RegExp(`/anmelden\\?returnTo=${encodedPath('/wahlen/neu')}$`))
   await signInAs(page, ANNA)
   await expect(page).toHaveURL(/\/wahlen\/neu$/)
   await expect(page.getByRole('heading', { name: 'Neue Wahl' })).toBeVisible()
@@ -35,7 +36,7 @@ test('eine abgelaufene Sitzung führt zur Anmeldeseite und nach der Anmeldung zu
   await page.context().clearCookies()
   await page.getByLabel('Titel', { exact: true }).fill('Probewahl')
   await refused(page, 401, () => page.getByRole('button', { name: 'Wahl anlegen' }).click())
-  await expect(page).toHaveURL(/\/anmelden\?returnTo=(%2F|\/)wahlen(%2F|\/)neu$/)
+  await expect(page).toHaveURL(new RegExp(`/anmelden\\?returnTo=${encodedPath('/wahlen/neu')}$`))
   await signInAs(page, ANNA)
   await expect(page).toHaveURL(/\/wahlen\/neu$/)
   await expect(page.getByRole('heading', { name: 'Neue Wahl' })).toBeVisible()

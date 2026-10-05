@@ -6,6 +6,7 @@
 // page's own business, back to the code.
 
 import type { RulesetId } from '@school-election/election-core'
+import { withBase } from '../lib/base.ts'
 
 export interface VoterCandidate {
   id: string
@@ -86,15 +87,15 @@ export async function endSession(): Promise<void> {
   await call<undefined>('POST', '/api/voter/session/end')
 }
 
-/** A candidate's picture, by its content; the API serves it cacheable for good. */
+/** A candidate's picture, by its content, under the app's base path; the API serves it cacheable for good. */
 export function pictureUrl(sha256: string): string {
-  return `/api/voter/picture/${encodeURIComponent(sha256)}`
+  return withBase(`/api/voter/picture/${encodeURIComponent(sha256)}`)
 }
 
 async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { accept: 'application/json' }
   if (body !== undefined) headers['content-type'] = 'application/json'
-  const response = await fetch(path, {
+  const response = await fetch(withBase(path), {
     method,
     credentials: 'same-origin',
     headers,

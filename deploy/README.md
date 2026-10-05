@@ -68,11 +68,17 @@ The app image runs as uid 10001, the app and the migrator alike. The PostgreSQL 
 Fill in `.env`:
 
 - `IMAGE` is the release, pinned by tag and digest. The summary of the Publish Image workflow run for each release tag prints the exact value.
-- `PUBLIC_URL` is the address browsers use, `https://wahl.example.org`. With a path, `https://www.example.org/wahl`, the app runs under that path of a host it shares: every route, cookie and link starts with it, and nginx forwards the path unchanged.
+- `PUBLIC_URL` is the address browsers use, `https://wahl.example.org`, or with a path, `https://www.example.org/wahl` (see below).
 - `ENTRA_TENANT_ID` and `ENTRA_CLIENT_ID` come from the app registration.
 - `TRUST_PROXY` names the addresses whose `X-Forwarded-For` and `X-Forwarded-Proto` the app believes.
 
 nginx connects to `127.0.0.1:3000`, but rootless podman forwards that connection into the container from an address on the app's compose network, so the app never sees 127.0.0.1. If `TRUST_PROXY` does not cover that address, the app ignores the forwarded headers and takes every request for one client, so the per-address limits on sign-in apply to everyone at once. Rootless podman takes compose networks from `10.89.0.0/16` unless configured otherwise, which is the value in `.env.example`. Since the app's port is published on loopback only, nothing but nginx and other containers on this host connect from there. If other podman stacks run on the same host, narrow it to the subnet that `podman network inspect school-election_egress` shows after the first start; that subnet stays until the network is removed, for instance by `podman compose down`.
+
+## Under a path of an existing site
+
+The app can run under a path of a site that already exists, `https://www.example.org/wahl`, when no host of its own is at hand. Set `PUBLIC_URL` to that address (its path without a trailing slash) and register the redirect URI `https://www.example.org/wahl/api/auth/callback`. The app serves everything below the path itself, the pages, the API, its files and the cards' addresses included, so nginx forwards requests for `/wahl` unchanged: the end of [`nginx.example.conf`](nginx.example.conf) has the locations for that site's server block, the same three as on a host of its own with the prefix, and `proxy_pass` without a URI. The health check lives under the path too, `/wahl/api/health`, which the compose example follows.
+
+One thing a shared host costs: the app's defence against cross-site requests trusts its own origin, which is then the whole site, so a weakness in another application on `www.example.org` could reach the election API with a signed-in teacher's session. A host of its own keeps that boundary; where the DNS allows it, prefer one.
 
 ## First start
 

@@ -17,6 +17,7 @@ import '@fontsource/jetbrains-mono/400.css'
 import { formatKey, type Lifecycle, type RoundKind } from '@school-election/election-core'
 import { apiGet } from '../lib/api.ts'
 import { ApiError } from '../lib/api-rules.ts'
+import { BASE_URL } from '../lib/base.ts'
 import { cardsOf, pagesOf, printable, ROUND_LABELS, voterAddress, type Card } from '../lib/sheet.ts'
 
 const props = defineProps<{
@@ -50,9 +51,9 @@ const qr = ref(new Map<string, string>())
 /** An issued batch with every card's QR image drawn: only then are the sheets shown and printable. */
 const ready = ref(false)
 const error = ref<string | null>(null)
-const origin = window.location.origin
 
-const cards = computed(() => batch.value ? cardsOf(batch.value.keys.map((entry) => entry.key), origin) : [])
+// The cards name the app where this page was opened, base path included.
+const cards = computed(() => batch.value ? cardsOf(batch.value.keys.map((entry) => entry.key), BASE_URL) : [])
 /**
  * The codes as a list: for a replaced batch, which keeps them so its old
  * sheets can be compared, and for any batch once its round has closed,
@@ -70,7 +71,7 @@ const roundLabel = computed(() => batch.value ? ROUND_LABELS[batch.value.batch.r
 /** An issued batch whose round has not opened: the only kind with sheets. */
 const prints = computed(() => batch.value !== undefined && election.value !== undefined
   && batch.value.batch.state === 'issued' && printable(election.value.lifecycle, batch.value.batch.roundKind))
-const address = voterAddress(origin)
+const address = voterAddress(BASE_URL)
 
 async function load(): Promise<void> {
   try {
