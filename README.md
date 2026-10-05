@@ -47,7 +47,7 @@ The verifier prints the file's SHA-256, to compare with the `export.generated` e
 
 ## Deployment
 
-[deploy/README.md](deploy/README.md) is the operator guide: the Entra ID app registration, secret files, rootless podman units for PostgreSQL and the app that update themselves nightly and never during an election, nginx in front, reboots and backups. The units and examples live next to it.
+[deploy/README.md](deploy/README.md) is the operator guide: the Entra ID app registration, secret files, rootless podman units for PostgreSQL and the app that update themselves nightly and never during an election, the TLS proxy in front (on the host or elsewhere), reboots and backups. The units and examples live next to it.
 
 ## Contributing
 

@@ -1,6 +1,6 @@
 # Deploying school-election
 
-One virtual machine runs everything. Rootless podman runs PostgreSQL and the app as systemd units from [`quadlet/`](quadlet/); nginx on the host terminates TLS and forwards to the app with [`nginx.example.conf`](nginx.example.conf) as the pattern. The examples use `wahl.example.org` for the site, `election` for the user that runs the stack and `~/school-election` for its directory; replace them with your own.
+A host runs PostgreSQL and the app as rootless podman systemd units from [`quadlet/`](quadlet/); the app listens on the host's loopback, `127.0.0.1:3000`, and speaks plain HTTP. TLS terminates outside the app, in a reverse proxy that reaches that port: on the same machine, or on another host through a tunnel. [`nginx.example.conf`](nginx.example.conf) is the pattern for the proxy, wherever it runs. The examples use `wahl.example.org` for the site, `election` for the user that runs the stack and `~/school-election` for its directory; replace them with your own.
 
 The deployment updates itself. Both images are built, tested and signed by this repository and published under a line tag, `v1`; a release moves the line, and the host's nightly `podman auto-update` pulls it and restarts the units, the migrations first, never while a round accepts ballots. Nothing on the host names a release, so nothing on the host goes stale; a major version (`v2`) is the one update an operator does by hand.
 
@@ -23,13 +23,13 @@ Development uses a separate registration in the school's tenant, with its own se
 
 ## Host
 
-The host needs rootless podman 5 or newer (Debian 13 has it), nginx 1.25.1 or newer (older versions need the change noted in the example) and certbot. Create the user `election` without sudo rights, then let its units run without a login session and start at boot:
+The host needs rootless podman 5 or newer (Debian 13 has it) and nothing else: no web server, no certificate. Create the user `election` without sudo rights, then let its units run without a login session and start at boot:
 
 ```bash
 sudo loginctl enable-linger election
 ```
 
-Every other command in this guide except the nginx and certbot ones runs as `election`, in a real login session (ssh, or `sudo machinectl shell election@`); `sudo -u` does not provide the user session that `systemctl --user` and rootless podman need.
+Every command in this guide except the ones on the proxy runs as `election`, in a real login session (ssh, or `sudo machinectl shell election@`); `sudo -u` does not provide the user session that `systemctl --user` and rootless podman need.
 
 Fetch the units of the release you start from, the drop-in that keeps updates away from an election, the script it runs, and the `.env` template:
 
@@ -82,11 +82,11 @@ Fill in `.env`:
 - `TRUST_PROXY` names the addresses whose `X-Forwarded-For` and `X-Forwarded-Proto` the app believes.
 - `LOG_LEVEL` is `info`, `warn` or `error`.
 
-nginx connects to `127.0.0.1:3000`, but rootless podman forwards that connection into the container from an address on the app's egress network, so the app never sees 127.0.0.1. If `TRUST_PROXY` does not cover that address, the app ignores the forwarded headers and takes every request for one client, so the per-address limits on sign-in apply to everyone at once. Rootless podman takes networks from `10.89.0.0/16` unless configured otherwise, which is the value in `.env.example`. Since the app's port is published on loopback only, nothing but nginx and other containers on this host connect from there. If other podman stacks run on the same host, narrow it to the subnet that `podman network inspect school-election-egress` shows after the first start; that subnet stays until the network is removed.
+The proxy, or the tunnel's end on this host, connects to `127.0.0.1:3000`, but rootless podman forwards that connection into the container from an address on the app's egress network, so the app never sees 127.0.0.1. If `TRUST_PROXY` does not cover that address, the app ignores the forwarded headers and takes every request for one client, so the per-address limits on sign-in apply to everyone at once. Rootless podman takes networks from `10.89.0.0/16` unless configured otherwise, which is the value in `.env.example`. Since the app's port is published on loopback only, nothing but the proxy's connection and other containers on this host arrive from there. If other podman stacks run on the same host, narrow it to the subnet that `podman network inspect school-election-egress` shows after the first start; that subnet stays until the network is removed.
 
 ## Under a path of an existing site
 
-The app can run under a path of a site that already exists, `https://www.example.org/wahl`, when no host of its own is at hand. Set `PUBLIC_URL` to that address (its path without a trailing slash) and register the redirect URI `https://www.example.org/wahl/api/auth/callback`. The app serves everything below the path itself, the pages, the API, its files and the cards' addresses included, so nginx forwards requests for `/wahl` unchanged: the end of [`nginx.example.conf`](nginx.example.conf) has the locations for that site's server block, the same three as on a host of its own with the prefix, and `proxy_pass` without a URI. The health check lives under the path too, `/wahl/api/health`, which the unit and the update script follow.
+The app can run under a path of a site that already exists, `https://www.example.org/wahl`, when no host of its own is at hand. Set `PUBLIC_URL` to that address (its path without a trailing slash) and register the redirect URI `https://www.example.org/wahl/api/auth/callback`. The app serves everything below the path itself, the pages, the API, its files and the cards' addresses included, so the proxy forwards requests for `/wahl` unchanged: the end of [`nginx.example.conf`](nginx.example.conf) has the locations for that site's server block, the same three as on a host of its own with the prefix, and `proxy_pass` without a URI. The health check lives under the path too, `/wahl/api/health`, which the unit and the update script follow.
 
 One thing a shared host costs: the app's defence against cross-site requests trusts its own origin, which is then the whole site, so a weakness in another application on `www.example.org` could reach the election API with a signed-in teacher's session. A host of its own keeps that boundary; where the DNS allows it, prefer one.
 
@@ -114,9 +114,16 @@ systemctl --user restart school-election.service && journalctl --user -u school-
 ~/school-election/not-busy.sh && echo "would update"   # exits 0 while no round accepts ballots
 ```
 
-## nginx and TLS
+## The proxy and TLS
 
-Fetch the nginx example of the same release, replace `wahl.example.org` in it with your host name, and enable it:
+The app never terminates TLS itself. A reverse proxy does, and reaches the app's `127.0.0.1:3000`:
+
+- on the same machine, directly;
+- on another host, through a tunnel from this host to it: an outgoing `autossh -N -R 127.0.0.1:3000:127.0.0.1:3000` to the proxy host, whose web server then forwards to its own `127.0.0.1:3000`, or an `frpc` client to an `frps` there. Either way the app host opens no inbound port and holds no certificate; the tunnel is one more user unit here, and the proxy host's configuration is that host's business.
+
+In both cases the proxy sets `X-Forwarded-For` and `X-Forwarded-Proto`, and the app sees the proxy's connection, or the tunnel's local end, as the client, which is what `TRUST_PROXY` covers above.
+
+The nginx example is the pattern for the proxy. Fetch it on the proxy host, replace `wahl.example.org` with your host name, and enable it:
 
 ```bash
 tag=v1.0.0   # the release you started from, as above
@@ -133,7 +140,7 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot certonly --webroot -w /var/www/certbot -d wahl.example.org --deploy-hook 'nginx -t && systemctl reload nginx'
 ```
 
-Then restore the port 443 server. certbot keeps the deploy hook for renewals, so nginx picks up each renewed certificate. On an SELinux host, nginx may not connect to the app's port until `sudo setsebool -P httpd_can_network_connect 1` allows it.
+Then restore the port 443 server. certbot keeps the deploy hook for renewals, so nginx picks up each renewed certificate. On an SELinux host, nginx may not connect to the app's port until `sudo setsebool -P httpd_can_network_connect 1` allows it. A proxy that is not nginx does the same four things: TLS, the forwarded headers, the body limit for pictures, and no access log for `/api/voter` and the sign-in callback.
 
 ```bash
 sudo nginx -t && sudo systemctl reload nginx
@@ -170,4 +177,4 @@ With linger enabled, the units are wanted by the user's `default.target` and sta
 
 - The app logs JSON lines to the journal, `journalctl --user -u school-election`, without request lines, client addresses, query strings or error messages. The migrator's lines are there too, before each start.
 - PostgreSQL logs warnings and errors only, never statements or their parameters: `journalctl --user -u school-election-postgres`.
-- nginx logs what its log format allows, and nothing for `/api/voter` or the plain-HTTP redirects.
+- The proxy logs what its configuration allows; with the nginx example, nothing for `/api/voter` or the plain-HTTP redirects.

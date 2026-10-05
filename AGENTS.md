@@ -13,7 +13,7 @@ apps/api/scripts/verify.ts  the offline verifier of an export (npm run verify --
 e2e/                      Playwright journeys against the real server: harness, support, specs (playwright.config.ts at the root)
 scripts/lint-deps.mjs     exact-pin check across all workspaces
 scripts/postgres.sh       PostgreSQL with the settings the API requires (CI and development)
-deploy/                   the deployment: Quadlet units, the PostgreSQL image, the nightly-update guard, .env and nginx examples, the operator guide; generic, example.org placeholders only
+deploy/                   the deployment: Quadlet units, the PostgreSQL image, the nightly-update guard, the .env example, the proxy example (nginx) and the operator guide; generic, example.org placeholders only
 docs/design.md            design decisions; update it with the behaviour it describes
 docs/privacy-model.md     what PostgreSQL records about a vote, what removes each trace, what the tests prove, what remains
 third-party-notices/      notice and license texts of libvips, which the image carries; a test keeps its versions current
@@ -44,7 +44,7 @@ These take precedence over convenience:
 - Statutory points are fixed (`6..1`, `2, 1`). Smaller candidate counts use a prefix and are never rescaled. A ranking with every active slot filled is a valid vote; one with empty slots is an invalid vote, cast only with the voter's explicit confirmation, and gives nobody points. "Nein" exists only in single-candidate contests. The majority base is the valid ballots.
 - No hidden tiebreaks: a statutory lot is an explicit, audited human action, recorded once (`lot_decision`) and applied by election-core's `resolve` alone; the outcome as it stands is computed from the snapshots and the recorded lots on every read, and written once, at finalization, with the versions that derived it.
 - The export (`apps/api/lib/export.ts`) is built from named columns only and carries sealed ballots sorted by content without ids, keys and entitlements as counts, never a key or the id of one; it is canonical JSON, audited with its SHA-256. The verifier (`apps/api/lib/export-verify.ts`, `npm run verify`) recomputes from the file alone, and the modules it runs on stay pure under the ESLint fence.
-- Authorization and security headers live in the application, never in nginx. Every route, cookie path, redirect and link the app emits or compares derives from `PUBLIC_URL` (`config.publicUrl`, `publicOrigin`, `basePath`), which may carry a path: nothing names `/` as the app's root. In the web app the base comes from `apps/web/src/lib/base.ts`: route paths stay without it, the API clients add it, and a navigation or plain link outside the router goes through `withBase`.
+- Authorization and security headers live in the application, never in the proxy. The app speaks plain HTTP on the host's loopback; TLS terminates outside it, on the same host or on another one through a tunnel, and the deployment assumes nothing about where. Every route, cookie path, redirect and link the app emits or compares derives from `PUBLIC_URL` (`config.publicUrl`, `publicOrigin`, `basePath`), which may carry a path: nothing names `/` as the app's root. In the web app the base comes from `apps/web/src/lib/base.ts`: route paths stay without it, the API clients add it, and a navigation or plain link outside the router goes through `withBase`.
 
 ## Conventions
 
