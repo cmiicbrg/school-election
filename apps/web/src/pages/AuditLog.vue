@@ -1,6 +1,9 @@
 <script setup lang="ts">
 // Protokoll: every administrative step of the election, in order, as a
-// sentence with who and when, and whether the chain of hashes is whole.
+// sentence with who and when, and whether the chain of hashes holds
+// together, with its last hash, which a witness can note down and compare
+// later: the check proves that nothing inside was changed, not that
+// nothing was cut off the end, which only a hash kept elsewhere proves.
 // For every member, witnesses included, at any time. Nothing of a voter
 // is in it: the log records administration, never voting.
 
@@ -61,7 +64,7 @@ const names = computed<AuditNames>(() => {
 const chainText = computed(() => {
   const chain = audit.value?.chain
   if (!chain) return ''
-  if (chain.valid) return `Die Protokollkette ist vollständig: ${chain.length} Einträge, jeder mit der Prüfsumme des vorigen.`
+  if (chain.valid) return `Die Protokollkette hält zusammen: ${chain.length} Einträge, jeder mit der Prüfsumme des vorigen; kein Eintrag wurde verändert. Letzte Prüfsumme: ${chain.head ?? 'keine'}. Wer sie sich notiert, kann später sehen, dass auch nichts entfernt wurde.`
   return `Die Protokollkette ist unterbrochen bei Eintrag ${chain.index + 1}: ${chain.problem}. Bitte die Betreiber:in verständigen.`
 })
 </script>
@@ -114,3 +117,9 @@ const chainText = computed(() => {
     Wird geladen …
   </p>
 </template>
+
+<style scoped>
+.message {
+  word-break: break-all;
+}
+</style>

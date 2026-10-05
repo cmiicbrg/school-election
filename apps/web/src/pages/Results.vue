@@ -5,9 +5,11 @@
 // as they stand or as declared, and the versions that counted. For every
 // member, witnesses included, once the regular round has closed; before
 // that the page says so, shows nothing, and asks the API for nothing the
-// lifecycle says it would refuse.
+// lifecycle says it would refuse. While the election can still change (a
+// lot recorded, the runoff, the finalization), the page reads the result
+// again every five seconds, so what a witness sees is what stands.
 
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { apiGet } from '../lib/api.ts'
 import { ApiError, errorMessage } from '../lib/api-rules.ts'
@@ -53,8 +55,27 @@ async function load(): Promise<void> {
   }
 }
 
+const EVERY_MS = 5000
+let timer: ReturnType<typeof setInterval> | undefined
+let reading = false
+
+/** The election and its result read again, once at a time, while the election is not final. */
+async function follow(): Promise<void> {
+  if (reading || election.value?.lifecycle.election === 'final') return
+  reading = true
+  try {
+    await load()
+  } finally {
+    reading = false
+  }
+}
+
 onMounted(() => {
   void load()
+  timer = setInterval(() => void follow(), EVERY_MS)
+})
+onUnmounted(() => {
+  if (timer !== undefined) clearInterval(timer)
 })
 watch(() => props.id, () => {
   election.value = undefined
