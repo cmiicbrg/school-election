@@ -44,7 +44,7 @@ These take precedence over convenience:
 - Statutory points are fixed (`6..1`, `2, 1`). Smaller candidate counts use a prefix and are never rescaled. A ranking with every active slot filled is a valid vote; one with empty slots is an invalid vote, cast only with the voter's explicit confirmation, and gives nobody points. "Nein" exists only in single-candidate contests. The majority base is the valid ballots.
 - No hidden tiebreaks: a statutory lot is an explicit, audited human action, recorded once (`lot_decision`) and applied by election-core's `resolve` alone; the outcome as it stands is computed from the snapshots and the recorded lots on every read, and written once, at finalization, with the versions that derived it.
 - The export (`apps/api/lib/export.ts`) is built from named columns only and carries sealed ballots sorted by content without ids, keys and entitlements as counts, never a key or the id of one; it is canonical JSON, audited with its SHA-256. The verifier (`apps/api/lib/export-verify.ts`, `npm run verify`) recomputes from the file alone, and the modules it runs on stay pure under the ESLint fence.
-- Authorization and security headers live in the application, never in nginx.
+- Authorization and security headers live in the application, never in nginx. Every route, cookie path, redirect and link the app emits or compares derives from `PUBLIC_URL` (`config.publicUrl`, `publicOrigin`, `basePath`), which may carry a path: nothing names `/` as the app's root.
 
 ## Conventions
 

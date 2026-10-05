@@ -10,7 +10,7 @@ One virtual machine runs everything. Rootless podman runs PostgreSQL and the app
 
 Teachers and witnesses sign in with their school Microsoft accounts. In the Microsoft Entra admin center, under App registrations:
 
-1. Register a new application for this tenant only ("Accounts in this organizational directory only") with the redirect URI `https://wahl.example.org/api/auth/callback`, platform Web. The redirect URI is always `PUBLIC_ORIGIN` followed by `/api/auth/callback`.
+1. Register a new application for this tenant only ("Accounts in this organizational directory only") with the redirect URI `https://wahl.example.org/api/auth/callback`, platform Web. The redirect URI is always `PUBLIC_URL` followed by `/api/auth/callback`.
 2. Its overview shows the Directory (tenant) ID and the Application (client) ID: `ENTRA_TENANT_ID` and `ENTRA_CLIENT_ID` in `.env`.
 3. Under Certificates & secrets, create a client secret and keep its value (not its ID) for `secrets/entra-client-secret` below. Note the expiry date: after it, sign-in fails until a new secret is in the file and the app has been restarted.
 4. Under App roles, create a role for users and groups with the value `teacher`. Only this value counts; the app ignores any other role. Under Enterprise applications, open the same application and assign the teacher role to the teachers under Users and groups. Teachers may create elections; everyone else sees only the elections they are a member of.
@@ -68,7 +68,7 @@ The app image runs as uid 10001, the app and the migrator alike. The PostgreSQL 
 Fill in `.env`:
 
 - `IMAGE` is the release, pinned by tag and digest. The summary of the Publish Image workflow run for each release tag prints the exact value.
-- `PUBLIC_ORIGIN` is the origin browsers use, `https://wahl.example.org`.
+- `PUBLIC_URL` is the address browsers use, `https://wahl.example.org`. With a path, `https://www.example.org/wahl`, the app runs under that path of a host it shares: every route, cookie and link starts with it, and nginx forwards the path unchanged.
 - `ENTRA_TENANT_ID` and `ENTRA_CLIENT_ID` come from the app registration.
 - `TRUST_PROXY` names the addresses whose `X-Forwarded-For` and `X-Forwarded-Proto` the app believes.
 

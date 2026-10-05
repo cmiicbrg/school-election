@@ -103,7 +103,7 @@ services:
     # back after a reboot.
     restart: always
     environment:
-      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
+      PUBLIC_URL: ${PUBLIC_URL:?set PUBLIC_URL in .env}
       TRUST_PROXY: ${TRUST_PROXY:?set TRUST_PROXY in .env}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       # The unprivileged runtime role the migrator creates. Only its
@@ -133,9 +133,10 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     # Shell form on purpose: podman-compose joins an exec-form test into one
-    # shell string and breaks the quoting of the script.
+    # shell string and breaks the quoting of the script. The health check
+    # lives under the app's base path, which PUBLIC_URL names.
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"const p = new URL(process.env.PUBLIC_URL).pathname; fetch('http://127.0.0.1:3000' + (p.endsWith('/') ? p.slice(0, -1) : p) + '/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))\""]
       interval: 30s
       timeout: 5s
       retries: 3
