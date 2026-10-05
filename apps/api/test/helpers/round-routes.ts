@@ -9,7 +9,6 @@ import type { TestContext } from 'node:test'
 import type { LightMyRequestResponse } from 'fastify'
 import { validateBallot, type CastBallot, type Contest, type Lifecycle, type RulesetId } from '@school-election/election-core'
 import { castBallot, type CastResult } from '../../lib/ballot-box.ts'
-import { inOrder } from '../../lib/in-order.ts'
 import { withClient } from './db.ts'
 import { ANNA, CARLA, createElection, electionApp, signIn, WANDA, type Browser, type ElectionApp } from './elections.ts'
 import { CookieJar } from './fake-entra.ts'
@@ -81,31 +80,31 @@ export async function preparedElection(t: TestContext, shape: ElectionShape): Pr
   const id = await createElection(anna)
   const base = `/api/elections/${id}`
   const contestIds: string[] = []
-  await inOrder(shape.contests, async (contest) => {
+  for (const contest of shape.contests) {
     const created = ok<{ id: string }>(await anna.request('POST', `${base}/contests`, { title: contest.title, rulesetId: contest.rulesetId }), 201)
     contestIds.push(created.id)
-    await inOrder(contest.candidates, async ([surname, givenName]) => {
+    for (const [surname, givenName] of contest.candidates) {
       ok(await anna.request('POST', `${base}/contests/${created.id}/candidates`, { surname, givenName }), 201)
-    })
-  })
+    }
+  }
   const groupIds = new Map<string, string>()
-  await inOrder(shape.groups, async (group) => {
+  for (const group of shape.groups) {
     const created = ok<{ id: string }>(await anna.request('POST', `${base}/voter-groups`, { name: group.name }), 201)
     ok(await anna.request('PUT', `${base}/voter-groups/${created.id}/contests`, { contestIds: group.contests.map((index) => contestIds[index]) }))
     groupIds.set(group.name, created.id)
-  })
-  await inOrder([[CARLA, 'admin'], [WANDA, 'witness']] as const, async ([person, role]) => {
+  }
+  for (const [person, role] of [[CARLA, 'admin'], [WANDA, 'witness']] as const) {
     ok(await anna.request('POST', `${base}/members`, { email: person.email, role }), 201)
-  })
+  }
   const carla = await signIn(s, CARLA)
   const wanda = await signIn(s, WANDA)
   ok(await anna.request('POST', `${base}/prepare`))
-  await inOrder(shape.groups.filter((group) => group.keys), async (group) => {
+  for (const group of shape.groups.filter((group) => group.keys)) {
     ok(await anna.request('POST', `${base}/batches`, { voterGroupId: groupIds.get(group.name), roundKind: 'regular', count: group.keys }), 201)
-  })
-  await inOrder(shape.groups.filter((group) => group.runoffKeys), async (group) => {
+  }
+  for (const group of shape.groups.filter((group) => group.runoffKeys)) {
     ok(await anna.request('POST', `${base}/batches`, { voterGroupId: groupIds.get(group.name), roundKind: 'runoff', count: group.runoffKeys }), 201)
-  })
+  }
   const configuration = ok<{ contests: { id: string, rulesetId: RulesetId, candidates: { id: string }[] }[] }>(await anna.request('GET', `${base}/configuration`))
   const contests = contestIds.map((contestId) => {
     const stored = configuration.contests.find((contest) => contest.id === contestId)

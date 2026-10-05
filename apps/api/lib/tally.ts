@@ -27,7 +27,6 @@ import {
 import type { BuildInfo } from '../config.ts'
 import { readConfiguration } from './configuration.ts'
 import { Refusal } from './election-access.ts'
-import { inOrder } from './in-order.ts'
 import { decisionsOf, lotDecisionsOf } from './outcome.ts'
 import { compareCandidates } from './names.ts'
 import { SQLSTATE, sqlState } from './pg-errors.ts'
@@ -144,7 +143,7 @@ export async function tallyRound(client: pg.ClientBase, electionId: string, roun
   const contests = (await contestsOf(client, electionId)).filter((contest) => boxOf.has(contest.id))
   if (contests.length !== boxOf.size) throw new TallyError('a ballot box of the round belongs to no contest of the election')
   const tallies: ContestTally[] = []
-  await inOrder(contests, async (configured) => {
+  for (const configured of contests) {
     const boxId = boxOf.get(configured.id)
     const box = boxId === undefined ? undefined : await contestOfBox(client, boxId)
     if (!box) throw new TallyError(`the ballot box of contest ${configured.id} is gone`)
@@ -160,7 +159,7 @@ export async function tallyRound(client: pg.ClientBase, electionId: string, roun
       [electionId, boxId, tally.inputSha256, TALLY_VERSION, build.version, build.gitSha, JSON.stringify(tally.result), JSON.stringify(tally.outcome)],
     )
     tallies.push(tally)
-  })
+  }
   return tallies
 }
 

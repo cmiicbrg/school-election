@@ -18,7 +18,6 @@ import type pg from 'pg'
 import { canOpenRegular, transition, type Lifecycle, type OutcomeKind, type RoundKind, type RoundState } from '@school-election/election-core'
 import { appendAudit } from './audit.ts'
 import { Refusal, type ElectionAccess } from './election-access.ts'
-import { inOrder } from './in-order.ts'
 import { contestOutcomes } from './outcome.ts'
 import { isPermitted } from './permissions.ts'
 import { SQLSTATE, sqlState } from './pg-errors.ts'
@@ -137,11 +136,13 @@ export interface Closed {
 export async function closeAndTally(client: pg.ClientBase, access: ElectionAccess, build: BuildInfo, kind: RoundKind = 'regular'): Promise<Closed> {
   const { roundId, ballots } = await closeRound(client, access, kind)
   const tallies = await tallyRound(client, access.electionId, roundId, build)
-  await inOrder(tallies, (tally) => appendAudit(client, access.electionId, {
-    actor: access.actor,
-    action: 'result.computed',
-    metadata: { contest: tally.contestId, round: kind, inputSha256: tally.inputSha256, ballots: tally.ballots, outcome: tally.outcome.kind },
-  }))
+  for (const tally of tallies) {
+    await appendAudit(client, access.electionId, {
+      actor: access.actor,
+      action: 'result.computed',
+      metadata: { contest: tally.contestId, round: kind, inputSha256: tally.inputSha256, ballots: tally.ballots, outcome: tally.outcome.kind },
+    })
+  }
   return { ballots, contests: tallies.map((tally) => ({ contestId: tally.contestId, outcome: tally.outcome.kind })) }
 }
 
@@ -188,11 +189,13 @@ export async function activateRunoff(client: pg.ClientBase, access: ElectionAcce
     [roundId],
   )
   const keys = entitled?.n ?? 0
-  await inOrder(contests, (contest) => appendAudit(client, access.electionId, {
-    actor: access.actor,
-    action: 'runoff.pair',
-    metadata: { contest: contest.contestId, first: contest.candidates[0], second: contest.candidates[1] },
-  }))
+  for (const contest of contests) {
+    await appendAudit(client, access.electionId, {
+      actor: access.actor,
+      action: 'runoff.pair',
+      metadata: { contest: contest.contestId, first: contest.candidates[0], second: contest.candidates[1] },
+    })
+  }
   await appendAudit(client, access.electionId, { actor: access.actor, action: 'runoff.activated', metadata: { round: 'runoff', contests: contests.length, keys } })
   return { roundId, contests, keys }
 }

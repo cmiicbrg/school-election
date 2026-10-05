@@ -20,7 +20,6 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import type { RoundKind } from '@school-election/election-core'
 import type { Database } from './db.ts'
 import { Refusal } from './election-access.ts'
-import { inOrder } from './in-order.ts'
 import { SQLSTATE, sqlState } from './pg-errors.ts'
 
 /** The two tables with dead rows of the votes; `ballot` has none, the seal only inserts there. */
@@ -52,7 +51,7 @@ export interface CleanUpOptions {
 export async function cleanUp(db: Pick<Database, 'query'>, electionId: string, { waitMs = BLOCKED_WAIT_MS, pollMs = BLOCKED_POLL_MS }: CleanUpOptions = {}): Promise<RoundPhases> {
   const phases = await roundPhases(db, electionId)
   await waitForSnapshots(db, electionId, waitMs, pollMs)
-  await inOrder(REWRITTEN, (table) => rewrite(db, table))
+  for (const table of REWRITTEN) await rewrite(db, table)
   const { rows: [position] } = await db.query<{ lsn: string }>('select pg_current_wal_lsn()::text as lsn')
   const { rows: [flushed] } = await db.query<{ cleared: boolean }>('select flush_wal($1::pg_lsn) as cleared', [position?.lsn ?? '0/0'])
   if (flushed?.cleared !== true) throw new Refusal(409, 'wal_retained')
