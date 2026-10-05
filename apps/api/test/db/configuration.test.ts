@@ -1,6 +1,9 @@
-// The configuration tables as the runtime role meets them: the editing
-// windows and the lifecycle kept by triggers, the links kept within one
-// election, the privileges, and the values the code relies on.
+// The configuration tables as the runtime role meets them: what the
+// triggers keep whoever writes (a final election never changes, a round
+// moves only along its transitions, a runoff box names its pair), the
+// links kept within one election, the privileges, and the values the code
+// relies on. What may change in which state is the lifecycle's
+// (packages/election-core), tested there and at the routes.
 
 import { test, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -31,6 +34,11 @@ const B = '4a3c9d2f-6b5e-4f70-8c8b-1d2e3f4a5b6c'
 const CONTEST_A = '5b4dae30-7c6f-4081-9d9c-2e3f4a5b6c7d'
 const CONTEST_B = '6c5ebf41-8d70-4192-8ead-3f4a5b6c7d8e'
 const GROUP_A = '7d6fc052-9e81-42a3-9fbe-4a5b6c7d8e9f'
+const JONAS = '8e7fd163-af92-43b4-8acf-5b6c7d8e9fa1'
+const LENA = '9f80e274-b0a3-44c5-9bd0-6c7d8e9fa0b2'
+const OTHER = 'a091f385-c1b4-45d6-8ce1-7d8e9fa0b1c3'
+const REGULAR = 'b1a2f496-d2c5-46e7-9df2-8e9fa0b1c2d4'
+const RUNOFF = 'c2b3a507-e3d6-47f8-8ea3-9fa0b1c2d3e5'
 
 /** Two draft elections, each with a contest, and a voter group in the first; made as the owner. */
 async function setup(t: TestContext) {
@@ -146,101 +154,64 @@ test('no table numbers its rows by a sequence or a time-ordered id; the audit lo
   assert.deepEqual(rows.map((row) => row.column), ['audit_event.seq'])
 })
 
-test('structure changes only in a draft, candidates until voting starts, and nothing once final', DB, async (t) => {
+test('a final election never changes, and becomes final only with the final outcome of every contest written', DB, async (t) => {
   const { ownerUrl, runtimeUrl } = await setup(t)
+  const toFinal = `update election set state = 'final' where id = '${A}'`
   await withClient(runtimeUrl, async (client) => {
-    // A draft takes everything.
-    await client.query(`insert into contest (election_id, title, ruleset_id) values ('${A}', 'Klassensprecher/in 1A', 'at-representative-v1')`)
-    await client.query(`insert into voter_group_contest (election_id, voter_group_id, contest_id) values ('${A}', '${GROUP_A}', '${CONTEST_A}')`)
-    await client.query(`insert into candidate (election_id, contest_id, surname, given_name) values ('${A}', '${CONTEST_A}', 'Berger', 'Jonas')`)
-
+    // What may change in which state is the lifecycle's: the statements pass.
     await client.query(`update election set state = 'prepared' where id = '${A}'`)
-    await refused(client, '55000', [
-      `insert into contest (election_id, title, ruleset_id) values ('${A}', 'Abteilungssprecher/in', 'at-representative-v1')`,
-      `update contest set title = 'Schulsprecher' where id = '${CONTEST_A}'`,
-      `delete from contest where id = '${CONTEST_A}'`,
-      `insert into voter_group (election_id, name) values ('${A}', '2B')`,
-      `update voter_group set name = '1a' where id = '${GROUP_A}'`,
-      `delete from voter_group where id = '${GROUP_A}'`,
-      `delete from voter_group_contest where voter_group_id = '${GROUP_A}'`,
-    ])
-    // Candidates, title and description still change.
-    await client.query(`insert into candidate (election_id, contest_id, surname, given_name) values ('${A}', '${CONTEST_A}', 'Huber', 'Lena')`)
-    await client.query(`update candidate set given_name = 'Jonas Maria' where surname = 'Berger'`)
-    await client.query(`delete from candidate where surname = 'Huber'`)
-    // The last candidate of a prepared contest stays.
-    await refused(client, '55000', [`delete from candidate where surname = 'Berger'`])
-    await client.query(`update election set title = 'A 2026/27', description = 'Neu' where id = '${A}'`)
-    // Another election's draft is not affected.
-    await client.query(`insert into voter_group (election_id, name) values ('${B}', '1A')`)
+    await client.query(`insert into candidate (election_id, contest_id, surname, given_name) values ('${A}', '${CONTEST_A}', 'Berger', 'Jonas')`)
+    await client.query(`update election set state = 'active', title = 'A 2026/27' where id = '${A}'`)
+    // Final needs the outcome of every contest, however the election got there; the runtime role has no way to the table but finalize_election.
+    await refused(client, '55000', [toFinal])
   })
-
-  // Voting has started: as the round-opening route will do it, past the
-  // routes this version has.
-  await withClient(ownerUrl, (client) => client.query(`update election set state = 'active' where id = '${A}'`))
+  await withClient(ownerUrl, async (client) => {
+    await refused(client, '55000', [toFinal])
+    await client.query(
+      `insert into final_outcome (election_id, contest_id, kind, outcome, tally_version, app_version, git_sha)
+       values ('${A}', '${CONTEST_A}', 'tie', '{"kind":"tie","candidates":[],"trace":[]}', 1, 'dev', 'unknown')`,
+    )
+    await client.query(toFinal)
+    // Final: nothing of the election changes, for any role; another election is not concerned.
+    await refused(client, '55000', [
+      `update election set state = 'active' where id = '${A}'`,
+      `update election set title = 'Anders' where id = '${A}'`,
+      `update election set description = 'Neu' where id = '${A}'`,
+    ])
+    await client.query(`update election set title = 'B 2026/27' where id = '${B}'`)
+  })
   await withClient(runtimeUrl, (client) => refused(client, '55000', [
-    `insert into candidate (election_id, contest_id, surname, given_name) values ('${A}', '${CONTEST_A}', 'Huber', 'Lena')`,
-    `update candidate set surname = 'Bergér' where surname = 'Berger'`,
-    `delete from candidate where surname = 'Berger'`,
-    `update election set title = 'Später' where id = '${A}'`,
-    `update election set description = 'Später' where id = '${A}'`,
-  ]))
-  // Final: made past the triggers, since the step to final needs a sealed
-  // round and the declared outcomes (migration 0014, test/db/finalize.test.ts),
-  // to test this window on its own.
-  await withClient(ownerUrl, (client) => client.query(
-    `begin; set local session_replication_role = replica; update election set state = 'final' where id = '${A}'; commit`,
-  ))
-  await withClient(runtimeUrl, (client) => refused(client, '55000', [
-    `update election set state = 'active' where id = '${A}'`,
-    `update election set state = 'final' where id = '${A}'`,
+    `update election set state = 'draft' where id = '${A}'`,
     `update election set title = title where id = '${A}'`,
   ]))
 })
 
-test('an election moves only along the lifecycle, and back to draft only while no round has opened', DB, async (t) => {
+test('a runoff box names a pair of two candidates of its contest and no other box names one, whoever adds it; a contest removed takes its boxes with it', DB, async (t) => {
   const { ownerUrl, runtimeUrl } = await setup(t)
+  const box = (round: string, pair: string[] | null) =>
+    `insert into round_contest (election_id, round_id, contest_id, runoff_pair) values ('${A}', '${round}', '${CONTEST_A}', ${pair === null ? 'null' : `'{${pair.join(',')}}'`})`
   await withClient(runtimeUrl, async (client) => {
-    await refused(client, '55000', [
-      `update election set state = 'active' where id = '${A}'`,
-      `update election set state = 'final' where id = '${A}'`,
-    ])
-    await client.query(`update election set state = 'prepared' where id = '${A}'`)
-    await client.query(`insert into round (election_id, kind) values ('${A}', 'regular')`)
-    await client.query(`update election set state = 'draft' where id = '${A}'`)
-    await client.query(`update election set state = 'prepared' where id = '${A}'`)
-  })
-  // A round that has opened while the election is still prepared, which
-  // the round's own trigger (migration 0009) refuses: made past the
-  // triggers, to test this one's rule on its own.
-  await withClient(ownerUrl, (client) => client.query(
-    `begin; set local session_replication_role = replica; update round set state = 'open' where election_id = '${A}'; commit`,
-  ))
-  await withClient(runtimeUrl, (client) => refused(client, '55000', [`update election set state = 'draft' where id = '${A}'`]))
-})
-
-test('rounds start planned before voting, and their ballot boxes change only while they are planned', DB, async (t) => {
-  const { runtimeUrl } = await setup(t)
-  await withClient(runtimeUrl, async (client) => {
-    await refused(client, '55000', [
-      `insert into round (election_id, kind) values ('${A}', 'runoff')`,
-      `insert into round (election_id, kind, state) values ('${A}', 'regular', 'open')`,
-    ])
-    await client.query(`insert into round (election_id, kind) values ('${A}', 'regular')`)
+    await client.query(`insert into candidate (id, election_id, contest_id, surname, given_name) values
+      ('${JONAS}', '${A}', '${CONTEST_A}', 'Berger', 'Jonas'), ('${LENA}', '${A}', '${CONTEST_A}', 'Huber', 'Lena'), ('${OTHER}', '${B}', '${CONTEST_B}', 'Ja', '')`)
+    // One round of each kind; when a round comes to be is the application's.
+    await client.query(`insert into round (id, election_id, kind) values ('${REGULAR}', '${A}', 'regular')`)
+    await client.query(`insert into round (id, election_id, kind, state) values ('${RUNOFF}', '${A}', 'runoff', 'open')`)
     await refused(client, '23505', [`insert into round (election_id, kind) values ('${A}', 'regular')`])
-    await client.query(`insert into round_contest (election_id, round_id, contest_id) select '${A}', id, '${CONTEST_A}' from round where election_id = '${A}'`)
-    // A contest removed in the draft takes its ballot box with it.
+    await refused(client, '55000', [box(REGULAR, [JONAS, LENA]), box(RUNOFF, null), box(RUNOFF, [JONAS, OTHER]), box(RUNOFF, [JONAS, JONAS])])
+    await client.query(box(REGULAR, null))
+    await client.query(box(RUNOFF, [JONAS, LENA]))
+    // The runtime role removes no round and moves no box.
+    await refused(client, '42501', ['delete from round', 'update round_contest set contest_id = contest_id'])
+  })
+  // The owner's direct statements are bound the same way.
+  await withClient(ownerUrl, (client) => refused(client, '55000', [
+    `update round_contest set runoff_pair = '{${JONAS},${OTHER}}' where round_id = '${RUNOFF}'`,
+    `update round_contest set runoff_pair = null where round_id = '${RUNOFF}'`,
+    `update round_contest set runoff_pair = '{${JONAS},${LENA}}' where round_id = '${REGULAR}'`,
+  ]))
+  await withClient(runtimeUrl, async (client) => {
     await client.query(`delete from contest where id = '${CONTEST_A}'`)
     assert.equal((await client.query('select 1 from round_contest')).rowCount, 0)
-    await client.query(`insert into contest (id, election_id, title, ruleset_id) values ('${CONTEST_A}', '${A}', 'Schulsprecher/in', 'at-school-speaker-v1')`)
-    await client.query(`insert into round_contest (election_id, round_id, contest_id) select '${A}', id, '${CONTEST_A}' from round where election_id = '${A}'`)
-    await client.query(`update election set state = 'prepared' where id = '${A}'`)
-    // The runtime role opens the round of an active election
-    // (test/db/ballot-box.test.ts has the rest of its transitions), and
-    // removes none.
-    await refused(client, '42501', [`delete from round`, `update round_contest set contest_id = contest_id`])
-    await client.query(`update election set state = 'active' where id = '${A}'; update round set state = 'open' where election_id = '${A}'`)
-    await refused(client, '55000', [`delete from round_contest where election_id = '${A}'`])
   })
 })
 
@@ -283,27 +254,5 @@ test('a candidate\'s picture is a WebP of at most 128 KiB, stored with its SHA-2
     for (const [label, picture, hash] of refusedRows) {
       await assert.rejects(client.query(insert, [label, picture, hash]), refusedWith('23514'), label)
     }
-  })
-})
-
-test('a state change waits for a configuration change to commit, and the other way round', DB, async (t) => {
-  const { runtimeUrl } = await setup(t)
-  await withClient(runtimeUrl, async (editing) => {
-    await editing.query('begin')
-    await editing.query(`insert into candidate (election_id, contest_id, surname, given_name) values ('${A}', '${CONTEST_A}', 'Berger', 'Jonas')`)
-    await withClient(runtimeUrl, async (preparing) => {
-      await preparing.query('set lock_timeout = 200')
-      await assert.rejects(preparing.query(`update election set state = 'prepared' where id = '${A}'`), refusedWith('55P03'))
-    })
-    await editing.query('commit')
-  })
-  await withClient(runtimeUrl, async (preparing) => {
-    await preparing.query('begin')
-    await preparing.query(`update election set state = 'prepared' where id = '${A}'`)
-    await withClient(runtimeUrl, async (editing) => {
-      await editing.query('set lock_timeout = 200')
-      await assert.rejects(editing.query(`insert into voter_group (election_id, name) values ('${A}', '2B')`), refusedWith('55P03'))
-    })
-    await preparing.query('rollback')
   })
 })

@@ -1,7 +1,9 @@
 // The runoff round at the database: activate_runoff creates it open with
 // its boxes and the entitlements of the issued runoff batches, once, after
-// the regular round closed, and in no other way; a runoff ballot names the
-// pair alone; keys of the first round and of a void batch never vote in it.
+// the regular round closed, with the pairs the results give; a runoff
+// ballot names the pair alone; keys of the first round and of a void batch
+// never vote in it; a lot has its shape. When a lot or a batch may come is
+// the lifecycle's.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -71,7 +73,7 @@ test('activate_runoff creates the round open with a box per pair and the entitle
   assert.equal(staged?.n, 1)
 })
 
-test('a runoff round comes to be in no other way, once, after the regular round closed, of the contests that need one, with the pairs the results give', DB, async (t) => {
+test('activate_runoff creates the runoff once, after the regular round closed, of the contests that need one, with the pairs the results give', DB, async (t) => {
   const s = await setup(t)
   await assert.rejects(activateDirectly(s), refusedBy, 'prepared: the regular round has not opened')
   await openDirectly(s.ownerUrl)
@@ -79,11 +81,6 @@ test('a runoff round comes to be in no other way, once, after the regular round 
   assert.deepEqual(await cast(s, s.credentialIds[1] ?? '', ranking([QUIRIN, PAULA])), { cast: true })
   await assert.rejects(activateDirectly(s), refusedBy, 'open: not closed yet')
   await close(s)
-  // By hand, planned or open, as the owner or the runtime role: never.
-  for (const state of ['planned', 'open']) {
-    await withClient(s.ownerUrl, (client) => assert.rejects(client.query(`insert into round (election_id, kind, state) values ($1, 'runoff', $2)`, [ELECTION, state]), refusedBy, `owner ${state}`))
-    await assert.rejects(s.db.query(`insert into round (election_id, kind, state) values ($1, 'runoff', $2)`, [ELECTION, state]), refusedBy, `runtime ${state}`)
-  }
   await assert.rejects(activateDirectly(s, []), refusedBy, 'no pairs')
   await assert.rejects(activateDirectly(s, [{ contestId: '00000000-0000-4000-8000-000000000000', candidates: [PAULA, QUIRIN] }]), refusedBy, 'not a contest of the regular round, and the contest that needs a runoff missing')
   await assert.rejects(activateDirectly(s, [{ contestId: CONTEST, candidates: [PAULA, '00000000-0000-4000-8000-000000000001'] }]), refusedBy, 'not the pair the result gives')
@@ -92,13 +89,8 @@ test('a runoff round comes to be in no other way, once, after the regular round 
   const { rows: [none] } = await withClient(s.ownerUrl, (client) => client.query<{ n: number }>(`select count(*)::int as n from round where kind = 'runoff'`))
   assert.equal(none?.n, 0, 'every refusal left nothing behind')
 
-  const roundId = await activateDirectly(s, [{ contestId: CONTEST, candidates: [QUIRIN, PAULA] }])
+  await activateDirectly(s, [{ contestId: CONTEST, candidates: [QUIRIN, PAULA] }])
   await assert.rejects(activateDirectly(s), refusedBy, 'a second time')
-  // A box added to the open runoff by hand, or the box's pair changed: refused for everyone.
-  await withClient(s.ownerUrl, async (client) => {
-    await assert.rejects(client.query('insert into round_contest (election_id, round_id, contest_id, runoff_pair) values ($1, $2, $3, $4)', [ELECTION, roundId, CONTEST, [PAULA, QUIRIN]]), refusedBy)
-    await assert.rejects(client.query('update round_contest set runoff_pair = $2 where round_id = $1', [roundId, [QUIRIN, PAULA]]), refusedBy)
-  })
 })
 
 test('where the first round elected, nothing needs a runoff; a pair on a regular box is refused, whoever adds it', DB, async (t) => {
@@ -114,16 +106,14 @@ test('where the first round elected, nothing needs a runoff; a pair on a regular
   await assert.rejects(activateDirectly(s), refusedBy, 'no contest needs a runoff')
 })
 
-test('a lot is recorded on a first-round box once the regular round has closed and while no round accepts ballots, among the contest\'s candidates, the order being the tied set', DB, async (t) => {
+test('a lot is recorded on a first-round box, among the contest\'s candidates, the order being the tied set, and never changes', DB, async (t) => {
   const s = await setup(t)
   const record = (box: string, candidates: string[], drawn: string[]) => withClient(s.ownerUrl, (client) => client.query(
     `insert into lot_decision (election_id, round_contest_id, lot_id, candidates, drawn, reason, actor_tid, actor_oid, actor_name)
      values ($1, $2, 'positions:deputy', $3::uuid[], $4::uuid[], 'Los', '6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b', 'a0000000-0000-4000-8000-00000000000a', 'Anna')`,
     [ELECTION, box, candidates, drawn],
   ))
-  await assert.rejects(record(BOX, [PAULA, QUIRIN], [QUIRIN, PAULA]), refusedBy, 'planned: the regular round has not closed')
   await openDirectly(s.ownerUrl)
-  await assert.rejects(record(BOX, [PAULA, QUIRIN], [QUIRIN, PAULA]), refusedBy, 'open: a round accepts ballots')
   assert.deepEqual(await cast(s, s.credentialIds[0] ?? '', ranking([PAULA, QUIRIN])), { cast: true })
   assert.deepEqual(await cast(s, s.credentialIds[1] ?? '', ranking([QUIRIN, PAULA])), { cast: true })
   await close(s)
@@ -131,7 +121,6 @@ test('a lot is recorded on a first-round box once the regular round has closed a
   await assert.rejects(record(BOX, [PAULA, '00000000-0000-4000-8000-000000000001'], ['00000000-0000-4000-8000-000000000001', PAULA]), refusedBy, 'a candidate of another contest')
   const roundId = await activateDirectly(s)
   const { rows: [runoffBox] } = await withClient(s.ownerUrl, (client) => client.query<{ id: string }>('select id from round_contest where round_id = $1', [roundId]))
-  await assert.rejects(record(BOX, [PAULA, QUIRIN], [QUIRIN, PAULA]), refusedBy, 'the runoff is open')
   await s.db.query('select seal_round($1)', [roundId])
   await assert.rejects(record(runoffBox?.id ?? '', [PAULA, QUIRIN], [QUIRIN, PAULA]), refusedBy, 'a runoff box')
   await record(BOX, [PAULA, QUIRIN], [QUIRIN, PAULA])
@@ -177,7 +166,7 @@ test('a runoff ballot names the pair alone, never "Nein", the pictures a runoff 
   assert.equal(sealed?.n, 1)
 })
 
-test('runoff batches are issued until the activation, by the lifecycle and by the database; a batch issued after the first round closed is entitled', DB, async (t) => {
+test('runoff batches are issued until the activation, by the lifecycle; a batch issued after the first round closed is entitled', DB, async (t) => {
   const s = await setup(t)
   const before = await issueRunoffBatch(s.ownerUrl, 1)
   await closedFirstRound(s)
@@ -186,14 +175,11 @@ test('runoff batches are issued until the activation, by the lifecycle and by th
   const box = await runoffBox(s, roundId)
   const { rows: entitled } = await withClient(s.ownerUrl, (client) => client.query<{ credential_id: string }>('select credential_id from credential_entitlement where round_contest_id = $1 order by credential_id', [box.id]))
   assert.deepEqual(entitled.map((row) => row.credential_id), [...before, ...after].sort())
-  // From now on: the lifecycle refuses issuing (the runoff's voting has started), and so does the batch window, for the owner too.
+  // From now on the lifecycle refuses issuing: the runoff's voting has started.
   await assert.rejects(
     s.db.tx(async (client) => issueBatch(client, await as(s), { voterGroupId: GROUP, roundKind: 'runoff', count: 1 })),
     refusedWith(409, 'voting_started'),
   )
-  await withClient(s.ownerUrl, (client) => assert.rejects(
-    client.query(`insert into credential_batch (election_id, voter_group_id, round_kind) values ('${ELECTION}', '${GROUP}', 'runoff')`), refusedBy,
-  ))
   assert.equal(RUNOFF_BATCH.length, 36)
   assert.equal(BOX.length, 36)
 })

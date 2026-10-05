@@ -177,8 +177,8 @@ function electionIdOf(request: FastifyRequest): unknown {
  * The lifecycle of an election from its stored states: the election's and
  * its rounds' (ROUND_STATE_COLUMNS). A regular round that does not exist yet
  * is a planned one; a runoff round that does not exist is none. States
- * that do not form a lifecycle (the triggers of migrations 0007 and 0009
- * keep them so) are a wiring error, never a user error.
+ * that do not form a lifecycle (the application writes none) are a wiring
+ * error, never a user error.
  */
 export function lifecycleOf(election: ElectionState, rounds: { regular: RoundState | null, runoff: RoundState | null }): Lifecycle {
   const lifecycle = { election, regular: rounds.regular ?? 'planned', runoff: rounds.runoff } as Lifecycle

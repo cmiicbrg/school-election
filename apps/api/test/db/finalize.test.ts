@@ -1,10 +1,10 @@
 // Finalization at the database level (migration 0014): a declaration
-// comes to be only through finalize_election, on an active election once
-// its regular round has closed and while no round accepts ballots, naming
-// every contest once, and makes the election final in the same step; a
-// declared outcome never changes, for any role; once final, nothing of
-// the election changes, the lots included; and the runtime role holds
-// exactly the rights the clean-up and the declaration need.
+// comes to be only through finalize_election, on an active election,
+// naming every contest once, and makes the election final in the same
+// step; a declared outcome never changes, for any role; once final, the
+// election, its lots and its outcomes do not change; and the runtime role
+// holds exactly the rights the clean-up and the declaration need. That the
+// regular round has closed and no round is open is the lifecycle's.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -16,21 +16,16 @@ const OUTCOME = { kind: 'final', positions: [], trace: [] }
 const declaration = (contestId = CONTEST, outcome: unknown = OUTCOME) => JSON.stringify([{ contestId, outcome }])
 const refused = (err: unknown): boolean => sqlState(err) === '55000'
 
-test('a declaration comes only through finalize_election, on a closed regular round, naming every contest once, and makes the election final; a declared outcome and a final election never change', DB, async (t) => {
+test('a declaration comes only through finalize_election, on an active election, naming every contest once, and makes the election final; a declared outcome and a final election never change', DB, async (t) => {
   const s = await setup(t)
   const finalize = (outcomes = declaration()) => s.db.query('select finalize_election($1, $2::jsonb, 2, $3, $4) as declared', [ELECTION, outcomes, 'dev', 'unknown'])
   const insert = `insert into final_outcome (election_id, contest_id, kind, outcome, tally_version, app_version, git_sha) values ($1, $2, 'final', $3::jsonb, 2, 'dev', 'unknown')`
-  // Prepared, the round planned: not active, and no way to the table but the function.
+  // Prepared: not active, and the runtime role has no way to the table but the function.
   await assert.rejects(finalize(), refused)
   await assert.rejects(s.db.query(insert, [ELECTION, CONTEST, JSON.stringify(OUTCOME)]), (err) => sqlState(err) === '42501')
-  await withClient(s.ownerUrl, async (client) => {
-    await assert.rejects(client.query(insert, [ELECTION, CONTEST, JSON.stringify(OUTCOME)]), refused, 'the owner is bound by the window as well')
-    await assert.rejects(client.query(`update election set state = 'final' where id = $1`, [ELECTION]), (err) => sqlState(err) === '55000' || sqlState(err) === '23514')
-  })
+  await withClient(s.ownerUrl, (client) => assert.rejects(client.query(`update election set state = 'final' where id = $1`, [ELECTION]), refused, 'no outcome written'))
   await openDirectly(s.ownerUrl)
   assert.deepEqual(await cast(s, s.credentialIds[0] ?? ''), { cast: true })
-  // Open: the round accepts ballots.
-  await assert.rejects(finalize(), refused)
   await sealDirectly(s)
   // Closed: the declaration names every contest of the election, once, with its own kind.
   await assert.rejects(finalize('[]'), refused)
@@ -48,7 +43,7 @@ test('a declaration comes only through finalize_election, on a closed regular ro
   const { rows: outcomes } = await s.db.query<{ contest_id: string, kind: string, tally_version: number }>('select contest_id, kind, tally_version from final_outcome where election_id = $1', [ELECTION])
   assert.deepEqual(outcomes, [{ contest_id: CONTEST, kind: 'final', tally_version: 2 }])
 
-  // Final: a second declaration, a lot, a key, the title, the state, a round: nothing of it changes, for any role.
+  // Final: a second declaration, a lot, the title, the state, the outcomes: nothing of it changes, for any role.
   await assert.rejects(finalize(), refused)
   await assert.rejects(s.db.query(
     `insert into lot_decision (election_id, round_contest_id, lot_id, candidates, drawn, reason, actor_tid, actor_oid, actor_name)
@@ -56,12 +51,10 @@ test('a declaration comes only through finalize_election, on a closed regular ro
     [ELECTION, BOX, [PAULA, QUIRIN], [QUIRIN, PAULA]],
   ), refused)
   await assert.rejects(s.db.query(`update election set title = 'Anders' where id = $1`, [ELECTION]), refused)
-  await assert.rejects(s.db.query(`update credential_batch set state = 'void' where election_id = $1`, [ELECTION]), refused)
   await withClient(s.ownerUrl, async (client) => {
     await assert.rejects(client.query(`update final_outcome set kind = 'tie', outcome = '{"kind":"tie","candidates":[],"trace":[]}' where contest_id = $1`, [CONTEST]), refused)
     await assert.rejects(client.query('delete from final_outcome'), refused)
     await assert.rejects(client.query(`update election set state = 'active' where id = $1`, [ELECTION]), refused)
-    await assert.rejects(client.query(`insert into round (election_id, kind, state) values ($1, 'runoff', 'open')`, [ELECTION]), refused)
   })
 })
 

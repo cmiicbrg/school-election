@@ -22,15 +22,15 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   app_user: { table: ['SELECT', 'INSERT'], updateColumns: ['display_name', 'email'] },
   // Append-only: events are added and read, never changed or removed.
   audit_event: { table: ['SELECT', 'INSERT'] },
-  // Title, description and the lifecycle state change; elections are not
-  // deleted yet. Triggers keep the editing windows and the transitions
-  // (migration 0007).
+  // Title, description and the lifecycle state change, a final election
+  // not at all (migration 0015); an election is removed only through
+  // delete_election (0011).
   election: { table: ['SELECT', 'INSERT'], updateColumns: ['title', 'description', 'state'] },
   // Members are invited and removed; binding sets user_id once.
   election_member: { table: ['SELECT', 'INSERT', 'DELETE'], updateColumns: ['user_id'] },
-  // The states of the lifecycle and what each allows, and the transitions
-  // of a round, which the triggers read as the role that runs them
-  // (migrations 0007 and 0009). Nothing changes them.
+  // The states of the lifecycle with their flags, and the transitions of
+  // a round, which the triggers and the definer functions read as the
+  // role that runs them (migrations 0007 and 0009). Nothing changes them.
   election_state: { table: ['SELECT'] },
   round_kind: { table: ['SELECT'] },
   round_state: { table: ['SELECT'] },
@@ -49,9 +49,10 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   round: { table: ['SELECT', 'INSERT'], updateColumns: ['state'] },
   round_contest: { table: ['SELECT', 'INSERT', 'DELETE'] },
   // Keys are issued in batches and a batch is voided; keys and batches are
-  // removed only with their voter group or election. Triggers keep the
-  // windows (migration 0008), reading the batch states as the role that
-  // runs them.
+  // removed only with their voter group or election. Triggers keep a batch
+  // voided once and a key unchanged (migrations 0008 and 0015), reading
+  // the batch states as the role that runs them; when keys are issued is
+  // the lifecycle's.
   credential_batch_state: { table: ['SELECT'] },
   credential_batch: { table: ['SELECT', 'INSERT'], updateColumns: ['state'] },
   credential: { table: ['SELECT', 'INSERT'] },

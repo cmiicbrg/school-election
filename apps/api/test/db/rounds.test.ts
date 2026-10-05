@@ -42,12 +42,6 @@ test('opening moves the election to active and the round to open, once, for thos
   assert.deepEqual(actions, ['round.opened'])
 })
 
-test('the database lets a round open only once its election is active, so the election goes first', DB, async (t) => {
-  const s = await setup(t)
-  await assert.rejects(s.db.query(`update round set state = 'open' where id = '${ROUND}'`), (err) => sqlState(err) === SQLSTATE.objectNotInPrerequisiteState)
-  assert.deepEqual(await states(s), { election: 'prepared', round: 'planned' })
-})
-
 test('closing seals and counts in one transaction: a snapshot per box, reproducible from the sealed ballots', DB, async (t) => {
   const s = await setup(t)
   await assert.rejects(close(s, await as(s)), refusedWith(409, 'round_planned'))

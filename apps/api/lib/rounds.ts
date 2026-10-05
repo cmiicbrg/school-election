@@ -5,8 +5,7 @@
 // 0011); ending it, through the owner's function, removes the test's
 // ballots and sets every entitlement unused again. Opening is a direct
 // update along the round's transition row, together with the election's
-// step to active, the election first, as the triggers of migration 0009
-// require; from a test, the opening ends the test first. Closing is the
+// step to active; from a test, the opening ends the test first. Closing is the
 // seal (0009), which makes the round's ballots unlinkable, followed in
 // the same transaction by the count of every box over the sealed ballots
 // and the snapshot of each result (lib/tally.ts): a close that cannot

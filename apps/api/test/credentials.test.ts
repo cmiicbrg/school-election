@@ -297,10 +297,12 @@ test('preparing waits for a structure change that has not committed yet, and see
   const { s, anna, id, klasse, g2b, issue, prepare } = await prepared(t)
   const batch = await issue(ANNA, g2b, 'regular', 2)
   ok(await anna.request('POST', `/api/elections/${id}/unprepare`))
-  // 2B gains the class contest in a transaction that is still open while
-  // preparing starts; one that did not come through the API's lock.
+  // 2B gains the class contest in a transaction that holds the election's
+  // lock, as every change through the API does, and is still open while
+  // preparing starts.
   let preparing: Promise<PrepareResult> | undefined
   await s.db.tx(async (client) => {
+    await lockElection(client, id)
     await client.query('insert into voter_group_contest (election_id, voter_group_id, contest_id) values ($1, $2, $3)', [id, g2b, klasse])
     preparing = prepare(ANNA)
     await withClient(s.ownerUrl, async (owner) => {
