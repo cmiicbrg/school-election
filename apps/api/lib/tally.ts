@@ -2,7 +2,7 @@
 // transaction that seals the round (lib/rounds.ts): election-core's result
 // per contest, the outcome as it stands without lots, and a snapshot of
 // both with the digest of what the count saw and the versions that
-// computed it (migration 0010). The count is reproducible by construction:
+// computed it. The count is reproducible by construction:
 // the same configuration and the same ballots, in any order, give the
 // same digest and the same result, and a later run can compare.
 //

@@ -103,7 +103,7 @@ export async function forceElectionState(ownerUrl: string, electionId: string, s
 /**
  * Puts an election's regular round into a state as the database owner and
  * past the triggers, which let a direct statement open a round but never
- * close one: closing is the seal's (migration 0009).
+ * close one: closing is the seal's.
  */
 export async function forceRoundState(ownerUrl: string, electionId: string, state: RoundState): Promise<void> {
   await withClient(ownerUrl, async (client) => {

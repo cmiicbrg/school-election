@@ -25,7 +25,7 @@ export interface Voter {
   roundId: string
   /** The round's state at redemption, for the answers. */
   round: VotingState
-  /** The round's phase at redemption (migration 0012): the session ends with it, so a session from a test never votes in the election or in the next test. */
+  /** The round's phase at redemption: the session ends with it, so a session from a test never votes in the election or in the next test. */
   phase: string
   /** Date.now() at redemption; the lifetime is counted from here. */
   issuedAt: number

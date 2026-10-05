@@ -8,7 +8,7 @@ Self-hosted system for anonymous, in-person school elections. Read the invariant
 packages/election-core/   pure domain: rulesets, ballot validation, counting (no I/O, no clock, no randomness)
 apps/api/                 Fastify on Node 26, raw TypeScript; serves apps/web/dist
 apps/web/                 Vue 3 + Vite SPA
-apps/api/migrations/      forward-only SQL migrations, applied by apps/api/scripts/migrate.ts
+apps/api/migrations/      the v1 baseline and forward-only migrations on top of it, applied by apps/api/scripts/migrate.ts
 apps/api/scripts/verify.ts  the offline verifier of an export (npm run verify -- <file>): no server, no database
 e2e/                      Playwright journeys against the real server: harness, support, specs (playwright.config.ts at the root)
 scripts/lint-deps.mjs     exact-pin check across all workspaces
@@ -51,9 +51,9 @@ These take precedence over convenience:
 - Dependencies are pinned exactly; Dependabot lands bumps, and the automerge workflow holds them for a one-day quarantine.
 - GitHub Actions are pinned by commit SHA with the version in a comment. The base image is pinned by tag and digest.
 - CI runs on pull requests to `main`; a push to `main` runs the tests again for the SonarQube analysis of the default branch and warms the image cache. SonarQube's properties are in `sonar-project.properties`, its coverage the lcov file of `npm run test:coverage`. Images are published to GHCR only on `v*` tags.
-- Applied migrations are never edited; write a new one. A migration that creates tables adds an upgrade fixture in `apps/api/test/fixtures/upgrade/`.
+- `apps/api/migrations/0001_baseline.sql` is the schema of version 1. A change after it is a new migration on top, never an edit of an applied one. `apps/api/test/db/upgrade.test.ts` applies the baseline, loads the fixture of a finalized election (`apps/api/test/fixtures/upgrade/0001.sql`) and applies every later migration on top; a migration that creates tables adds a fixture of its own.
 - The lifecycle's windows (what may change in which state, which state follows which) live in election-core's guards, asked by the route and again by `changeElection` under the election's lock. Triggers keep only what the stored data must satisfy whoever writes it: the vote-once rules, the write-only ballot box and the seal, a round's transitions, the immutability of snapshots, lots, declared outcomes and a final election, and the shape of a runoff box and a lot. A trigger that restates a guard is not added.
-- What the runtime role may do with tables and functions is listed in `apps/api/lib/runtime-privileges.ts`. New migrations create objects but do not grant on them; the grants in the applied migrations 0002 to 0004 stay as they were applied and are superseded by the list. The migrator re-applies the list on every run. A new table gets no access until it is listed.
+- What the runtime role may do with tables and functions is listed in `apps/api/lib/runtime-privileges.ts`. No migration grants anything; the migrator applies the list on every run. A new table gets no access until it is listed.
 - The PostgreSQL settings the API checks at startup (`apps/api/lib/db-settings.ts`) and the ones `scripts/postgres.sh` and `deploy/compose.example.yml` set change together; `apps/api/test/deploy-flags.test.ts` enforces it. `scripts/postgres.sh` starts the PostgreSQL image the compose example pins.
 - `deploy/README.md` is the operator guide; update it with any change to configuration, secrets or the compose example.
 - Work that must happen in order (audit events chaining to the one before, rows written in one transaction) is a plain loop with `await` in it. SonarCloud's rule against `await` in a loop (typescript:S9382) is ignored in `sonar-project.properties` for that reason; no helper exists to hide such a loop.

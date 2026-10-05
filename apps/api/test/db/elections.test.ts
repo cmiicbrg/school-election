@@ -20,7 +20,7 @@ async function setup(t: TestContext) {
   return { ...db, userId }
 }
 
-// The election states are rows of election_state (migration 0007), which
+// The election states are rows of election_state, which
 // test/db/configuration.test.ts compares with the lifecycle.
 test('the stored roles are exactly the ones the code knows', DB, async (t) => {
   const { ownerUrl } = await setup(t)

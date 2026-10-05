@@ -214,10 +214,9 @@ test('the runtime role can add and read events but never change or remove them',
 
 test('the upgrade fixture is a genuine chain, and the stored events read back as they were hashed', DB, async (t) => {
   const { db, ownerUrl } = await setup(t)
-  const fixture = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../fixtures/upgrade/0003.sql')
+  const fixture = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../fixtures/upgrade/0001.sql')
   const sql = await readFile(fixture, 'utf8')
   const election = '0b9e4a52-3c1d-4f7e-9a6b-2d8c5e1f7a30'
-  await db.query('insert into election (id, title) values ($1, \'Schulsprecherwahl 2026/27\')', [election])
   await withClient(ownerUrl, (client) => client.query(sql))
   const events = await chainOf(db, election)
   assert.deepEqual(verifyAuditChain(events), { valid: true, length: 2, head: '7827d380b44d772cbfee0ecf7bb7189ab5d24c5255a70752db1489e0aa166ed6' })

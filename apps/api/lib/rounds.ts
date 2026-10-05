@@ -1,13 +1,13 @@
 // Opening, testing and closing a round, as the round routes run them
 // inside changeElection: the lifecycle's say, the database's step, and
 // the audit event. A test puts the regular round of a prepared election
-// into a state that accepts ballots without having opened (migration
-// 0011); ending it, through the owner's function, removes the test's
-// ballots and sets every entitlement unused again. Opening is a direct
-// update along the round's transition row, together with the election's
-// step to active; from a test, the opening ends the test first. Closing is the
-// seal (0009), which makes the round's ballots unlinkable, followed in
-// the same transaction by the count of every box over the sealed ballots
+// into a state that accepts ballots without having opened; ending it,
+// through the owner's function, removes the test's ballots and sets every
+// entitlement unused again. Opening is a direct update along the round's
+// transition row, together with the election's step to active; from a
+// test, the opening ends the test first. Closing is the seal, which makes
+// the round's ballots unlinkable, followed in the same transaction by the
+// count of every box over the sealed ballots
 // and the snapshot of each result (lib/tally.ts): a close that cannot
 // count rolls back, seal included, and the round stays open until it
 // can. Turnout is the one figure about a round's votes that is read while
@@ -160,7 +160,7 @@ export interface Activated {
  * entry waits for a lot, and with 409 no_runoff when no contest needs one.
  * The pairs come from the outcomes as they stand; the database creates the
  * round open with its boxes and the entitlements of every issued runoff
- * batch (activate_runoff, migration 0013). One event per pair, then the
+ * batch (activate_runoff). One event per pair, then the
  * activation with how many keys it entitled.
  */
 export async function activateRunoff(client: pg.ClientBase, access: ElectionAccess): Promise<Activated> {

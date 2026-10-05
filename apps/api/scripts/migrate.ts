@@ -167,11 +167,6 @@ async function migrationFiles(dir: string, until: string | undefined): Promise<M
 
 // The runtime role logs in with its own password and holds nothing but what
 // lib/runtime-privileges.ts grants it; its attributes are set on every run.
-// Earlier versions made it a member of pg_read_all_settings for the startup
-// check; preload_settings() (migration 0006) replaces that, so the grant is
-// taken back with the privilege reset, once the migrations have succeeded.
-// Until then the server still running may need it to restart.
-const SUPERSEDED_MEMBERSHIP = 'pg_read_all_settings'
 const UNPRIVILEGED = 'login nosuperuser nocreatedb nocreaterole noreplication nobypassrls inherit'
 
 /** Creates the runtime role, or resets the attributes of the existing one; true if it existed. */
@@ -217,8 +212,8 @@ async function formatted(client: pg.Client, template: string, password?: string)
 // Privileges are per database, so they are reset here on every run. Every
 // database, schema, table, sequence and function privilege of PUBLIC and the
 // runtime role is revoked, and the role gets back CONNECT, USAGE on the
-// schema and exactly what lib/runtime-privileges.ts lists; the grants in
-// earlier migrations are superseded by that list. That covers PostgreSQL's
+// schema and exactly what lib/runtime-privileges.ts lists; no migration
+// grants anything itself. That covers PostgreSQL's
 // defaults (PUBLIC may connect to a new database, create temporary tables
 // and execute every new function), a database restored from a dump, and
 // grants a newer version no longer lists.
@@ -257,13 +252,6 @@ async function resetRuntimePrivileges(client: pg.Client, { complete }: { complet
       .map((kind) => `revoke all on all ${kind} in schema public from public, ${RUNTIME_ROLE}`).join(';\n'))
     const grants = grantStatements(RUNTIME_ROLE, { tables, functions })
     if (grants.length > 0) await client.query(grants.join(';\n'))
-    const superseded = await client.query(
-      `select 1 from pg_auth_members
-        where member = (select oid from pg_roles where rolname = $1)
-          and roleid = (select oid from pg_roles where rolname = $2)`,
-      [RUNTIME_ROLE, SUPERSEDED_MEMBERSHIP],
-    )
-    if (superseded.rowCount !== 0) await client.query(`revoke ${SUPERSEDED_MEMBERSHIP} from ${RUNTIME_ROLE}`)
     await client.query('commit')
   } catch (err) {
     await client.query('rollback').catch(() => {})

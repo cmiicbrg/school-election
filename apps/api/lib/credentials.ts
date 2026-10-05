@@ -1,4 +1,4 @@
-// Voting keys, issued in batches per voter group and round (migration 0008).
+// Voting keys, issued in batches per voter group and round.
 //
 // The server draws every key from a cryptographically secure generator and
 // stores it as generated, so a batch's sheets can be printed again, as

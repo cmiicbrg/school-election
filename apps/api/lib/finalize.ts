@@ -2,7 +2,7 @@
 // (lib/cleanup.ts) ran outside it: by the owner, with a reason, once the
 // regular round has closed and while no round is open. The issued runoff
 // batches of an election that held no runoff are voided, so no key of the
-// election can vote any more; then finalize_election (migration 0014), the
+// election can vote any more; then finalize_election, the
 // owner's function and the one way to a declaration, writes the outcome
 // of every contest as it stands with the versions that derived it,
 // whatever its kind (a botched election ends as it stands, and the reason

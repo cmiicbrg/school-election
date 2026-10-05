@@ -67,7 +67,7 @@ export const ALLOWED_SETTINGS: readonly { name: string, allowed: readonly string
 // with their parameters, and any other module could. pg_stat_statements keeps
 // aggregated query texts with constants replaced, never parameters. Two of
 // these settings are hidden from unprivileged roles, so all three are read
-// through preload_settings() (migration 0006), which returns exactly them.
+// through preload_settings(), which returns exactly them.
 const PRELOAD_SETTINGS = ['shared_preload_libraries', 'session_preload_libraries', 'local_preload_libraries']
 const ALLOWED_PRELOAD = new Set(['pg_stat_statements'])
 

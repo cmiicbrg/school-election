@@ -167,7 +167,7 @@ export function electionRoutes(app: FastifyInstance, { db }: { db: Database }, d
   })
 
   // An election nobody used goes with everything of it, the audit log
-  // included (migration 0011); the function refuses anything else, which
+  // included; the function refuses anything else, which
   // only a change since the guard looked can be.
   app.delete('/api/elections/:id', {
     onRequest: requireElectionAccess(db, 'delete-election', canDelete),
