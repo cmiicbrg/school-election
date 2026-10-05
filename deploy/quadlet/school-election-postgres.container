@@ -1,0 +1,35 @@
+# PostgreSQL for school-election: the image this repository builds from
+# deploy/postgres/Dockerfile, with every setting the app requires baked
+# in, following the v1 line. podman-auto-update pulls a new v1 and
+# restarts this unit (README.md, Updates).
+[Unit]
+Description=school-election PostgreSQL
+
+[Container]
+Image=ghcr.io/cmiicbrg/school-election-postgres:v1
+AutoUpdate=registry
+ContainerName=school-election-postgres
+Network=school-election-internal.network
+Volume=school-election-db.volume:/var/lib/postgresql
+# Read-only, with z: on an SELinux host the file is relabelled so the
+# container may read it; elsewhere z changes nothing.
+Volume=%h/school-election/secrets/db-owner-password:/run/secrets/db-owner-password:ro,z
+Environment=POSTGRES_DB=school_election
+Environment=POSTGRES_PASSWORD_FILE=/run/secrets/db-owner-password
+# TCP rather than the socket: on first start the image runs a temporary,
+# socket-only server while it creates the database. The unit counts as
+# started once this passes, so the app's After= waits for a ready database.
+HealthCmd=pg_isready -q -h 127.0.0.1 -U postgres -d school_election
+HealthInterval=5s
+HealthTimeout=3s
+HealthRetries=12
+HealthStartPeriod=30s
+Notify=healthy
+
+[Service]
+Restart=always
+# The first start pulls the image.
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

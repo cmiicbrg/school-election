@@ -62,7 +62,7 @@ jobs:
           persist-credentials: false
 
       - name: ShellCheck
-        run: shellcheck --severity=warning scripts/*.sh
+        run: shellcheck --severity=warning scripts/*.sh deploy/*.sh
 
       - name: Hadolint
         uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
@@ -70,11 +70,20 @@ jobs:
           dockerfile: Dockerfile
           config: .hadolint.yaml
 
-      # Parses the deployment example together with its .env example, so a
-      # broken file, or a variable compose.example.yml requires that
-      # .env.example does not set, fails here.
-      - name: Compose example
-        run: docker compose -f deploy/compose.example.yml --env-file deploy/.env.example config --quiet
+      - name: Hadolint (PostgreSQL image)
+        uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
+        with:
+          dockerfile: deploy/postgres/Dockerfile
+          config: .hadolint.yaml
+
+      # The deployment's Quadlet units parse with the Quadlet the guide
+      # requires (Podman 5): the generator's dry run for user units, from
+      # the podman image, since the runner's podman is older.
+      - name: Quadlet units
+        run: |
+          docker run --rm -v "$PWD/deploy/quadlet:/units:ro" -e QUADLET_UNIT_DIRS=/units \
+            quay.io/podman/stable:v5.4@sha256:52536d900c9e7e7cc924bb737eb8c570eeaa3c50f6a3b0b563eb0ec9c48807e4 \
+            /usr/lib/systemd/system-generators/podman-system-generator --user --dryrun
 
       # online-audits must stay off. With a token present zizmor resolves action
       # tags over the network, and GITHUB_TOKEN is scoped to this repository, so
@@ -303,9 +312,10 @@ jobs:
             fi
           done
 
-          # A database with the production settings, the secrets as files
-          # readable by the image's uid 10001, and only the runtime password,
-          # the Entra client secret and the session key given to the app
+          # The deployment's own PostgreSQL image, whose baked-in settings
+          # must pass the app's startup check; the secrets as files readable
+          # by the image's uid 10001, and only the runtime password, the
+          # Entra client secret and the session key given to the app
           # container. Dummy Entra ids: nothing contacts Entra before a
           # sign-in.
           printf '%s' ci-owner-password > "$RUNNER_TEMP/owner-password"
@@ -314,7 +324,15 @@ jobs:
           openssl rand -hex 32 > "$RUNNER_TEMP/session-key"
           chmod 644 "$RUNNER_TEMP/owner-password" "$RUNNER_TEMP/runtime-password" "$RUNNER_TEMP/entra-client-secret" "$RUNNER_TEMP/session-key"
           tenant=00000000-0000-4000-8000-000000000001
-          scripts/postgres.sh school-election-ci-db 5432 "$RUNNER_TEMP/owner-password"
+          docker build -t school-election-postgres:ci deploy/postgres
+          docker run -d --name school-election-ci-db -p 127.0.0.1:5432:5432 \
+            -e POSTGRES_DB=school_election -e POSTGRES_PASSWORD_FILE=/run/secrets/owner-password \
+            -v "$RUNNER_TEMP/owner-password:/run/secrets/owner-password:ro" \
+            school-election-postgres:ci
+          for _ in $(seq 1 60); do
+            if docker exec school-election-ci-db pg_isready -q -h 127.0.0.1 -U postgres -d school_election; then break; fi
+            sleep 1
+          done
 
           migrate() {
             docker run --rm --network host \
@@ -359,7 +377,7 @@ jobs:
           # has to run in the image as well.
           tally="$(sed -n 's/^export const TALLY_VERSION = \([0-9][0-9]*\)$/\1/p' packages/election-core/src/index.ts)"
           body="$(curl -fsS http://127.0.0.1:3000/api/health)"
-          expected="{\"status\":\"ok\",\"db\":\"up\",\"version\":\"ci\",\"gitSha\":\"${GITHUB_SHA}\",\"tallyVersion\":${tally}}"
+          expected="{\"status\":\"ok\",\"db\":\"up\",\"busy\":false,\"version\":\"ci\",\"gitSha\":\"${GITHUB_SHA}\",\"tallyVersion\":${tally}}"
           if [ -z "$tally" ] || [ "$body" != "$expected" ]; then
             echo "Expected the image to reach the database as the runtime role and report its build and tally version, $expected, got: $body" >&2
             exit 1

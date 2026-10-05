@@ -2,8 +2,8 @@
 # Starts a PostgreSQL container with the server settings the application
 # requires at startup (apps/api/lib/db-settings.ts). CI and development use
 # this one script, so the settings cannot drift apart; a test checks that
-# the settings below are exactly the required ones, and the same as in
-# deploy/compose.example.yml.
+# the settings below are exactly the required ones, and the same as the
+# deployment's image bakes in (deploy/postgres/Dockerfile).
 #
 # Usage: scripts/postgres.sh <container-name> <host-port> <owner-password-file>
 # Uses docker unless CONTAINER_ENGINE is set (e.g. CONTAINER_ENGINE=podman).
@@ -29,13 +29,13 @@ chmod 700 "$secret_dir"
 password_file="$secret_dir/owner-password"
 install -m 0644 "$3" "$password_file"
 
-# The image the deployment example pins, so development and CI run the
-# PostgreSQL that is deployed, and a Dependabot update of the example
-# reaches all three.
-compose_file="$(dirname "${BASH_SOURCE[0]}")/../deploy/compose.example.yml"
-image="$(sed -n 's/^ *image: \(docker\.io\/library\/postgres:[^ ]*@sha256:[0-9a-f]\{64\}\)$/\1/p' "$compose_file")"
+# The image the deployment's PostgreSQL is built from, so development and
+# CI run the PostgreSQL that is deployed, and a Dependabot update of the
+# pin reaches all three.
+dockerfile="$(dirname "${BASH_SOURCE[0]}")/../deploy/postgres/Dockerfile"
+image="$(sed -n 's/^FROM \(docker\.io\/library\/postgres:[^ ]*@sha256:[0-9a-f]\{64\}\)$/\1/p' "$dockerfile")"
 if [[ -z "$image" || "$image" == *$'\n'* ]]; then
-  echo "expected exactly one digest-pinned postgres image in $compose_file" >&2
+  echo "expected exactly one digest-pinned postgres image in $dockerfile" >&2
   exit 1
 fi
 

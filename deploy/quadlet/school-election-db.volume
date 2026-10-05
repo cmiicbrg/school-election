@@ -1,0 +1,5 @@
+# The PostgreSQL data directory. Never copy or snapshot it between the
+# opening of an election's first round and its finalization (README.md,
+# Backups).
+[Volume]
+VolumeName=school-election-db

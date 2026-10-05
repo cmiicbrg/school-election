@@ -1,0 +1,4 @@
+# The app's way out, for Entra sign-in; a port cannot be published from a
+# container that is only on an internal network.
+[Network]
+NetworkName=school-election-egress

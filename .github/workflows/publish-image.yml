@@ -1,27 +1,31 @@
 name: Publish Image
 
-# Releases are cut by pushing a v* tag. Deliberately NOT on every push to
-# main: that produces a stream of throwaway versions and a mutable `latest`
-# that tracks the branch rather than a release. The Dockerfile is still built
-# and smoke-tested on every pull request by the `image` job in ci.yml.
+# A release: a v<major>.<minor>.<patch> tag on main, pushed by hand. It
+# publishes two images to GHCR, the app and its PostgreSQL
+# (deploy/postgres/Dockerfile), each under the release tag, an immutable
+# sha-<commit> tag and the floating line tag v<major>, which the
+# deployments follow (deploy/quadlet, deploy/README.md): a school's
+# podman-auto-update pulls the new v1 the night after. A v2 moves v2
+# alone. No `latest`: it would move across major lines.
+
 'on':
   workflow_dispatch: {}
   push:
     tags:
-      # v[0-9]* rather than v*: the guard below requires a digit after the v,
-      # and a trigger that admits tags the guard then rejects would fail the
-      # workflow on a tag it should simply have ignored.
       - 'v[0-9]*'
 
 permissions:
   contents: read
+
+env:
+  APP_IMAGE: ghcr.io/${{ github.repository_owner }}/school-election
+  POSTGRES_IMAGE: ghcr.io/${{ github.repository_owner }}/school-election-postgres
 
 jobs:
   publish:
     name: Publish to GHCR
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Scoped to the job that actually pushes, rather than granted to every job.
     permissions:
       contents: read
       packages: write
@@ -30,16 +34,13 @@ jobs:
         with:
           persist-credentials: false
 
-      # workflow_dispatch can target any ref, so refuse anything that is not a
-      # release tag rather than publishing from an arbitrary branch. The tag
-      # becomes APP_VERSION and the image tag in the summary below, so it
-      # must be a value the app accepts (apps/api/config.ts), or the image
-      # would refuse to start, and a valid Docker tag, so no "+".
+      # Only a release tag, and only a plain one: a pre-release such as
+      # v1.1.0-rc1 would move the v1 line too.
       - name: Verify release tag
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF_TYPE}" != "tag" ] || ! printf '%s' "${GITHUB_REF_NAME}" | grep -Eqx 'v[0-9][0-9A-Za-z._-]{0,62}'; then
-            echo "Refusing to publish: expected a v<version> tag, got ${GITHUB_REF_TYPE} '${GITHUB_REF_NAME}'" >&2
+          if [ "${GITHUB_REF_TYPE}" != "tag" ] || ! printf '%s' "${GITHUB_REF_NAME}" | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "Refusing to publish: expected a v<major>.<minor>.<patch> tag, got ${GITHUB_REF_TYPE} '${GITHUB_REF_NAME}'" >&2
             exit 1
           fi
 
@@ -49,57 +50,72 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
       - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        id: meta
+        id: app
         with:
-          images: ghcr.io/${{ github.repository_owner }}/school-election
-          # Immutable per-commit sha- tags plus the release tag itself. Only
-          # tags reach this workflow, so `latest` follows the newest release
-          # rather than the default branch.
+          images: ${{ env.APP_IMAGE }}
+          flavor: latest=false
           tags: |
             type=sha,prefix=sha-
             type=ref,event=tag
-            type=raw,value=latest
-
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+            type=semver,pattern=v{{major}}
 
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         id: build
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          # Reported by /api/health, so an operator can confirm what a deploy
-          # started. The guard above has checked ref_name.
+          tags: ${{ steps.app.outputs.tags }}
+          labels: ${{ steps.app.outputs.labels }}
           build-args: |
             APP_VERSION=${{ github.ref_name }}
             GIT_SHA=${{ github.sha }}
 
-      # Deployments pin images by digest, so surface it instead of making
-      # whoever deploys resolve the manifest by hand.
-      - name: Report deployment digest
-        # Expansions go through env rather than straight into the script body:
-        # inlining ${{ ... }} splices the value into the shell source before it
-        # runs, which is how a crafted value becomes executable code.
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        id: postgres
+        with:
+          images: ${{ env.POSTGRES_IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=sha,prefix=sha-
+            type=ref,event=tag
+            type=semver,pattern=v{{major}}
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        id: build-postgres
+        with:
+          context: deploy/postgres
+          push: true
+          tags: ${{ steps.postgres.outputs.tags }}
+          labels: ${{ steps.postgres.outputs.labels }}
+
+      # Expansions go through env rather than straight into the script body:
+      # inlining ${{ ... }} splices the value into the shell source before it
+      # runs, which is how a crafted value becomes executable code.
+      - name: Report the release
         env:
-          OWNER: ${{ github.repository_owner }}
-          DIGEST: ${{ steps.build.outputs.digest }}
+          APP_DIGEST: ${{ steps.build.outputs.digest }}
+          POSTGRES_DIGEST: ${{ steps.build-postgres.outputs.digest }}
         run: |
           set -euo pipefail
+          line="v${GITHUB_REF_NAME#v}"
+          line="${line%%.*}"
           {
-            echo "### school-election"
+            echo "### school-election ${GITHUB_REF_NAME}"
             echo
-            echo 'Pin in the deployment .env (see deploy/README.md):'
+            echo "Deployments follow the \`${line}\` line of both images (deploy/README.md) and pick this release up with their next nightly update."
             echo
             echo '```'
-            echo "IMAGE=ghcr.io/${OWNER}/school-election:${GITHUB_REF_NAME}@${DIGEST}"
+            echo "${APP_IMAGE}:${GITHUB_REF_NAME}@${APP_DIGEST}"
+            echo "${POSTGRES_IMAGE}:${GITHUB_REF_NAME}@${POSTGRES_DIGEST}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Bound registry growth. Each release adds three tags (the v* tag, an
-  # immutable sha-<commit> and latest). Deployments pin by digest, so keep
-  # enough history that rolling back to a recent release still resolves.
+  # Bound registry growth. Each release adds three tags per image (the
+  # release tag, the immutable sha-<commit> and the moving line tag). Keep
+  # enough history that a host can be put back on a recent release by hand.
   cleanup-packages:
     name: Prune old versions
     needs: publish
@@ -111,6 +127,12 @@ jobs:
       - uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
         with:
           package-name: school-election
+          package-type: container
+          min-versions-to-keep: 10
+          delete-only-untagged-versions: false
+      - uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
+        with:
+          package-name: school-election-postgres
           package-type: container
           min-versions-to-keep: 10
           delete-only-untagged-versions: false

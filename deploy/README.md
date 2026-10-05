@@ -1,10 +1,11 @@
 # Deploying school-election
 
-One virtual machine runs everything. Rootless podman runs PostgreSQL and the app from [`compose.example.yml`](compose.example.yml); nginx on the host terminates TLS and forwards to the app with [`nginx.example.conf`](nginx.example.conf). The examples use `wahl.example.org` for the site, `election` for the user that runs the stack and `~/school-election` for its directory; replace them with your own.
+One virtual machine runs everything. Rootless podman runs PostgreSQL and the app as systemd units from [`quadlet/`](quadlet/); nginx on the host terminates TLS and forwards to the app with [`nginx.example.conf`](nginx.example.conf) as the pattern. The examples use `wahl.example.org` for the site, `election` for the user that runs the stack and `~/school-election` for its directory; replace them with your own.
 
-- `postgres` is reachable only from the stack's internal network, which has no route off the host: no published port, data in a named volume. It starts with exactly the settings the app checks at startup.
-- `app` runs the published image, pinned by tag and digest, read-only, without capabilities, listening on `127.0.0.1:3000` only. The image contains libvips, a shared library under the LGPL-3.0-or-later; its notice, source and license texts are in the image under `/app/third-party-notices` and in [`third-party-notices`](../third-party-notices/README.md).
-- `migrate` is a one-shot service: it applies pending migrations and sets the password of the app's database role.
+The deployment updates itself. Both images are built, tested and signed by this repository and published under a line tag, `v1`; a release moves the line, and the host's nightly `podman auto-update` pulls it and restarts the units, the migrations first, never while a round accepts ballots. Nothing on the host names a release, so nothing on the host goes stale; a major version (`v2`) is the one update an operator does by hand.
+
+- `school-election-postgres` runs `ghcr.io/cmiicbrg/school-election-postgres`, PostgreSQL with exactly the settings the app checks at startup baked in ([`postgres/Dockerfile`](postgres/Dockerfile)). It is reachable only from an internal network, which has no route off the host: no published port, data in a named volume.
+- `school-election` runs `ghcr.io/cmiicbrg/school-election`, read-only, without capabilities, listening on `127.0.0.1:3000` only. Before every start it runs the migrations with the same image. The image contains libvips, a shared library under the LGPL-3.0-or-later; its notice, source and license texts are in the image under `/app/third-party-notices` and in [`third-party-notices`](../third-party-notices/README.md).
 
 ## Entra ID app registration
 
@@ -22,22 +23,31 @@ Development uses a separate registration in the school's tenant, with its own se
 
 ## Host
 
-The host needs rootless podman with `podman compose` (which runs docker-compose or podman-compose, whichever is installed), nginx 1.25.1 or newer (older versions need the change noted in the example) and certbot. Create the user `election` without sudo rights, then let its containers run without a login session and start at boot:
+The host needs rootless podman 5 or newer (Debian 13 has it), nginx 1.25.1 or newer (older versions need the change noted in the example) and certbot. Create the user `election` without sudo rights, then let its units run without a login session and start at boot:
 
 ```bash
 sudo loginctl enable-linger election
 ```
 
-Every other command in this guide except the nginx and certbot ones runs as `election`, in its directory `~/school-election` and in a real login session (ssh, or `sudo machinectl shell election@`); `sudo -u` does not provide the user session that `systemctl --user` and rootless podman need.
+Every other command in this guide except the nginx and certbot ones runs as `election`, in a real login session (ssh, or `sudo machinectl shell election@`); `sudo -u` does not provide the user session that `systemctl --user` and rootless podman need.
+
+Fetch the units of the release you start from, the drop-in that keeps updates away from an election, the script it runs, and the `.env` template:
 
 ```bash
-systemctl --user enable podman-restart.service
-mkdir ~/school-election && cd ~/school-election
-tag=v1.0.0   # the release to deploy
-curl -fsSL -o compose.yml "https://raw.githubusercontent.com/cmiicbrg/school-election/$tag/deploy/compose.example.yml"
-curl -fsSL -o .env "https://raw.githubusercontent.com/cmiicbrg/school-election/$tag/deploy/.env.example"
-chmod 600 .env
+mkdir -p ~/school-election ~/.config/containers/systemd ~/.config/systemd/user/podman-auto-update.service.d
+cd ~/school-election
+tag=v1.0.0   # the release to start from; the units follow its line afterwards
+base="https://raw.githubusercontent.com/cmiicbrg/school-election/$tag/deploy"
+for unit in school-election.container school-election-postgres.container school-election-internal.network school-election-egress.network school-election-db.volume; do
+  curl -fsSL -o ~/.config/containers/systemd/$unit "$base/quadlet/$unit"
+done
+curl -fsSL -o ~/.config/systemd/user/podman-auto-update.service.d/busy.conf "$base/systemd/podman-auto-update.service.d/busy.conf"
+curl -fsSL -o not-busy.sh "$base/not-busy.sh" && chmod 755 not-busy.sh
+curl -fsSL -o .env "$base/.env.example" && chmod 600 .env
+systemctl --user daemon-reload
 ```
+
+`daemon-reload` turns the Quadlet files into `school-election.service` and `school-election-postgres.service`. The units name no release: both images are pulled by their `v1` line tag.
 
 ## Secret files
 
@@ -60,43 +70,56 @@ The app image runs as uid 10001, the app and the migrator alike. The PostgreSQL 
 
 - `session-key` seals the session cookies, the administrators' and the voters' alike (two cookies, two derived keys). A new key signs everyone out and ends every voting session.
 - `db-owner-password` is the password of the PostgreSQL superuser `postgres`, which only the migrator uses. PostgreSQL takes it from the file only when it creates the database on the very first start.
-- `db-runtime-password` is the password of the app's role, `school_election_app`. The migrator sets it on every run, so a new password takes effect after the next migration run and an app restart.
+- `db-runtime-password` is the password of the app's role, `school_election_app`. The migrator sets it on every start of the app, so a new password takes effect with the next restart.
 - `entra-client-secret` is the client secret from the app registration.
 
 ## Configuration
 
 Fill in `.env`:
 
-- `IMAGE` is the release, pinned by tag and digest. The summary of the Publish Image workflow run for each release tag prints the exact value.
 - `PUBLIC_URL` is the address browsers use, `https://wahl.example.org`, or with a path, `https://www.example.org/wahl` (see below).
 - `ENTRA_TENANT_ID` and `ENTRA_CLIENT_ID` come from the app registration.
 - `TRUST_PROXY` names the addresses whose `X-Forwarded-For` and `X-Forwarded-Proto` the app believes.
+- `LOG_LEVEL` is `info`, `warn` or `error`.
 
-nginx connects to `127.0.0.1:3000`, but rootless podman forwards that connection into the container from an address on the app's compose network, so the app never sees 127.0.0.1. If `TRUST_PROXY` does not cover that address, the app ignores the forwarded headers and takes every request for one client, so the per-address limits on sign-in apply to everyone at once. Rootless podman takes compose networks from `10.89.0.0/16` unless configured otherwise, which is the value in `.env.example`. Since the app's port is published on loopback only, nothing but nginx and other containers on this host connect from there. If other podman stacks run on the same host, narrow it to the subnet that `podman network inspect school-election_egress` shows after the first start; that subnet stays until the network is removed, for instance by `podman compose down`.
+nginx connects to `127.0.0.1:3000`, but rootless podman forwards that connection into the container from an address on the app's egress network, so the app never sees 127.0.0.1. If `TRUST_PROXY` does not cover that address, the app ignores the forwarded headers and takes every request for one client, so the per-address limits on sign-in apply to everyone at once. Rootless podman takes networks from `10.89.0.0/16` unless configured otherwise, which is the value in `.env.example`. Since the app's port is published on loopback only, nothing but nginx and other containers on this host connect from there. If other podman stacks run on the same host, narrow it to the subnet that `podman network inspect school-election-egress` shows after the first start; that subnet stays until the network is removed.
 
 ## Under a path of an existing site
 
-The app can run under a path of a site that already exists, `https://www.example.org/wahl`, when no host of its own is at hand. Set `PUBLIC_URL` to that address (its path without a trailing slash) and register the redirect URI `https://www.example.org/wahl/api/auth/callback`. The app serves everything below the path itself, the pages, the API, its files and the cards' addresses included, so nginx forwards requests for `/wahl` unchanged: the end of [`nginx.example.conf`](nginx.example.conf) has the locations for that site's server block, the same three as on a host of its own with the prefix, and `proxy_pass` without a URI. The health check lives under the path too, `/wahl/api/health`, which the compose example follows.
+The app can run under a path of a site that already exists, `https://www.example.org/wahl`, when no host of its own is at hand. Set `PUBLIC_URL` to that address (its path without a trailing slash) and register the redirect URI `https://www.example.org/wahl/api/auth/callback`. The app serves everything below the path itself, the pages, the API, its files and the cards' addresses included, so nginx forwards requests for `/wahl` unchanged: the end of [`nginx.example.conf`](nginx.example.conf) has the locations for that site's server block, the same three as on a host of its own with the prefix, and `proxy_pass` without a URI. The health check lives under the path too, `/wahl/api/health`, which the unit and the update script follow.
 
 One thing a shared host costs: the app's defence against cross-site requests trusts its own origin, which is then the whole site, so a weakness in another application on `www.example.org` could reach the election API with a signed-in teacher's session. A host of its own keeps that boundary; where the DNS allows it, prefer one.
 
 ## First start
 
 ```bash
-podman compose pull
-podman compose --profile migrate run --rm migrate
-podman compose up -d
+systemctl --user start school-election.service
 curl -fsS http://127.0.0.1:3000/api/health
 ```
 
-The health check answers `{"status":"ok","db":"up","version":"v1.0.0","gitSha":"…","tallyVersion":2}` with the release and commit that are running and the version of the counting rules they apply. On its very first start PostgreSQL creates the database before it accepts connections; if the migration reports that it cannot connect, run it again. When the app does not come up, `podman compose logs app` names every problem it refused to start with: a missing or unsafe setting, an unreadable secret file, or a PostgreSQL setting that differs from what the privacy model needs.
+Starting the app's unit pulls both images, starts PostgreSQL and waits until it is ready, runs the migrations, starts the app and waits until its health check passes; the first start takes a minute or two. Then switch the nightly update on:
+
+```bash
+systemctl --user enable --now podman-auto-update.timer
+```
+
+The health check answers `{"status":"ok","db":"up","busy":false,"version":"v1.0.0","gitSha":"…","tallyVersion":2}` with the release and commit that are running and the version of the counting rules they apply; `busy` is true while a round accepts ballots. When the app does not come up, `journalctl --user -u school-election` names every problem it refused to start with: a missing or unsafe setting, an unreadable secret file, a migration that failed, or a PostgreSQL setting that differs from what the privacy model needs.
+
+Three things only a host can prove; check them once, after the first start:
+
+```bash
+podman auto-update --dry-run              # lists both units with "false": nothing newer than what runs
+systemctl --user restart school-election.service && journalctl --user -u school-election -n 30
+                                          # the migrator's "nothing to apply", then the app
+~/school-election/not-busy.sh && echo "would update"   # exits 0 while no round accepts ballots
+```
 
 ## nginx and TLS
 
 Fetch the nginx example of the same release, replace `wahl.example.org` in it with your host name, and enable it:
 
 ```bash
-tag=v1.0.0   # the release you deploy, as above
+tag=v1.0.0   # the release you started from, as above
 sudo curl -fsSL -o /etc/nginx/sites-available/school-election "https://raw.githubusercontent.com/cmiicbrg/school-election/$tag/deploy/nginx.example.conf"
 sudo nano /etc/nginx/sites-available/school-election
 sudo ln -s /etc/nginx/sites-available/school-election /etc/nginx/sites-enabled/school-election
@@ -123,31 +146,28 @@ nginx only terminates TLS, forwards and logs. Do not add security headers or acc
 
 ## Updates
 
-Never redeploy, restart or reboot while a round is open: voting would stop, and a ballot on its way could fail.
+Updates are automatic. Every release of this repository is tested with the whole suite and the browser journeys before it is tagged, published as `v1.x.y` and moves the `v1` tag of both images. `podman-auto-update.timer` runs nightly: it pulls a newer `v1` where there is one and restarts the unit, which for the app means the migrations first and then the new release; a start that fails is rolled back to the previous image. The drop-in installed above makes the timer skip a night while a round accepts ballots, so no update ever lands on an election day; it runs the night after.
 
-To update, set `IMAGE` in `.env` to the new release, compare `compose.yml` with the new release's `deploy/compose.example.yml`, then:
+Never restart or reboot by hand while a round is open: voting would stop, and a ballot on its way could fail. The health check's `busy` says whether one is.
 
-```bash
-podman compose pull
-podman compose --profile migrate run --rm migrate
-podman compose up -d
-curl -fsS http://127.0.0.1:3000/api/health   # reports the new version
-```
+To update at once instead of waiting for the night, `podman auto-update`. To see what it would do, `podman auto-update --dry-run`.
+
+A major version is the one update that is done by hand. It comes with a release note that says what to do; for a PostgreSQL major that is a dump and restore of the data volume. Change `v1` to `v2` in both unit files under `~/.config/containers/systemd/`, then `systemctl --user daemon-reload` and `podman auto-update`. If a release note says the unit files themselves changed, fetch them again from that release as in Host above; that is rare.
 
 Migrations only go forward. Going back to an older release works only if it has the same migrations; otherwise restore a backup taken before the update.
 
 ## Reboots
 
-With linger enabled, `podman-restart.service` starts every container with `restart: always` at boot, so the stack comes back without anyone logging in. Check it once after the first deployment: reboot the machine, then run the health check above.
+With linger enabled, the units are wanted by the user's `default.target` and start at boot, the database first, without anyone logging in. Check it once after the first deployment: reboot the machine, then run the health check above.
 
 ## Backups
 
-- Logical dumps only, and without the ballot box: `(umask 077 && podman compose exec -T postgres pg_dump -U postgres -d school_election --format=custom --exclude-table-data=ballot_box > school-election-$(date +%F).dump)`. A dump outlives the election, and ballots must not. It still holds names, addresses, candidate pictures and the audit log, hence the umask: only `election` may read it.
+- Logical dumps only, and without the ballot box: `(umask 077 && podman exec school-election-postgres pg_dump -U postgres -d school_election --format=custom --exclude-table-data=ballot_box > school-election-$(date +%F).dump)`. A dump outlives the election, and ballots must not. It still holds names, addresses, candidate pictures and the audit log, hence the umask: only `election` may read it.
 - Never during an election, from opening its first round until the election is final. In that time, also no file-level copy or snapshot of the PostgreSQL volume or the virtual machine: until finalization, whose first step is the clean-up, deleted rows and the write-ahead log in the data files can still link ballots to keys.
 - No WAL archiving, no point-in-time recovery, no replication slot and no standby. `archive_mode` is off, `max_replication_slots` and `max_wal_senders` are 0, and the app refuses to start otherwise. Finalizing an election refuses while something still holds its write-ahead log or an older snapshot (a running dump, for instance), and is simply tried again afterwards.
 
 ## Logs
 
-- The app logs JSON lines to `podman compose logs app`, without request lines, client addresses, query strings or error messages.
-- PostgreSQL logs warnings and errors only, never statements or their parameters.
+- The app logs JSON lines to the journal, `journalctl --user -u school-election`, without request lines, client addresses, query strings or error messages. The migrator's lines are there too, before each start.
+- PostgreSQL logs warnings and errors only, never statements or their parameters: `journalctl --user -u school-election-postgres`.
 - nginx logs what its log format allows, and nothing for `/api/voter` or the plain-HTTP redirects.
