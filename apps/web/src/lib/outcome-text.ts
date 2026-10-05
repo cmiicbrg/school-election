@@ -97,7 +97,8 @@ export function firstPlacesLine(rulesetId: RulesetId, statistics: ContestStatist
   if (statistics.validBallots === 0 || statistics.candidates.length === 0) return ''
   const label = rulesetId === 'single-choice-v1' ? 'Stimmen' : 'Erste Stellen'
   const sorted = statistics.candidates.toSorted((a, b) => b.firstPlaces - a.firstPlaces)
-  return `${label}: ${sorted.map((candidate) => `${names.candidate(candidate.candidateId)} ${candidate.firstPlaces}`).join(', ')}.`
+  const figures = sorted.map((candidate) => `${names.candidate(candidate.candidateId)} ${candidate.firstPlaces}`).join(', ')
+  return `${label}: ${figures}.`
 }
 
 /** A recorded lot, as the section lists it. */
