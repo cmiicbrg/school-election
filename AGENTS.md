@@ -27,6 +27,7 @@ npm workspaces share one root `package-lock.json`. Shared tooling (ESLint, TypeS
 npm ci --ignore-scripts
 npm run lint        # ESLint + markdownlint + lint:deps + typecheck
 npm test            # node:test in every workspace; database tests need TEST_DATABASE_URL
+npm run test:coverage  # the same tests from the root, with one lcov file in coverage/ for SonarQube
 npm run migrate     # apply pending migrations as the PostgreSQL superuser
 npm run build       # web app → apps/web/dist
 npm run dev:api     # API on :3000
@@ -49,7 +50,7 @@ These take precedence over convenience:
 
 - Dependencies are pinned exactly; Dependabot lands bumps, and the automerge workflow holds them for a one-day quarantine.
 - GitHub Actions are pinned by commit SHA with the version in a comment. The base image is pinned by tag and digest.
-- CI runs on pull requests to `main`. Images are published to GHCR only on `v*` tags.
+- CI runs on pull requests to `main`; a push to `main` runs the tests again for the SonarQube analysis of the default branch and warms the image cache. SonarQube's properties are in `sonar-project.properties`, its coverage the lcov file of `npm run test:coverage`. Images are published to GHCR only on `v*` tags.
 - Applied migrations are never edited; write a new one. A migration that creates tables adds an upgrade fixture in `apps/api/test/fixtures/upgrade/`.
 - The lifecycle's windows (what may change in which state, which state follows which) live in election-core's guards, asked by the route and again by `changeElection` under the election's lock. Triggers keep only what the stored data must satisfy whoever writes it: the vote-once rules, the write-only ballot box and the seal, a round's transitions, the immutability of snapshots, lots, declared outcomes and a final election, and the shape of a runoff box and a lot. A trigger that restates a guard is not added.
 - What the runtime role may do with tables and functions is listed in `apps/api/lib/runtime-privileges.ts`. New migrations create objects but do not grant on them; the grants in the applied migrations 0002 to 0004 stay as they were applied and are superseded by the list. The migrator re-applies the list on every run. A new table gets no access until it is listed.
