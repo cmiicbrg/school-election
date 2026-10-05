@@ -3,6 +3,7 @@
 // authority; a field not here is one the pages do not read.
 
 import type { ContestStatistics, Lifecycle, Outcome, RoundKind, RoundState, RulesetId } from '@school-election/election-core'
+import type { Metadata } from './audit-labels.ts'
 import type { Role } from './labels.ts'
 import type { Permission } from './setup-rules.ts'
 
@@ -142,4 +143,23 @@ export interface ElectionFinalized {
   state: string
   contests: { contestId: string, kind: string }[]
   batchesVoided: number
+}
+
+export interface AuditEvent {
+  seq: number
+  at: string
+  actor: { tid: string, oid: string, name: string }
+  action: string
+  metadata: Metadata
+  prevHash: string | null
+  hash: string
+}
+
+export type AuditChain
+  = | { valid: true, length: number, head: string | null }
+    | { valid: false, length: number, index: number, problem: string }
+
+export interface AuditLog {
+  events: AuditEvent[]
+  chain: AuditChain
 }

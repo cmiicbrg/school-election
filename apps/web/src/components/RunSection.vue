@@ -12,6 +12,7 @@
 // page follows the teacher's steps and the lots recorded without a reload.
 
 import { computed, onUnmounted, ref, useId, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import type { LotRequest, RoundKind, RulesetId } from '@school-election/election-core'
 import LotForm from './LotForm.vue'
 import { apiDownload, apiGet, apiPost } from '../lib/api.ts'
@@ -342,6 +343,12 @@ const printPath = (batch: BatchSummary): string => `/elections/${props.election.
 
     <template v-if="result && rules.showResult">
       <h3>Ergebnis</h3>
+      <p class="muted">
+        In Worten; die Zahlen und jeden Schritt zeigt die Seite
+        <RouterLink :to="`/wahlen/${election.id}/ergebnis`">
+          Ergebnis und Herleitung
+        </RouterLink>.
+      </p>
       <article
         v-for="contest in result.contests"
         :key="contest.contestId"

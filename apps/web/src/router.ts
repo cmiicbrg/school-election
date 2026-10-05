@@ -5,10 +5,13 @@
 // fragment, taken before this router exists: voter/take-key.ts).
 
 import { createRouter, createWebHistory } from 'vue-router'
+import AuditLog from './pages/AuditLog.vue'
+import ElectionDayHelp from './pages/ElectionDayHelp.vue'
 import ElectionList from './pages/ElectionList.vue'
 import ElectionPage from './pages/ElectionPage.vue'
 import NewElection from './pages/NewElection.vue'
 import PrintBatch from './pages/PrintBatch.vue'
+import Results from './pages/Results.vue'
 import SignIn from './pages/SignIn.vue'
 import Voter from './pages/Voter.vue'
 
@@ -19,6 +22,9 @@ export const router = createRouter({
     { path: '/anmelden', component: SignIn },
     { path: '/wahlen/neu', component: NewElection },
     { path: '/wahlen/:id', component: ElectionPage, props: true },
+    { path: '/wahlen/:id/ergebnis', component: Results, props: true },
+    { path: '/wahlen/:id/protokoll', component: AuditLog, props: true },
+    { path: '/hilfe/wahltag', component: ElectionDayHelp },
     { path: '/v', component: Voter },
     { path: '/elections/:id/batches/:batchId/print', component: PrintBatch, props: true },
   ],
