@@ -1,5 +1,5 @@
 // Casting a ballot: the one transaction that uses a key's entitlement up
-// and stages the ballot (migration 0009), as the voter route runs it. It
+// and stages the ballot, as the voter route runs it. It
 // writes nothing else: no key, no session, no time, nothing that could be
 // joined to the ballot later. The database keeps the rest: a ballot is
 // staged only while its round accepts ballots and only one that fits its

@@ -4,8 +4,8 @@
 // pollOutcome). Computed on every read and stored nowhere: the snapshots
 // are the sealed truth, the lots the officials', and the outcome follows
 // from them. At finalization the outcome as it stands is written once,
-// per contest, with the versions that derived it (final_outcome, migration
-// 0014), and from then on the declared outcome is the contest's: a final
+// per contest, with the versions that derived it (final_outcome), and
+// from then on the declared outcome is the contest's: a final
 // election shows what was declared, whatever a later version derives, and
 // nothing of it is resolved again. A resolution the stored decisions make
 // refuse is a hard error, like a missing snapshot: the database was

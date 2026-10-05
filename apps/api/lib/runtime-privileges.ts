@@ -23,14 +23,14 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   // Append-only: events are added and read, never changed or removed.
   audit_event: { table: ['SELECT', 'INSERT'] },
   // Title, description and the lifecycle state change, a final election
-  // not at all (migration 0015); an election is removed only through
-  // delete_election (0011).
+  // not at all; an election is removed only through
+  // delete_election.
   election: { table: ['SELECT', 'INSERT'], updateColumns: ['title', 'description', 'state'] },
   // Members are invited and removed; binding sets user_id once.
   election_member: { table: ['SELECT', 'INSERT', 'DELETE'], updateColumns: ['user_id'] },
   // The states of the lifecycle with their flags, and the transitions of
   // a round, which the triggers and the definer functions read as the
-  // role that runs them (migrations 0007 and 0009). Nothing changes them.
+  // role that runs them. Nothing changes them.
   election_state: { table: ['SELECT'] },
   round_kind: { table: ['SELECT'] },
   round_state: { table: ['SELECT'] },
@@ -42,15 +42,15 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   voter_group: { table: ['SELECT', 'INSERT', 'DELETE'], updateColumns: ['name'] },
   voter_group_contest: { table: ['SELECT', 'INSERT', 'DELETE'] },
   // Preparing creates the regular round and its ballot boxes; the runoff
-  // round and its boxes are activate_runoff's (migration 0013). A round's
+  // round and its boxes are activate_runoff's. A round's
   // state moves along round_transition: opening is a direct update, closing
-  // is the seal's (migration 0009); its phase is the trigger's (0012). No
+  // is the seal's; its phase is the trigger's. No
   // round is removed.
   round: { table: ['SELECT', 'INSERT'], updateColumns: ['state'] },
   round_contest: { table: ['SELECT', 'INSERT', 'DELETE'] },
   // Keys are issued in batches and a batch is voided; keys and batches are
   // removed only with their voter group or election. Triggers keep a batch
-  // voided once and a key unchanged (migrations 0008 and 0015), reading
+  // voided once and a key unchanged, reading
   // the batch states as the role that runs them; when keys are issued is
   // the lifecycle's.
   credential_batch_state: { table: ['SELECT'] },
@@ -58,46 +58,46 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   credential: { table: ['SELECT', 'INSERT'] },
   // A vote uses an entitlement up, and nothing else changes it. The
   // clean-up at finalization rewrites the table without the dead versions
-  // the votes and the seal left (VACUUM FULL, migration 0014).
+  // the votes and the seal left (VACUUM FULL).
   credential_entitlement: { table: ['SELECT', 'INSERT', 'MAINTAIN'], updateColumns: ['consumed'] },
-  // The kinds of ballot, which the staging trigger reads (migration 0009).
+  // The kinds of ballot, which the staging trigger reads.
   ballot_kind: { table: ['SELECT'] },
   // A vote stages its ballot. Nobody reads, changes or removes a staged
   // ballot: the seal moves them, as the owner; the clean-up rewrites the
-  // table without the staged rows the seal deleted (migration 0014).
+  // table without the staged rows the seal deleted.
   ballot_box: { table: ['INSERT', 'MAINTAIN'] },
   // Sealed ballots are read for the count; the seal alone writes them.
   ballot: { table: ['SELECT'] },
   // The count writes one snapshot per ballot box when the round closes,
-  // and members read them; a trigger refuses any change (migration 0010).
+  // and members read them; a trigger refuses any change.
   result_snapshot: { table: ['SELECT', 'INSERT'] },
   // A lot the officials drew is recorded once and read by every member; a
-  // trigger refuses any change (migration 0013).
+  // trigger refuses any change.
   lot_decision: { table: ['SELECT', 'INSERT'] },
   // The final outcome of every contest, written by finalize_election alone
-  // and read by every member; a trigger refuses any change (migration 0014).
+  // and read by every member; a trigger refuses any change.
   final_outcome: { table: ['SELECT'] },
 }
 
 /** Functions the runtime role may execute, by their signature as PostgreSQL prints a regprocedure: argument types without spaces between them. */
 export const RUNTIME_FUNCTIONS: readonly string[] = [
-  // The preload settings for the startup check (migration 0006).
+  // The preload settings for the startup check.
   'preload_settings()',
   // How every trigger refuses a change, called as the role that runs the
-  // trigger (migration 0007).
+  // trigger.
   'refuse(text)',
-  // Closes an open round and seals its ballots (migration 0009).
+  // Closes an open round and seals its ballots.
   'seal_round(uuid)',
   // The test mode: ends a test with nothing kept, reads a test's ballots
-  // for its result; and removes an election nobody used (migration 0011).
+  // for its result; and removes an election nobody used.
   'end_test(uuid)',
   'test_ballots(uuid)',
   'delete_election(uuid)',
-  // The runoff round, created open with its boxes and entitlements, once (migration 0013).
+  // The runoff round, created open with its boxes and entitlements, once.
   'activate_runoff(uuid,jsonb)',
   // The clean-up at finalization: what still holds a snapshot older than
   // the election's seals, and the flush of the write-ahead log with its
-  // check; then the declaration that makes the election final (migration 0014).
+  // check; then the declaration that makes the election final.
   'cleanup_blockers(uuid)',
   'flush_wal(pg_lsn)',
   'finalize_election(uuid,jsonb,integer,text,text)',

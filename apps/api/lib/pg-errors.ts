@@ -4,7 +4,7 @@
 export const SQLSTATE = {
   duplicateObject: '42710',
   insufficientPrivilege: '42501',
-  /** How every trigger of the migrations refuses a change (refuse(), migration 0007). */
+  /** How every trigger of the migrations refuses a change (refuse()). */
   objectNotInPrerequisiteState: '55000',
   /** A statement stopped by the pool's statement timeout, a lock wait included. */
   queryCanceled: '57014',

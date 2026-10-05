@@ -21,7 +21,7 @@ export interface RedeemedKey {
   /** The key's round, or null while the batch's round does not exist yet (runoff keys before activation). */
   roundId: string | null
   roundState: RoundState | null
-  /** The round's phase (migration 0012): a fresh id each time its state changes, so a session knows when its phase is over. */
+  /** The round's phase: a fresh id each time its state changes, so a session knows when its phase is over. */
   phase: string | null
   acceptsBallots: boolean
 }
@@ -111,7 +111,7 @@ export async function voterElection(db: Queryable, credentialId: string, roundId
     'select id, contest_id, surname, given_name, picture_sha256 from candidate where contest_id = any($1)',
     [entitled.map((row) => row.contest_id)],
   )
-  // A runoff box is for its pair alone, one choice between the two (migration 0013).
+  // A runoff box is for its pair alone, one choice between the two.
   const contests = entitled.map((row) => {
     const listed = candidates
       .filter((candidate) => candidate.contest_id === row.contest_id && (row.runoff_pair === null || row.runoff_pair.includes(candidate.id)))

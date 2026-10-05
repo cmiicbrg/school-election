@@ -8,9 +8,9 @@
 // before the rewrite remains on disk, and proves it (docs/privacy-model.md).
 //
 // Outside any transaction, on the pool's plain query: VACUUM cannot run
-// inside one. The two elevated steps are the owner's functions (migration
-// 0014): cleanup_blockers counts what still holds a snapshot older than
-// the election's seals, which would make VACUUM keep the dead rows; and
+// inside one. The two elevated steps are the owner's functions:
+// cleanup_blockers counts what still holds a snapshot older than the
+// election's seals, which would make VACUUM keep the dead rows; and
 // flush_wal switches and checkpoints, and says whether the old segments
 // are gone. The rewrite itself needs the role's own MAINTAIN on the two
 // tables (lib/runtime-privileges.ts). Idempotent and harmless on any
