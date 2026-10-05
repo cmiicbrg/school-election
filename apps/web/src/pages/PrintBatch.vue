@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // A batch of voting keys as sheets to print: six cards to an A4 page, each
-// with the election, the round, the class, a QR code and the key. The page
+// exactly a sixth of the sheet, with the election, the round, the class, a
+// QR code and the key, and only the three cut lines between them. The page
 // shows the stored keys however often it is opened, so a sheet can be
 // printed again, until the batch's round opens: once votes are accepted,
 // nothing is printed any more. Opening it creates nothing. The browser
@@ -126,6 +127,9 @@ onMounted(() => {
       </p>
       <p v-if="prints">
         Diese Seite zeigt immer dieselben Codes. Sie kann bis zum Beginn der Runde noch einmal gedruckt werden; neue Codes gibt es nur über „Stapel ersetzen“ in der Wahl.
+      </p>
+      <p v-if="prints">
+        Ohne Verkleinerung drucken (tatsächliche Größe, keine Ränder): Jede Karte ist genau ein Sechstel des Blattes, drei Schnitte entlang der Linien trennen sie.
       </p>
       <p
         v-if="error"
@@ -296,23 +300,54 @@ header button {
   font-weight: 700;
 }
 
+/* Exactly A4, two columns of 105mm by three rows of 99mm, so a card is a
+   sixth of the sheet and three cuts separate them. The cut lines are the
+   borders of two empty elements over the grid: one vertical line down the
+   middle, one horizontal line at each third. Borders print by default,
+   where a background would not; a card has no border of its own. */
 .page {
+  position: relative;
   box-sizing: border-box;
   width: 210mm;
   height: 297mm;
-  padding: 10mm;
+  padding: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: repeat(3, 1fr);
+  grid-template-columns: 105mm 105mm;
+  grid-template-rows: repeat(3, 99mm);
   gap: 0;
   break-after: page;
   background: #fff;
 }
 
+.page::before,
+.page::after {
+  content: '';
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.page::before {
+  top: 0;
+  bottom: 0;
+  left: calc(105mm - 0.1mm);
+  width: 0.2mm;
+  border-left: 0.2mm solid #999;
+}
+
+.page::after {
+  left: 0;
+  right: 0;
+  top: calc(99mm - 0.1mm);
+  height: calc(99mm + 0.2mm);
+  border-top: 0.2mm solid #999;
+  border-bottom: 0.2mm solid #999;
+}
+
+/* The content keeps away from the edges, where a printer may not print. */
 .card {
   box-sizing: border-box;
-  border: 0.3mm dashed #888;
-  padding: 5mm;
+  padding: 8mm;
   display: flex;
   flex-direction: column;
   align-items: center;
