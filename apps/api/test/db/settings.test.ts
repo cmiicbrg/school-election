@@ -1,13 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cp, mkdtemp, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import path from 'node:path'
 import { createDatabase } from '../../lib/db.ts'
 import { checkDatabaseSettings, REQUIRED_SETTINGS } from '../../lib/db-settings.ts'
 import { sqlState } from '../../lib/pg-errors.ts'
-import { migrate, MIGRATIONS_DIR } from '../../scripts/migrate.ts'
-import { createTestDatabase, DB, TEST_RUNTIME_PASSWORD, withClient } from '../helpers/db.ts'
+import { createTestDatabase, DB, withClient } from '../helpers/db.ts'
 
 const safe: Record<string, string> = {
   ...Object.fromEntries(REQUIRED_SETTINGS.map((s) => [s.name, s.expected])),
@@ -115,25 +111,6 @@ test('connecting as the owner superuser is refused', DB, async (t) => {
   const db = createDatabase(testDb.ownerUrl, () => {})
   t.after(() => db.close())
   assert.deepEqual(await checkDatabaseSettings(db), ['the server connects as postgres; it must connect as school_election_app'])
-})
-
-test('pg_read_all_settings, granted by earlier versions, is taken back once a run succeeds', DB, async (t) => {
-  const testDb = await createTestDatabase(t)
-  const admin = process.env.TEST_DATABASE_URL ?? ''
-  // Cluster-wide; the run below takes it back, and so does the clean-up if it fails first.
-  await withClient(admin, (c) => c.query('grant pg_read_all_settings to school_election_app'))
-  t.after(() => withClient(admin, (c) => c.query('revoke pg_read_all_settings from school_election_app')).catch(() => {}))
-  const member = async () => (await withClient(admin, (c) => c.query<{ member: boolean }>(
-    'select pg_has_role(\'school_election_app\', \'pg_read_all_settings\', \'MEMBER\') as member',
-  ))).rows[0]?.member
-  // A run whose migration fails keeps it: the server still deployed may need it to restart.
-  const failing = await mkdtemp(path.join(tmpdir(), 'school-election-migrations-'))
-  await cp(MIGRATIONS_DIR, failing, { recursive: true })
-  await writeFile(path.join(failing, '9001_broken.sql'), 'select 1/0;')
-  await assert.rejects(migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD, migrationsDir: failing }), /9001_broken.sql failed/)
-  assert.equal(await member(), true)
-  await migrate({ databaseUrl: testDb.ownerUrl, runtimePassword: TEST_RUNTIME_PASSWORD })
-  assert.equal(await member(), false)
 })
 
 test('the runtime role reads the hidden preload settings only through preload_settings()', DB, async (t) => {

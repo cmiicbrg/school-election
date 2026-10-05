@@ -104,7 +104,7 @@ test('the state tables say what the lifecycle in packages/election-core allows',
     const row = electionState.get(lifecycle.election)
     const label = JSON.stringify(lifecycle)
     assert.equal(row?.structure_editable, canEditStructure(lifecycle).ok, label)
-    // The flag is the election's; a running test freezes candidates through the round (migration 0011).
+    // The flag is the election's; a running test freezes candidates through the round.
     const candidates = canEditCandidates(lifecycle)
     if (candidates.ok || candidates.refusal !== 'round-testing') assert.equal(row?.candidates_editable, candidates.ok, label)
     assert.equal(row?.final, !canManageMembers(lifecycle).ok, label)
@@ -129,7 +129,7 @@ test('the state tables say what the lifecycle in packages/election-core allows',
   const stored = rows.election.flatMap((row) => [row.advances_to, row.returns_to].flatMap((to) => to === null ? [] : [`${row.state} → ${to}`]))
   assert.deepEqual(stored.sort(), [...moves].sort())
 
-  // And a round along the rows of round_transition (migration 0009). A
+  // And a round along the rows of round_transition. A
   // runoff round is created open, which is no transition.
   const roundMoves = new Set(LIFECYCLES.flatMap((lifecycle) => LIFECYCLE_ACTIONS.flatMap((action) => {
     const result = transition(lifecycle, action)

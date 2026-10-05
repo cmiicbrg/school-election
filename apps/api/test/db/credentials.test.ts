@@ -50,7 +50,7 @@ const entitle = (key: string) => `insert into credential_entitlement (election_i
 const consume = (key: string, consumed = true) => `update credential_entitlement set consumed = ${consumed}
   where credential_id = (select id from credential where key = '${key}')`
 
-/** Moves the election and its regular round on, as the owner, past the triggers: closing a round is the seal's (migration 0009). */
+/** Moves the election and its regular round on, as the owner, past the triggers: closing a round is the seal's. */
 async function moveOn(ownerUrl: string, election: string, round: string): Promise<void> {
   await withClient(ownerUrl, (client) => client.query(
     `begin; set local session_replication_role = replica;

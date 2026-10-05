@@ -1,4 +1,4 @@
-// Finalization at the database level (migration 0014): a declaration
+// Finalization at the database level: a declaration
 // comes to be only through finalize_election, on an active election,
 // naming every contest once, and makes the election final in the same
 // step; a declared outcome never changes, for any role; once final, the
