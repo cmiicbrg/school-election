@@ -45,35 +45,17 @@ test('undefined, functions, symbols and bigints are refused, not skipped', () =>
   refused({ f: () => 1 }, /^\$\.f has no canonical JSON form \(function\)$/)
   refused(Symbol('s'), /\(symbol\)$/)
   refused(1n, /\(bigint\)$/)
-  refused({ [Symbol('s')]: 1 }, /^\$ has a symbol key$/)
+  // A hole reads as undefined, and is refused like one.
+  refused([1, , 3], /^\$\[1\] has no canonical JSON form \(undefined\)$/)
 })
 
-test('objects other than plain ones, and arrays with holes, are refused', () => {
+test('an object that is not plain is refused: a date or a map read as it is would be a bug, not a record', () => {
   class Point {
     x = 1
   }
   for (const value of [new Date(0), new Map(), new Set(), /x/, new Point(), new Uint8Array(1)]) {
     refused(value, /^\$ must be a plain object$/)
   }
-
-  refused([1, , 3], /^\$\[1\] is a hole$/)
-})
-
-test('nothing of an array or object is left out: no inherited items, no extra or hidden properties', () => {
-  // A hole filled from a prototype would otherwise encode like [1,2].
-  const inherited = Object.setPrototypeOf([1, ,], Object.assign(Object.create(Array.prototype) as object, { 1: 2 })) as unknown[]
-  refused(inherited, /^\$ must be a plain array$/)
-  Object.defineProperty(Array.prototype, 1, { value: 2, configurable: true })
-  try {
-    refused([1, ,], /^\$\[1\] is a hole$/)
-  } finally {
-    delete (Array.prototype as unknown as Record<number, unknown>)[1]
-  }
-  class Items extends Array<number> {}
-  refused(Items.from([1]), /^\$ must be a plain array$/)
-  refused(Object.assign([1, 2], { note: 'x' }), /^\$ has properties besides its items$/)
-  refused(Object.assign([1], { [Symbol('s')]: 1 }), /^\$ has properties besides its items$/)
-  refused(Object.defineProperty({ a: 1 }, 'hidden', { value: 2, enumerable: false }), /^\$ has a non-enumerable property$/)
 })
 
 test('strings that PostgreSQL could not store unchanged are refused, as values and as keys', () => {

@@ -20,7 +20,7 @@
 // witnesses' notes.
 
 import { createHash } from 'node:crypto'
-import { canonicalJson, type CanonicalValue } from './canonical-json.ts'
+import { canonicalJson, CanonicalJsonError, type CanonicalValue } from './canonical-json.ts'
 
 /** Part of every hashed record; a change to what is hashed gets a new version. */
 export const AUDIT_CHAIN_VERSION = 1
@@ -98,14 +98,14 @@ export type AuditChainStatus = ValidAuditChain | BrokenAuditChain
 
 /**
  * Checks one election's events, in seq order: each names its predecessor and
- * hashes to its stored hash. Reports the first problem by its index. Accepts
- * any input, since an export may have been altered: whatever is not exactly
- * an event, or throws while being read, is malformed, and so is anything but
- * an array of events (reported at index 0).
+ * hashes to its stored hash. Reports the first problem by its index. The
+ * input is JSON data, a parsed export or the rows of the table, and may have
+ * been altered: whatever is not exactly an event is malformed, and so is
+ * anything but an array of events (reported at index 0).
  */
 export function verifyAuditChain(events: unknown): AuditChainStatus {
-  const list = readList(events)
-  if (!list) return { valid: false, length: 0, index: 0, problem: 'malformed' }
+  if (!Array.isArray(events)) return { valid: false, length: 0, index: 0, problem: 'malformed' }
+  const list = events as unknown[]
   let previous: AuditEvent | undefined
   for (const [index, value] of list.entries()) {
     const read = readEvent(value)
@@ -114,24 +114,6 @@ export function verifyAuditChain(events: unknown): AuditChainStatus {
     previous = read?.event
   }
   return { valid: true, length: list.length, head: previous?.hash ?? null }
-}
-
-/**
- * A copy of the array by its length and own elements, holes as undefined;
- * undefined for anything else. The input's iterator is never called: an array
- * can override it to yield a genuine chain while its elements hold another.
- */
-function readList(value: unknown): unknown[] | undefined {
-  try {
-    if (!Array.isArray(value)) return undefined
-    const { length } = value
-    const list: unknown[] = []
-    for (let i = 0; i < length; i++) list.push(Object.hasOwn(value, i) ? value[i] : undefined)
-    return list
-  } catch {
-    // A proxy that refuses to be read.
-    return undefined
-  }
 }
 
 const EVENT_KEYS = ['seq', 'electionId', 'at', 'actor', 'action', 'metadata', 'prevHash', 'hash']
@@ -143,22 +125,22 @@ interface ReadEvent {
 }
 
 /**
- * A plain copy of an event, every field read once, with the hash of its
- * content; undefined unless the value has exactly the fields of an event,
- * each of its type. An extra field would pass verification without being
- * hashed, and a getter or proxy could answer differently on a second read.
+ * The event with the hash of its content; undefined unless the value has
+ * exactly the fields of an event, each of its type, and metadata with a
+ * canonical form. An extra field would pass verification without being
+ * hashed.
  */
 function readEvent(value: unknown): ReadEvent | undefined {
+  if (!hasExactly(value, EVENT_KEYS)) return undefined
+  const { seq, electionId, at, actor, action, metadata, prevHash, hash } = value
+  if (!hasExactly(actor, ACTOR_KEYS)) return undefined
+  const { tid, oid, name } = actor
   try {
-    if (!hasExactly(value, EVENT_KEYS)) return undefined
-    const { seq, electionId, at, actor, action, metadata, prevHash, hash } = value
-    if (!hasExactly(actor, ACTOR_KEYS)) return undefined
-    const { tid, oid, name } = actor
     const copy = { seq, electionId, at, actor: { tid, oid, name }, action, metadata: JSON.parse(canonicalJson(metadata)) as unknown, prevHash, hash }
     return isEvent(copy) ? { event: copy, computedHash: auditEventHash(copy) } : undefined
-  } catch {
-    // A throwing getter or proxy, or a value without a canonical form.
-    return undefined
+  } catch (err) {
+    if (err instanceof CanonicalJsonError) return undefined
+    throw err
   }
 }
 
@@ -206,9 +188,9 @@ function isTimestamp(value: unknown): boolean {
   return Number.isFinite(ms) && new Date(ms).toISOString() === value
 }
 
-/** An object whose own keys, enumerable or not, are exactly `keys`. */
+/** An object whose keys are exactly `keys`. */
 function hasExactly(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
-  const own = Reflect.ownKeys(value)
+  const own = Object.keys(value)
   return own.length === keys.length && keys.every((key) => own.includes(key))
 }
