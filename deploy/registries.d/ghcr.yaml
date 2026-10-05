@@ -1,0 +1,7 @@
+# Installed as ~/.config/containers/registries.d/ghcr.yaml: podman fetches
+# sigstore signatures from the registry, where cosign stores them next to
+# the image, only for registries that say so here. Without it the policy
+# (policy.json) finds no signature and refuses every pull of the app.
+docker:
+  ghcr.io:
+    use-sigstore-attachments: true

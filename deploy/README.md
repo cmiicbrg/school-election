@@ -2,7 +2,7 @@
 
 A host runs PostgreSQL and the app as rootless podman systemd units from [`quadlet/`](quadlet/); the app listens on the host's loopback, `127.0.0.1:3000`, and speaks plain HTTP. TLS terminates outside the app, in a reverse proxy that reaches that port: on the same machine, or on another host through a tunnel. [`nginx.example.conf`](nginx.example.conf) is the pattern for the proxy, wherever it runs. The examples use `wahl.example.org` for the site, `election` for the user that runs the stack and `~/school-election` for its directory; replace them with your own.
 
-The deployment updates itself. Both images are built, tested and signed by this repository and published under a line tag, `v1`; a release moves the line, and the host's nightly `podman auto-update` pulls it and restarts the units, the migrations first, never while a round accepts ballots. Nothing on the host names a release, so nothing on the host goes stale; a major version (`v2`) is the one update an operator does by hand.
+The deployment updates itself. Both images are built, tested and signed by this repository and published under a line tag, `v1`; a release moves the line, and the host's nightly `podman auto-update` pulls it and restarts the units, the migrations first, never while a round accepts ballots. The host verifies the signature on every pull, so only an image that came through this repository's release workflow ever runs. Nothing on the host names a release, so nothing on the host goes stale; a major version (`v2`) is the one update an operator does by hand.
 
 - `school-election-postgres` runs `ghcr.io/cmiicbrg/school-election-postgres`, PostgreSQL with exactly the settings the app checks at startup baked in ([`postgres/Dockerfile`](postgres/Dockerfile)). It is reachable only from an internal network, which has no route off the host: no published port, data in a named volume.
 - `school-election` runs `ghcr.io/cmiicbrg/school-election`, read-only, without capabilities, listening on `127.0.0.1:3000` only. Before every start it runs the migrations with the same image. The image contains libvips, a shared library under the LGPL-3.0-or-later; its notice, source and license texts are in the image under `/app/third-party-notices` and in [`third-party-notices`](../third-party-notices/README.md).
@@ -48,6 +48,19 @@ systemctl --user daemon-reload
 ```
 
 `daemon-reload` turns the Quadlet files into `school-election.service` and `school-election-postgres.service`. The units name no release: both images are pulled by their `v1` line tag.
+
+### Signatures
+
+Every image this repository publishes is signed with its cosign key; the public half is [`cosign.pub`](cosign.pub). Before the first pull, install it with the policy that requires the signature for the two images (and leaves every other image as it is) and the registry setting that lets podman fetch signatures from ghcr.io:
+
+```bash
+mkdir -p ~/.config/containers/registries.d
+curl -fsSL -o cosign.pub "$base/cosign.pub"
+curl -fsSL -o ~/.config/containers/policy.json "$base/policy.json"
+curl -fsSL -o ~/.config/containers/registries.d/ghcr.yaml "$base/registries.d/ghcr.yaml"
+```
+
+The policy names the key as `/home/election/school-election/cosign.pub`; if your user or directory differs, change both `keyPath` lines. `podman image trust show` then lists the two images as signed by that key. From here on, a pull of either image that is not signed with the key, by hand or by the nightly update, fails.
 
 ## Secret files
 
@@ -105,13 +118,15 @@ systemctl --user enable --now podman-auto-update.timer
 
 The health check answers `{"status":"ok","db":"up","busy":false,"version":"v1.0.0","gitSha":"…","tallyVersion":2}` with the release and commit that are running and the version of the counting rules they apply; `busy` is true while a round accepts ballots. When the app does not come up, `journalctl --user -u school-election` names every problem it refused to start with: a missing or unsafe setting, an unreadable secret file, a migration that failed, or a PostgreSQL setting that differs from what the privacy model needs.
 
-Three things only a host can prove; check them once, after the first start:
+Four things only a host can prove; check them once, after the first start:
 
 ```bash
 podman auto-update --dry-run              # lists both units with "false": nothing newer than what runs
 systemctl --user restart school-election.service && journalctl --user -u school-election -n 30
                                           # the migrator's "nothing to apply", then the app
 ~/school-election/not-busy.sh && echo "would update"   # exits 0 while no round accepts ballots
+podman pull docker.io/library/postgres:18-alpine   # another image pulls as before: the policy binds the two of the app alone
+podman image trust show                   # the two images of the app: signed by the key, everything else accepted
 ```
 
 ## The proxy and TLS
