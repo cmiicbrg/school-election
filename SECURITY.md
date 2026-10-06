@@ -45,6 +45,7 @@ The privacy model ([`docs/privacy-model.md`](docs/privacy-model.md)) removes wha
 - deleted files and segments stay recoverable by disk forensics until the file system overwrites them;
 - a backup, a dump with system columns, or a snapshot of the volume or the machine taken between the opening of the first round and finalization holds the pre-seal pages and the write-ahead log, which is why the operator guide keeps every backup and snapshot out of that window;
 - a root on the running server or a superuser on the database can read the staged ballots while a round is open;
-- under a path of a host it shares (`PUBLIC_URL` with a path), the app's defence against cross-site requests trusts the whole origin, so a page of another site on that host could send requests with a signed-in teacher's cookies; a host of its own keeps that boundary.
+- under a path of a host it shares (`PUBLIC_URL` with a path), the app's defence against cross-site requests trusts the whole origin, so a page of another site on that host could send requests with a signed-in teacher's cookies; a host of its own keeps that boundary;
+- a deployment updates itself from the images this repository publishes and verifies their signature, so what runs at a school is what the release workflow signed; the signing key is a secret of this repository, and whoever controls the repository's GitHub account controls what every school runs the next night. The signature protects against a stolen package-write token and against a registry serving something else, not against that account.
 
 A way to link ballots to keys, or to each other, that does not need one of these is in scope; please report it.

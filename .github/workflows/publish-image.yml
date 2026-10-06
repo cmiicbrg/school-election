@@ -6,7 +6,10 @@ name: Publish Image
 # sha-<commit> tag and the floating line tag v<major>, which the
 # deployments follow (deploy/quadlet, deploy/README.md): a school's
 # podman-auto-update pulls the new v1 the night after. A v2 moves v2
-# alone. No `latest`: it would move across major lines.
+# alone. No `latest`: it would move across major lines. Each image is
+# signed with the repository's cosign key, which a host's policy requires
+# (deploy/policy.json), so an image that did not come through this
+# workflow is refused there.
 
 'on':
   workflow_dispatch: {}
@@ -91,6 +94,24 @@ jobs:
           tags: ${{ steps.postgres.outputs.tags }}
           labels: ${{ steps.postgres.outputs.labels }}
 
+      # The key and its password are repository secrets; deploy/cosign.pub
+      # is the public half, which the signature is checked against here
+      # once, as a host will check it.
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign the images
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          APP_DIGEST: ${{ steps.build.outputs.digest }}
+          POSTGRES_DIGEST: ${{ steps.build-postgres.outputs.digest }}
+        run: |
+          set -euo pipefail
+          for image in "${APP_IMAGE}@${APP_DIGEST}" "${POSTGRES_IMAGE}@${POSTGRES_DIGEST}"; do
+            cosign sign --yes --key env://COSIGN_PRIVATE_KEY "$image"
+            cosign verify --key deploy/cosign.pub "$image" >/dev/null
+          done
+
       # Expansions go through env rather than straight into the script body:
       # inlining ${{ ... }} splices the value into the shell source before it
       # runs, which is how a crafted value becomes executable code.
@@ -114,8 +135,11 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # Bound registry growth. Each release adds three tags per image (the
-  # release tag, the immutable sha-<commit> and the moving line tag). Keep
-  # enough history that a host can be put back on a recent release by hand.
+  # release tag, the immutable sha-<commit> and the moving line tag) and
+  # its signature, which cosign stores as a tagged artifact next to the
+  # image and which is newer than it, so pruning by age never leaves an
+  # image without its signature. Keep enough history that a host can be
+  # put back on a recent release by hand.
   cleanup-packages:
     name: Prune old versions
     needs: publish
@@ -128,11 +152,11 @@ jobs:
         with:
           package-name: school-election
           package-type: container
-          min-versions-to-keep: 10
+          min-versions-to-keep: 20
           delete-only-untagged-versions: false
       - uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
         with:
           package-name: school-election-postgres
           package-type: container
-          min-versions-to-keep: 10
+          min-versions-to-keep: 20
           delete-only-untagged-versions: false

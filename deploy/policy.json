@@ -1,0 +1,21 @@
+{
+  "default": [{ "type": "insecureAcceptAnything" }],
+  "transports": {
+    "docker": {
+      "ghcr.io/cmiicbrg/school-election": [
+        {
+          "type": "sigstoreSigned",
+          "keyPath": "/home/election/school-election/cosign.pub",
+          "signedIdentity": { "type": "matchRepository" }
+        }
+      ],
+      "ghcr.io/cmiicbrg/school-election-postgres": [
+        {
+          "type": "sigstoreSigned",
+          "keyPath": "/home/election/school-election/cosign.pub",
+          "signedIdentity": { "type": "matchRepository" }
+        }
+      ]
+    }
+  }
+}
