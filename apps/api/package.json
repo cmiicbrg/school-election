@@ -1,6 +1,6 @@
 {
   "name": "@school-election/api",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "HTTP API for school-election; also serves the built web app.",
@@ -19,7 +19,7 @@
     "@fastify/rate-limit": "11.2.0",
     "@fastify/secure-session": "8.4.0",
     "@fastify/static": "10.1.5",
-    "@school-election/election-core": "0.1.0",
+    "@school-election/election-core": "1.0.0",
     "fastify": "5.12.5",
     "jose": "6.2.12",
     "pg": "8.23.1",

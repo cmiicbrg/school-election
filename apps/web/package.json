@@ -1,6 +1,6 @@
 {
   "name": "@school-election/web",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "Voter, administrator and witness UI. Built to static files that the API serves.",
@@ -15,7 +15,7 @@
   "devDependencies": {
     "@fontsource/dm-sans": "5.3.0",
     "@fontsource/jetbrains-mono": "5.3.0",
-    "@school-election/election-core": "0.1.0",
+    "@school-election/election-core": "1.0.0",
     "@types/qrcode": "1.5.6",
     "@vitejs/plugin-vue": "6.0.9",
     "pica": "10.0.3",
