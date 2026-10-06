@@ -1,6 +1,6 @@
 {
   "name": "school-election",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "Self-hosted system for anonymous, in-person school elections with Austrian Schülervertretung presets.",
