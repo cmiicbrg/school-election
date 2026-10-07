@@ -2,7 +2,8 @@
 // repository ships is a key cosign can verify with, the host's policy
 // requires it for the two images of the app and nothing else, podman is
 // told to fetch signatures from ghcr.io, and the publish workflow signs
-// with the matching secrets and checks against this very key.
+// with the matching secrets in the form podman reads, then pulls both
+// images with podman under exactly these files.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -46,10 +47,30 @@ test('podman fetches sigstore signatures from ghcr.io', async () => {
   assert.match(registries, /^docker:\n\s+ghcr\.io:\n\s+use-sigstore-attachments: true$/m)
 })
 
-test('the publish workflow signs both images with the secrets and checks against the shipped key', async () => {
+test('the publish workflow signs every manifest of both images with the secrets, in the form podman reads', async () => {
   const workflow = await read('.github/workflows/publish-image.yml')
   assert.match(workflow, /COSIGN_PRIVATE_KEY: \$\{\{ secrets\.COSIGN_PRIVATE_KEY \}\}/)
   assert.match(workflow, /COSIGN_PASSWORD: \$\{\{ secrets\.COSIGN_PASSWORD \}\}/)
-  assert.match(workflow, /cosign sign --yes --key env:\/\/COSIGN_PRIVATE_KEY/)
-  assert.match(workflow, /cosign verify --key deploy\/cosign\.pub/)
+  // An index's signature alone, or a cosign 3 bundle, verifies with cosign
+  // and is refused by podman: "A signature was required, but no signature
+  // exists".
+  const sign = /cosign sign --yes --recursive --new-bundle-format=false --use-signing-config=false \\\n\s+--key env:\/\/COSIGN_PRIVATE_KEY "\$image"/
+  assert.match(workflow, sign)
+})
+
+test('the publish workflow pulls both images with the podman of the units, under the files a host installs', async () => {
+  const workflow = await read('.github/workflows/publish-image.yml')
+  const ci = await read('.github/workflows/ci.yml')
+  const podman = /quay\.io\/podman\/stable:v[\d.]+@sha256:[0-9a-f]{64}/
+  assert.equal(workflow.match(podman)?.[0], ci.match(podman)?.[0], 'the same podman as the Quadlet check')
+  const policy = JSON.parse(await read('deploy/policy.json')) as {
+    transports: { docker: Record<string, { keyPath: string }[]> }
+  }
+  const keyPaths = new Set(Object.values(policy.transports.docker).flat().map((requirement) => requirement.keyPath))
+  assert.equal(keyPaths.size, 1)
+  assert.ok(workflow.includes(`cp /deploy/cosign.pub ${[...keyPaths][0]}\n`), 'the key where the policy names it')
+  assert.ok(workflow.includes('cp /deploy/policy.json /etc/containers/policy.json\n'))
+  assert.ok(workflow.includes('cp /deploy/registries.d/ghcr.yaml /etc/containers/registries.d/ghcr.yaml\n'))
+  assert.match(workflow, /for image in "\$APP" "\$POSTGRES"; do\n\s+podman --storage-driver vfs pull --quiet "\$image"/)
+  assert.doesNotMatch(workflow, /^\s+cosign verify /m, 'cosign verify passes signatures podman refuses')
 })
