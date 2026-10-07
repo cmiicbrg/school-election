@@ -14,7 +14,8 @@ AutoUpdate=registry
 ContainerName=school-election
 Network=school-election-internal.network
 Network=school-election-egress.network
-# Loopback only: nginx on the host is the way in.
+# Loopback only: the proxy, on this host or at the end of a tunnel, is
+# the way in (README.md, The proxy and TLS).
 PublishPort=127.0.0.1:3000:3000
 # PUBLIC_URL, TRUST_PROXY, LOG_LEVEL, ENTRA_TENANT_ID, ENTRA_CLIENT_ID.
 EnvironmentFile=%h/school-election/.env

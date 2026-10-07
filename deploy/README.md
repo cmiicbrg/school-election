@@ -118,7 +118,7 @@ systemctl --user enable --now podman-auto-update.timer
 
 The health check answers `{"status":"ok","db":"up","busy":false,"version":"v1.0.0","gitSha":"…","tallyVersion":2}` with the release and commit that are running and the version of the counting rules they apply; `busy` is true while a round accepts ballots. When the app does not come up, `journalctl --user -u school-election` names every problem it refused to start with: a missing or unsafe setting, an unreadable secret file, a migration that failed, or a PostgreSQL setting that differs from what the privacy model needs.
 
-Four things only a host can prove; check them once, after the first start:
+Only a host can prove the following; check it once, after the first start:
 
 ```bash
 podman auto-update --dry-run              # lists both units with "false": nothing newer than what runs
@@ -128,6 +128,8 @@ systemctl --user restart school-election.service && journalctl --user -u school-
 podman pull docker.io/library/postgres:18-alpine   # another image pulls as before: the policy binds the two of the app alone
 podman image trust show                   # the two images of the app: signed by the key, everything else accepted
 ```
+
+At every start of the app, systemd notes a left-over `conmon` process in the unit and ignores it: that is the migrator's container, still exiting as the app starts.
 
 ## The proxy and TLS
 
