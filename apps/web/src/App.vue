@@ -8,6 +8,7 @@
 
 import { computed, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
+import ToastRegion from './components/ToastRegion.vue'
 import { isBarePath } from './router.ts'
 import { signInUrl } from './lib/api-rules.ts'
 import { withBase } from './lib/base.ts'
@@ -62,5 +63,6 @@ function onSignOut(): void {
     <main class="shell-main">
       <RouterView v-if="shown" />
     </main>
+    <ToastRegion />
   </div>
 </template>

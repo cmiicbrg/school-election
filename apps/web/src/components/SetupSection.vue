@@ -5,10 +5,18 @@
 // (lib/setup-rules.ts): everything in a draft, candidates and the title
 // until voting starts, nothing for a witness. Every change goes to its
 // route and the page reads the configuration again.
+//
+// Each form keeps its own state, keyed by what it edits: while it saves,
+// only its own controls wait; a refusal shows next to it; a form whose
+// fields differ from what the server said last says "Nicht gespeichert",
+// and one saved since its last edit says "Gespeichert". A change that went
+// through is confirmed by a toast.
 
-import { computed, reactive, ref, useId, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { RULESET_IDS, type RulesetId } from '@school-election/election-core'
 import CandidatePicture from './CandidatePicture.vue'
+import SaveState from './SaveState.vue'
 import { apiDelete, apiPatch, apiPost, apiPut } from '../lib/api.ts'
 import { withBase } from '../lib/base.ts'
 import { ApiError, errorMessage } from '../lib/api-rules.ts'
@@ -16,6 +24,7 @@ import { lockedText, RULESET_LABELS } from '../lib/labels.ts'
 import type { PreparedPicture } from '../lib/picture.ts'
 import { toBase64, uploadMessage } from '../lib/picture-rules.ts'
 import type { SetupRules } from '../lib/setup-rules.ts'
+import { notify } from '../lib/toast.ts'
 import type { Candidate, Configuration, Contest, ElectionDetail, VoterGroup } from '../lib/types.ts'
 
 const props = defineProps<{
@@ -29,10 +38,12 @@ const emit = defineEmits<{ changed: [] }>()
 const base = computed(() => `/api/elections/${props.election.id}`)
 const ids = { title: useId(), description: useId(), contestTitle: useId(), contestRuleset: useId(), groupName: useId() }
 
-const busy = ref(false)
-const error = ref<string | null>(null)
-const pictureBusy = ref<string | null>(null)
-const pictureErrors = reactive<Record<string, string>>({})
+/** The forms whose change is on its way, by key ("election", "contest:<id>", "candidate:<id>", ...). */
+const pending = reactive(new Set<string>())
+/** Why a form's last change was refused, by key, until its next attempt. */
+const errors = reactive<Record<string, string>>({})
+/** The forms saved since their last edit. */
+const saved = reactive(new Set<string>())
 
 // What is being edited, taken from the election and its configuration
 // when the page reads them again, unless the person has changed it since:
@@ -49,12 +60,12 @@ const newContest = reactive<{ title: string, rulesetId: RulesetId }>({ title: ''
 const newCandidates = reactive<Record<string, { surname: string, givenName: string }>>({})
 const newGroup = ref('')
 /** What the server said last, to tell an untouched draft from a typed one. */
-const served = {
-  election: { title: '', description: '' },
-  contests: {} as Record<string, { title: string, rulesetId: RulesetId }>,
-  candidates: {} as Record<string, { surname: string, givenName: string }>,
-  groups: {} as Record<string, string>,
-}
+const served = reactive<{
+  election: { title: string, description: string }
+  contests: Record<string, { title: string, rulesetId: RulesetId }>
+  candidates: Record<string, { surname: string, givenName: string }>
+  groups: Record<string, string>
+}>({ election: { title: '', description: '' }, contests: {}, candidates: {}, groups: {} })
 
 const same = (a: Record<string, string> | undefined, b: Record<string, string> | undefined) =>
   a !== undefined && b !== undefined && Object.keys(a).every((key) => a[key] === b[key])
@@ -80,96 +91,168 @@ watch(() => props.configuration, (configuration) => {
   for (const group of configuration.voterGroups) {
     if (groupDrafts[group.id] === served.groups[group.id] || groupDrafts[group.id] === undefined) groupDrafts[group.id] = group.name
     served.groups[group.id] = group.name
-    votes[group.id] = [...group.contestIds]
+    // A reload another form started must not undo boxes whose own save is
+    // still on its way: the next click would send a list without them.
+    if (!pending.has(`votes:${group.id}`)) votes[group.id] = [...group.contestIds]
   }
 }, { immediate: true })
 
 const locked = computed(() => lockedText(props.election.state))
 
-async function run(action: () => Promise<unknown>): Promise<void> {
-  busy.value = true
-  error.value = null
+const electionDirty = () => draft.title !== served.election.title || draft.description !== served.election.description
+const contestDirty = (id: string) => !same(contestDrafts[id], served.contests[id])
+const candidateDirty = (id: string) => !same(candidateDrafts[id], served.candidates[id])
+const groupDirty = (id: string) => groupDrafts[id] !== served.groups[id]
+
+/** What a form says about its fields: waiting, unsaved or saved; nothing while it is untouched or refused. */
+function saveState(key: string, dirty: boolean): string {
+  if (pending.has(key)) return 'Wird gespeichert …'
+  if (errors[key]) return ''
+  if (dirty) return 'Nicht gespeichert'
+  return saved.has(key) ? 'Gespeichert' : ''
+}
+
+/** Typed or saving and not yet stored: leaving the page would lose it. */
+const unsaved = computed(() => {
+  if (!props.rules.candidates) return false
+  if (pending.size > 0 || electionDirty()) return true
+  if (newContest.title.trim() !== '' || newGroup.value.trim() !== '') return true
+  return props.configuration.contests.some((contest) =>
+    contestDirty(contest.id)
+    || Object.values(newCandidates[contest.id] ?? {}).some((value) => value.trim() !== '')
+    || contest.candidates.some((candidate) => candidateDirty(candidate.id)))
+  || props.configuration.voterGroups.some((group) => groupDirty(group.id))
+})
+
+const LEAVE_QUESTION = 'Es gibt Änderungen, die noch nicht gespeichert sind. Seite trotzdem verlassen?'
+function onBeforeUnload(event: BeforeUnloadEvent): void {
+  if (unsaved.value) event.preventDefault()
+}
+onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
+onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload))
+onBeforeRouteLeave(() => !unsaved.value || window.confirm(LEAVE_QUESTION))
+// Another termin on the same page (the browser's history can jump there) reuses this page and clears it.
+onBeforeRouteUpdate((to, from) => to.params.id === from.params.id || !unsaved.value || window.confirm(LEAVE_QUESTION))
+
+/** Runs a form's change; a change that went through is confirmed with `done` and the page reads everything again. */
+async function run(key: string, action: () => Promise<unknown>, done: () => string): Promise<void> {
+  pending.add(key)
+  delete errors[key]
   try {
     await action()
+    saved.add(key)
+    notify(done())
     emit('changed')
   } catch (err) {
-    error.value = errorMessage(err)
+    errors[key] = errorMessage(err)
   } finally {
-    busy.value = false
+    pending.delete(key)
   }
 }
 
-const saveElection = () => run(async () => {
-  await apiPatch(base.value, { title: draft.title, description: draft.description })
-  served.election = { title: draft.title, description: draft.description }
-})
-const addContest = () => run(async () => {
-  await apiPost(`${base.value}/contests`, { title: newContest.title, rulesetId: newContest.rulesetId })
-  newContest.title = ''
-})
-const saveContest = (contest: Contest) => run(async () => {
-  const entered = contestDrafts[contest.id]
-  await apiPatch(`${base.value}/contests/${contest.id}`, entered)
-  if (entered) served.contests[contest.id] = { ...entered }
-})
-const removeContest = (contest: Contest) => run(() => apiDelete(`${base.value}/contests/${contest.id}`))
-const addCandidate = (contest: Contest) => run(async () => {
-  const entered = newCandidates[contest.id] ?? { surname: '', givenName: '' }
-  await apiPost(`${base.value}/contests/${contest.id}/candidates`, { surname: entered.surname, givenName: entered.givenName })
-  newCandidates[contest.id] = { surname: '', givenName: '' }
-})
-const saveCandidate = (candidate: Candidate) => run(async () => {
-  const entered = candidateDrafts[candidate.id]
-  await apiPatch(`${base.value}/candidates/${candidate.id}`, entered)
-  if (entered) served.candidates[candidate.id] = { ...entered }
-})
-const removeCandidate = (candidate: Candidate) => run(() => apiDelete(`${base.value}/candidates/${candidate.id}`))
-const addGroup = () => run(async () => {
-  await apiPost(`${base.value}/voter-groups`, { name: newGroup.value })
-  newGroup.value = ''
-})
-const saveGroup = (group: VoterGroup) => run(async () => {
+// Each save sends a copy of the form as it is now and records that copy as
+// stored: what is typed while it is on its way stays unsaved, and says so.
+const saveElection = () => {
+  const entered = { title: draft.title, description: draft.description }
+  return run('election', async () => {
+    await apiPatch(base.value, entered)
+    served.election = entered
+  }, () => 'Titel und Beschreibung gespeichert.')
+}
+const addContest = () => {
+  const title = newContest.title
+  return run('new-contest', async () => {
+    await apiPost(`${base.value}/contests`, { title, rulesetId: newContest.rulesetId })
+    newContest.title = ''
+  }, () => `Wahl „${title}“ hinzugefügt.`)
+}
+const saveContest = (contest: Contest) => {
+  const entered = { ...(contestDrafts[contest.id] ?? { title: contest.title, rulesetId: contest.rulesetId }) }
+  return run(`contest:${contest.id}`, async () => {
+    await apiPatch(`${base.value}/contests/${contest.id}`, entered)
+    served.contests[contest.id] = entered
+  }, () => `Wahl „${entered.title}“ gespeichert.`)
+}
+const removeContest = (contest: Contest) =>
+  run(`contest:${contest.id}`, () => apiDelete(`${base.value}/contests/${contest.id}`), () => `Wahl „${contest.title}“ entfernt.`)
+const addCandidate = (contest: Contest) => {
+  const entered = { ...(newCandidates[contest.id] ?? { surname: '', givenName: '' }) }
+  return run(`new-candidate:${contest.id}`, async () => {
+    await apiPost(`${base.value}/contests/${contest.id}/candidates`, entered)
+    newCandidates[contest.id] = { surname: '', givenName: '' }
+  }, () => `${joined(entered)} hinzugefügt.`)
+}
+const saveCandidate = (candidate: Candidate) => {
+  const entered = { ...(candidateDrafts[candidate.id] ?? { surname: candidate.surname, givenName: candidate.givenName }) }
+  return run(`candidate:${candidate.id}`, async () => {
+    await apiPatch(`${base.value}/candidates/${candidate.id}`, entered)
+    served.candidates[candidate.id] = entered
+  }, () => `Name gespeichert: ${joined(entered)}.`)
+}
+const removeCandidate = (candidate: Candidate) =>
+  run(`candidate:${candidate.id}`, () => apiDelete(`${base.value}/candidates/${candidate.id}`), () => `${fullName(candidate)} entfernt.`)
+const addGroup = () => {
+  const name = newGroup.value
+  return run('new-group', async () => {
+    await apiPost(`${base.value}/voter-groups`, { name })
+    newGroup.value = ''
+  }, () => `„${name}“ hinzugefügt.`)
+}
+const saveGroup = (group: VoterGroup) => {
   const entered = groupDrafts[group.id] ?? ''
-  await apiPatch(`${base.value}/voter-groups/${group.id}`, { name: entered })
-  served.groups[group.id] = entered
-})
-const removeGroup = (group: VoterGroup) => run(() => apiDelete(`${base.value}/voter-groups/${group.id}`))
-async function setVotes(group: VoterGroup, contestId: string, checked: boolean): Promise<void> {
+  return run(`group:${group.id}`, async () => {
+    await apiPatch(`${base.value}/voter-groups/${group.id}`, { name: entered })
+    served.groups[group.id] = entered
+  }, () => `Name gespeichert: „${entered}“.`)
+}
+const removeGroup = (group: VoterGroup) =>
+  run(`group:${group.id}`, () => apiDelete(`${base.value}/voter-groups/${group.id}`), () => `„${group.name}“ entfernt.`)
+
+async function setVotes(group: VoterGroup, contest: Contest, checked: boolean): Promise<void> {
   const before = votes[group.id] ?? [...group.contestIds]
-  const after = checked ? [...new Set([...before, contestId])] : before.filter((id) => id !== contestId)
+  const after = checked ? [...new Set([...before, contest.id])] : before.filter((id) => id !== contest.id)
   votes[group.id] = after
-  busy.value = true
-  error.value = null
+  const key = `votes:${group.id}`
+  pending.add(key)
+  delete errors[key]
   try {
     await apiPut(`${base.value}/voter-groups/${group.id}/contests`, { contestIds: after })
+    notify(checked ? `„${group.name}“ wählt jetzt in „${contest.title}“.` : `„${group.name}“ wählt nicht mehr in „${contest.title}“.`)
     emit('changed')
   } catch (err) {
     votes[group.id] = before
-    error.value = errorMessage(err)
+    errors[key] = errorMessage(err)
   } finally {
-    busy.value = false
+    pending.delete(key)
   }
 }
 
-async function picture(candidate: Candidate, action: () => Promise<unknown>): Promise<void> {
-  pictureBusy.value = candidate.id
-  delete pictureErrors[candidate.id]
+async function picture(candidate: Candidate, action: () => Promise<unknown>, done: string): Promise<void> {
+  const key = `picture:${candidate.id}`
+  pending.add(key)
+  delete errors[key]
   try {
     await action()
+    notify(done)
     emit('changed')
   } catch (err) {
-    pictureErrors[candidate.id] = uploadMessage(err instanceof ApiError ? err.code : 'request_failed')
+    errors[key] = uploadMessage(err instanceof ApiError ? err.code : 'request_failed')
   } finally {
-    pictureBusy.value = null
+    pending.delete(key)
   }
 }
 
 const setPicture = (candidate: Candidate, prepared: PreparedPicture) =>
-  picture(candidate, () => apiPut(`${base.value}/candidates/${candidate.id}/picture`, { data: toBase64(prepared.bytes) }))
-const removePicture = (candidate: Candidate) => picture(candidate, () => apiDelete(`${base.value}/candidates/${candidate.id}/picture`))
+  picture(candidate, () => apiPut(`${base.value}/candidates/${candidate.id}/picture`, { data: toBase64(prepared.bytes) }), `Bild von ${fullName(candidate)} gespeichert.`)
+const removePicture = (candidate: Candidate) =>
+  picture(candidate, () => apiDelete(`${base.value}/candidates/${candidate.id}/picture`), `Bild von ${fullName(candidate)} entfernt.`)
+
+function joined(name: { surname: string, givenName: string }): string {
+  return [name.givenName, name.surname].filter((part) => part !== '').join(' ')
+}
 
 function fullName(candidate: Candidate): string {
-  return [candidate.givenName, candidate.surname].filter((part) => part !== '').join(' ')
+  return joined(candidate)
 }
 
 function checked(event: Event): boolean {
@@ -215,11 +298,19 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
       <div class="actions">
         <button
           type="submit"
-          :disabled="busy"
+          :disabled="pending.has('election')"
         >
           Titel und Beschreibung speichern
         </button>
+        <SaveState :state="saveState('election', electionDirty())" />
       </div>
+      <p
+        v-if="errors.election"
+        class="message error"
+        role="alert"
+      >
+        {{ errors.election }}
+      </p>
     </form>
     <template v-else>
       <p>{{ election.title }}</p>
@@ -271,14 +362,16 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         <button
           type="submit"
           class="secondary"
-          :disabled="busy"
+          :disabled="pending.has(`contest:${contest.id}`)"
+          :aria-label="`Speichern: ${contest.title}`"
         >
           Speichern
         </button>
+        <SaveState :state="saveState(`contest:${contest.id}`, contestDirty(contest.id))" />
         <button
           type="button"
           class="danger"
-          :disabled="busy"
+          :disabled="pending.has(`contest:${contest.id}`)"
           :aria-label="`Wahl entfernen: ${contest.title}`"
           @click="removeContest(contest)"
         >
@@ -291,6 +384,13 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
           {{ RULESET_LABELS[contest.rulesetId] }}
         </p>
       </template>
+      <p
+        v-if="errors[`contest:${contest.id}`]"
+        class="message error"
+        role="alert"
+      >
+        {{ errors[`contest:${contest.id}`] }}
+      </p>
 
       <ul
         class="plain candidates"
@@ -305,8 +405,8 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
             :name="fullName(candidate)"
             :src="candidate.picture === null ? null : withBase(candidate.picture)"
             :disabled="!rules.candidates"
-            :busy="pictureBusy === candidate.id"
-            :error="pictureErrors[candidate.id] ?? null"
+            :busy="pending.has(`picture:${candidate.id}`)"
+            :error="errors[`picture:${candidate.id}`] ?? null"
             @select="(prepared) => setPicture(candidate, prepared)"
             @remove="removePicture(candidate)"
           />
@@ -337,16 +437,17 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
             <button
               type="submit"
               class="secondary"
-              :disabled="busy"
+              :disabled="pending.has(`candidate:${candidate.id}`)"
               :aria-label="`Speichern: ${fullName(candidate)}`"
             >
               Speichern
             </button>
+            <SaveState :state="saveState(`candidate:${candidate.id}`, candidateDirty(candidate.id))" />
             <button
               v-if="rules.structure || contest.candidates.length > 1"
               type="button"
               class="danger"
-              :disabled="busy"
+              :disabled="pending.has(`candidate:${candidate.id}`)"
               :aria-label="`Entfernen: ${fullName(candidate)}`"
               @click="removeCandidate(candidate)"
             >
@@ -355,6 +456,13 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
           </form>
           <p v-else>
             {{ fullName(candidate) }}
+          </p>
+          <p
+            v-if="errors[`candidate:${candidate.id}`]"
+            class="message error full"
+            role="alert"
+          >
+            {{ errors[`candidate:${candidate.id}`] }}
           </p>
         </li>
       </ul>
@@ -393,11 +501,18 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         </div>
         <button
           type="submit"
-          :disabled="busy"
+          :disabled="pending.has(`new-candidate:${contest.id}`)"
         >
           Kandidat:in hinzufügen
         </button>
       </form>
+      <p
+        v-if="errors[`new-candidate:${contest.id}`]"
+        class="message error"
+        role="alert"
+      >
+        {{ errors[`new-candidate:${contest.id}`] }}
+      </p>
     </article>
     <form
       v-if="rules.structure"
@@ -433,11 +548,18 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
       </div>
       <button
         type="submit"
-        :disabled="busy"
+        :disabled="pending.has('new-contest')"
       >
         Wahl hinzufügen
       </button>
     </form>
+    <p
+      v-if="errors['new-contest']"
+      class="message error"
+      role="alert"
+    >
+      {{ errors['new-contest'] }}
+    </p>
 
     <h3>Klassen und Gruppen</h3>
     <article
@@ -464,15 +586,16 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         <button
           type="submit"
           class="secondary"
-          :disabled="busy"
+          :disabled="pending.has(`group:${group.id}`)"
           :aria-label="`Speichern: ${group.name}`"
         >
           Speichern
         </button>
+        <SaveState :state="saveState(`group:${group.id}`, groupDirty(group.id))" />
         <button
           type="button"
           class="danger"
-          :disabled="busy"
+          :disabled="pending.has(`group:${group.id}`)"
           :aria-label="`Entfernen: ${group.name}`"
           @click="removeGroup(group)"
         >
@@ -482,6 +605,13 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
       <h4 v-else>
         {{ group.name }}
       </h4>
+      <p
+        v-if="errors[`group:${group.id}`]"
+        class="message error"
+        role="alert"
+      >
+        {{ errors[`group:${group.id}`] }}
+      </p>
       <fieldset v-if="rules.structure">
         <legend>Wählt in</legend>
         <label
@@ -492,8 +622,8 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
           <input
             type="checkbox"
             :checked="votesIn(group, contest.id)"
-            :disabled="busy"
-            @change="setVotes(group, contest.id, checked($event))"
+            :disabled="pending.has(`votes:${group.id}`)"
+            @change="setVotes(group, contest, checked($event))"
           >
           {{ contest.title }}
         </label>
@@ -509,6 +639,13 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         class="muted"
       >
         Wählt in: {{ configuration.contests.filter((contest) => group.contestIds.includes(contest.id)).map((contest) => contest.title).join(', ') || '–' }}
+      </p>
+      <p
+        v-if="errors[`votes:${group.id}`]"
+        class="message error"
+        role="alert"
+      >
+        {{ errors[`votes:${group.id}`] }}
       </p>
     </article>
     <form
@@ -530,18 +667,17 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
       </div>
       <button
         type="submit"
-        :disabled="busy"
+        :disabled="pending.has('new-group')"
       >
         Klasse oder Gruppe hinzufügen
       </button>
     </form>
-
     <p
-      v-if="error"
+      v-if="errors['new-group']"
       class="message error"
       role="alert"
     >
-      {{ error }}
+      {{ errors['new-group'] }}
     </p>
   </section>
 </template>
@@ -573,6 +709,10 @@ fieldset {
 .check {
   font-weight: 400;
   margin: 4px 0;
+}
+
+.candidates > li > .full {
+  grid-column: 1 / -1;
 }
 
 @media (width <= 600px) {

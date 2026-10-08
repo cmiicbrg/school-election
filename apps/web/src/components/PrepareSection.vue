@@ -10,6 +10,7 @@ import { apiPost } from '../lib/api.ts'
 import { ApiError, errorMessage } from '../lib/api-rules.ts'
 import { problemText, RULESET_LABELS, warningText, type Problem } from '../lib/labels.ts'
 import type { SetupRules } from '../lib/setup-rules.ts'
+import { notify } from '../lib/toast.ts'
 import type { Configuration, Preparation, StaleBatch } from '../lib/types.ts'
 
 const props = defineProps<{
@@ -59,6 +60,7 @@ async function prepare(confirmed?: readonly StaleBatch[]): Promise<void> {
   try {
     await apiPost(`/api/elections/${props.electionId}/prepare`, confirmed ? { confirmVoid: confirmed.map((batch) => batch.id) } : undefined)
     stale.value = null
+    notify('Der Wahltermin ist vorbereitet: Jetzt können Stimmkarten erzeugt werden.')
     emit('changed')
   } catch (err) {
     if (err instanceof ApiError && err.code === 'void_required' && Array.isArray(err.body.batches)) {
@@ -79,6 +81,7 @@ async function unprepare(): Promise<void> {
   error.value = null
   try {
     await apiPost(`/api/elections/${props.electionId}/unprepare`)
+    notify('Zurück zum Entwurf: Aufbau und Zuordnung lassen sich wieder ändern.')
     emit('changed')
   } catch (err) {
     error.value = errorMessage(err)

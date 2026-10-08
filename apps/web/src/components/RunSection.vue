@@ -22,6 +22,7 @@ import { useDialogFocus } from '../lib/dialog-focus.ts'
 import { fileNameOf } from '../lib/download.ts'
 import { ROUND_LABELS } from '../lib/labels.ts'
 import { countsLine, dateTime, firstPlacesLine, lotText, outcomeLine, positionLines, recordedLotLine, type Names } from '../lib/outcome-text.ts'
+import { notify } from '../lib/toast.ts'
 import { accepting, runoffState, runRules } from '../lib/run-rules.ts'
 import { voterAddress } from '../lib/sheet.ts'
 import type { BatchSummary, Configuration, ContestResult, ElectionDetail, ElectionFinalized, ElectionResult, RoundResults, RunoffActivated, TestEnded, Turnout } from '../lib/types.ts'
@@ -189,7 +190,9 @@ async function act<T>(request: () => Promise<T>, then?: (answer: T) => void): Pr
 
 const count = (n: number, one: string, many: string): string => (n === 1 ? `1 ${one}` : `${n} ${many}`)
 
-const startTest = () => act(() => apiPost(`${base.value}/rounds/regular/test`))
+const startTest = () => act(() => apiPost(`${base.value}/rounds/regular/test`), () => {
+  notice.value = 'Probelauf gestartet: Stimmen zählen nicht, und nichts bleibt.'
+})
 const endTest = () => act(() => apiPost<TestEnded>(`${base.value}/rounds/regular/test/end`), (ended) => {
   notice.value = `Probelauf beendet: ${count(ended.ballots, 'Stimmzettel', 'Stimmzettel')} entfernt, ${count(ended.keys, 'Code', 'Codes')} wieder frei.`
   testResult.value = null
@@ -240,6 +243,12 @@ async function finalize(): Promise<void> {
   })
 }
 
+/** A lot recorded: confirmed, and the result read again, which now applies it. */
+function lotRecorded(contestId: string): void {
+  notify(`Losentscheid für „${contestTitle(contestId)}“ eingetragen.`)
+  void readResult()
+}
+
 /** The export as a file for the person, from the answer's body, and its digest shown. */
 async function download(): Promise<void> {
   busy.value = true
@@ -256,6 +265,7 @@ async function download(): Promise<void> {
     link.remove()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
     exported.value = { name, sha256: headers.get('x-export-sha256') ?? '' }
+    notify(`Export gespeichert: ${name}.`)
   } catch (err) {
     error.value = errorMessage(err)
   } finally {
@@ -398,7 +408,7 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
             :contest-id="contest.contestId"
             :lot="lot"
             :names="names"
-            @recorded="readResult"
+            @recorded="lotRecorded(contest.contestId)"
           />
         </div>
         <ul

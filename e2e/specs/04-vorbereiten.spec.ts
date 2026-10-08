@@ -34,6 +34,7 @@ test('die Zusammenfassung zeigt, wer wo wählt, und weist auf die fehlende zweit
 test('Vorbereiten legt den Aufbau fest; Namen bleiben änderbar', async () => {
   await page.getByRole('button', { name: 'Vorbereiten', exact: true }).click()
   await expect(page.getByText(/^Vorbereitet · Ihre Rolle/)).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'Der Wahltermin ist vorbereitet: Jetzt können Stimmkarten erzeugt werden.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Wahl hinzufügen' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Klasse oder Gruppe hinzufügen' })).toHaveCount(0)
   await expect(page.getByText('Der Wahltermin ist vorbereitet: Aufbau und Zuordnung sind festgelegt.')).toBeVisible()
@@ -49,6 +50,7 @@ test('Vorbereiten legt den Aufbau fest; Namen bleiben änderbar', async () => {
 test('zurück zum Entwurf und wieder vorbereiten', async () => {
   await page.getByRole('button', { name: 'Zurück zum Entwurf' }).click()
   await expect(page.getByText(/^Entwurf · Ihre Rolle/)).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'Zurück zum Entwurf: Aufbau und Zuordnung lassen sich wieder ändern.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Wahl hinzufügen' })).toBeVisible()
   await page.getByRole('button', { name: 'Vorbereiten', exact: true }).click()
   await expect(page.getByText(/^Vorbereitet · Ihre Rolle/)).toBeVisible()
