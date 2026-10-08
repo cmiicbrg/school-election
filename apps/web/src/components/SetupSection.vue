@@ -154,24 +154,26 @@ const again = new Set<string>()
 
 /**
  * Saves a form if its fields differ from what the server said last: one
- * save at a time per form, and a change made meanwhile right after it. A
- * form put back to what is stored has nothing to save, and an earlier
- * refusal no longer applies to it.
+ * save at a time per form, and a change made meanwhile is looked at again
+ * right after it, even one that puts the form back, since the save on its
+ * way may store what it undid. A form put back to what is stored has
+ * nothing to save, and an earlier refusal no longer applies to it.
  */
 async function autoSave(key: string, dirty: () => boolean, save: () => Promise<void>): Promise<void> {
+  if (pending.has(key)) {
+    again.add(key)
+    return
+  }
   if (!dirty()) {
     delete errors[key]
     retries.delete(key)
     return
   }
-  if (pending.has(key)) {
-    again.add(key)
-    return
-  }
   retries.delete(key)
   await save()
+  const more = again.delete(key)
   if (errors[key]) retries.set(key, () => void autoSave(key, dirty, save))
-  else if (again.delete(key)) await autoSave(key, dirty, save)
+  else if (more) await autoSave(key, dirty, save)
 }
 
 // A saved name can move its row to its alphabetical place, which takes the
@@ -189,6 +191,7 @@ watch(() => props.configuration, () => {
 async function run(key: string, action: () => Promise<unknown>, done: () => string): Promise<void> {
   pending.add(key)
   delete errors[key]
+  retries.delete(key)
   try {
     await action()
     saved.add(key)
