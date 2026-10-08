@@ -224,7 +224,7 @@ async function run(key: string, action: () => Promise<unknown>, done: () => stri
 
 // Each save sends a copy of the form as it is now and records that copy as
 // stored: what is typed while it is on its way stays unsaved, and is saved
-// next (autoSave).
+// next if its field was left meanwhile, or else when it is (autoSave).
 const saveElection = () => {
   const entered = { title: draft.title, description: draft.description }
   return run('election', async () => {
