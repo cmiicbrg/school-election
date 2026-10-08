@@ -3,9 +3,10 @@
 // node:test can check that every code has its word.
 //
 // The glossary: an election in the API is a Wahltermin, the date with
-// everything voted on it; a contest is a Wahl ("Schulsprecher/in"), or an
-// Abstimmung for a poll; a round is a Wahlgang, the 1. Wahlgang or the
-// Stichwahl. Closing a round ends its Stimmabgabe and counts it;
+// everything voted on it; a contest is a Wahl ("Schulsprecher/in"), a
+// poll's too, whose preset titles it "Abstimmung" (its ruleset alone does
+// not tell a poll from an election with one vote each); a round is a
+// Wahlgang, the 1. Wahlgang or the Stichwahl. Closing a round ends its Stimmabgabe and counts it;
 // finalizing establishes the Ergebnis for good. Functions are written with
 // a slash as on the ballot (Schulsprecher/in), other people with a colon
 // (Kandidat:innen, Zeug:innen).
