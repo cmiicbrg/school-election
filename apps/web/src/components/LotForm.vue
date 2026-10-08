@@ -142,10 +142,9 @@ async function record(): Promise<void> {
         </button>
       </div>
     </template>
-    <div
+    <fieldset
       v-else
       class="card-box"
-      role="group"
       :aria-labelledby="`${id}-summary`"
     >
       <p
@@ -172,7 +171,7 @@ async function record(): Promise<void> {
           Ändern
         </button>
       </div>
-    </div>
+    </fieldset>
     <p
       v-if="error"
       class="message error"
