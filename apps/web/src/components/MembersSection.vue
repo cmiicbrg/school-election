@@ -1,12 +1,14 @@
 <script setup lang="ts">
 // Mitglieder: co-admins and witnesses, pending or bound, invited by their
 // school e-mail address. An invitation takes effect at the invited
-// person's next sign-in, which the page says after inviting.
+// person's next sign-in, which the page says after inviting. A toast
+// confirms a removal.
 
 import { ref, useId } from 'vue'
 import { apiDelete, apiPost } from '../lib/api.ts'
 import { errorMessage } from '../lib/api-rules.ts'
 import { MEMBER_STATUS_LABELS, ROLE_LABELS } from '../lib/labels.ts'
+import { notify } from '../lib/toast.ts'
 import type { Member } from '../lib/types.ts'
 
 const props = defineProps<{
@@ -47,6 +49,7 @@ async function remove(member: Member): Promise<void> {
   hint.value = null
   try {
     await apiDelete(`/api/elections/${props.electionId}/members/${member.id}`)
+    notify(`${nameOf(member)} (${ROLE_LABELS[member.role]}) entfernt.`)
     emit('changed')
   } catch (err) {
     error.value = errorMessage(err)

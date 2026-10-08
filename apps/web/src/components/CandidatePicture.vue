@@ -5,7 +5,8 @@
 // page that embeds this component uploads it. The component itself talks
 // to no API: it emits `select` with the prepared picture and `remove`, and
 // shows `src` (the picture's URL) and `error` (a failed upload) as the
-// page passes them.
+// page passes them. Its status says what the page's upload or removal
+// came to, once the page is done with it, never before.
 
 import { computed, nextTick, ref, useId, watch } from 'vue'
 import { PictureError, preparePicture, type PreparedPicture } from '../lib/picture.ts'
@@ -40,6 +41,8 @@ const preparing = ref(false)
 const dragging = ref(false)
 const problem = ref<string | null>(null)
 const status = ref('')
+/** What the page is doing for this picture, so the status can say how it ended. */
+const doing = ref<{ kind: 'select', others: number } | { kind: 'remove' } | null>(null)
 // The picture just prepared, shown while the page uploads it. Once the
 // page is done it shows `src`: the new picture's URL, or after a failed
 // upload the stored picture as before, next to the error.
@@ -50,6 +53,12 @@ watch(() => props.src, () => {
 })
 watch(() => [props.busy, props.error] as const, ([busy, error], [wasBusy]) => {
   if ((wasBusy === true && busy !== true) || error) preview.value = null
+  if (wasBusy !== true || busy === true || doing.value === null) return
+  const done = doing.value
+  doing.value = null
+  if (error) status.value = ''
+  else if (done.kind === 'remove') status.value = 'Bild entfernt.'
+  else status.value = done.others > 0 ? 'Bild gespeichert. Von den abgelegten Dateien wurde nur dieses eine Bild verwendet.' : 'Bild gespeichert.'
 })
 
 const shown = computed(() => preview.value ?? props.src ?? null)
@@ -71,7 +80,8 @@ async function take(files: File[]): Promise<void> {
   try {
     const picture = await preparePicture(picked.file)
     preview.value = picture.preview
-    status.value = picked.others > 0 ? 'Bild übernommen. Von den abgelegten Dateien wurde nur dieses eine Bild verwendet.' : 'Bild übernommen.'
+    status.value = 'Bild wird gespeichert …'
+    doing.value = { kind: 'select', others: picked.others }
     emit('select', picture)
   } catch (err) {
     fail(err instanceof PictureError ? err.problem : 'failed')
@@ -117,7 +127,8 @@ function choose(): void {
 function remove(): void {
   preview.value = null
   problem.value = null
-  status.value = 'Bild entfernt.'
+  status.value = 'Bild wird entfernt …'
+  doing.value = { kind: 'remove' }
   emit('remove')
   focusChooser()
 }
