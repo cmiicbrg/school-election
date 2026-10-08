@@ -47,7 +47,7 @@ const errors = reactive<Record<string, string>>({})
 const saved = reactive(new Set<string>())
 /** The removal waiting for its confirmation, by key; a change of what may change closes it. */
 const confirming = ref<string | null>(null)
-watch(() => [props.rules.structure, props.rules.candidates], () => {
+watch([() => props.rules.structure, () => props.rules.candidates], () => {
   confirming.value = null
 })
 

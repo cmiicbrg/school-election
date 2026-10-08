@@ -112,7 +112,7 @@ function nameOf(member: Member): string {
           Entfernen
         </button>
         <span
-          v-if="confirming === member.id"
+          v-if="manage && confirming === member.id"
           class="confirm"
           role="group"
           :aria-label="`Entfernen bestätigen: ${nameOf(member)}`"
