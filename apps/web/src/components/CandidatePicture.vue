@@ -6,7 +6,8 @@
 // to no API: it emits `select` with the prepared picture and `remove`, and
 // shows `src` (the picture's URL) and `error` (a failed upload) as the
 // page passes them. Its status says what the page's upload or removal
-// came to, once the page is done with it, never before.
+// came to, once the page is done with it, never before; removing asks
+// first.
 
 import { computed, nextTick, ref, useId, watch } from 'vue'
 import { PictureError, preparePicture, type PreparedPicture } from '../lib/picture.ts'
@@ -37,12 +38,15 @@ const ids = { hint: useId(), input: useId() }
 const zone = ref<HTMLElement>()
 const input = ref<HTMLInputElement>()
 const chooser = ref<HTMLButtonElement>()
+const removeButton = ref<HTMLButtonElement>()
+const cancelButton = ref<HTMLButtonElement>()
 const preparing = ref(false)
 const dragging = ref(false)
 const problem = ref<string | null>(null)
 const status = ref('')
 /** What the page is doing for this picture, so the status can say how it ended. */
 const doing = ref<{ kind: 'select', others: number } | { kind: 'remove' } | null>(null)
+const askingRemove = ref(false)
 // The picture just prepared, shown while the page uploads it. Once the
 // page is done it shows `src`: the new picture's URL, or after a failed
 // upload the stored picture as before, next to the error.
@@ -50,6 +54,10 @@ const preview = ref<string | null>(null)
 
 watch(() => props.src, () => {
   preview.value = null
+})
+// A question about removing outlives no change of the rules.
+watch(() => props.disabled, (disabled) => {
+  if (disabled === true) askingRemove.value = false
 })
 watch(() => [props.busy, props.error] as const, ([busy, error], [wasBusy]) => {
   if ((wasBusy === true && busy !== true) || error) preview.value = null
@@ -72,6 +80,8 @@ function fail(reason: PictureProblem): void {
 
 async function take(files: File[]): Promise<void> {
   if (locked.value) return
+  // A new picture answers an open question about the old one.
+  askingRemove.value = false
   const picked = pickFile(files)
   if (picked.kind === 'none') return fail('no-file')
   preparing.value = true
@@ -124,7 +134,16 @@ function choose(): void {
   input.value?.click()
 }
 
+function askRemove(): void {
+  askingRemove.value = true
+  void nextTick(() => cancelButton.value?.focus())
+}
+function cancelRemove(): void {
+  askingRemove.value = false
+  void nextTick(() => removeButton.value?.focus())
+}
 function remove(): void {
+  askingRemove.value = false
   preview.value = null
   problem.value = null
   status.value = 'Bild wird entfernt …'
@@ -198,14 +217,38 @@ watch(locked, (now) => {
             Bild auswählen
           </button>
           <button
-            v-if="shown"
+            v-if="shown && !askingRemove"
+            ref="removeButton"
             type="button"
             :disabled="locked"
-            @click="remove"
+            @click="askRemove"
           >
             Bild entfernen
           </button>
         </div>
+        <fieldset
+          v-if="askingRemove"
+          class="confirm"
+          :aria-label="`Entfernen bestätigen: Bild von ${name}`"
+        >
+          <span>Bild von {{ name }} entfernen?</span>
+          <button
+            type="button"
+            class="danger"
+            :disabled="locked"
+            @click="remove"
+          >
+            Ja, entfernen
+          </button>
+          <button
+            ref="cancelButton"
+            type="button"
+            class="secondary"
+            @click="cancelRemove"
+          >
+            Abbrechen
+          </button>
+        </fieldset>
       </div>
       <!-- Reached through "Bild auswählen"; the button is what keyboards and screen readers use. -->
       <label

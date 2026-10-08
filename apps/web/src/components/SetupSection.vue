@@ -10,9 +10,10 @@
 // only its own controls wait; a refusal shows next to it; a form whose
 // fields differ from what the server said last says "Nicht gespeichert",
 // and one saved since its last edit says "Gespeichert". A change that went
-// through is confirmed by a toast.
+// through is confirmed by a toast. Removing anything asks first, in place,
+// naming what goes with it.
 
-import { computed, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { RULESET_IDS, type RulesetId } from '@school-election/election-core'
 import CandidatePicture from './CandidatePicture.vue'
@@ -44,6 +45,11 @@ const pending = reactive(new Set<string>())
 const errors = reactive<Record<string, string>>({})
 /** The forms saved since their last edit. */
 const saved = reactive(new Set<string>())
+/** The removal waiting for its confirmation, by key; a change of what may change closes it. */
+const confirming = ref<string | null>(null)
+watch([() => props.rules.structure, () => props.rules.candidates], () => {
+  confirming.value = null
+})
 
 // What is being edited, taken from the election and its configuration
 // when the page reads them again, unless the person has changed it since:
@@ -255,6 +261,38 @@ function fullName(candidate: Candidate): string {
   return joined(candidate)
 }
 
+const plural = (n: number, one: string, many: string): string => (n === 1 ? `1 ${one}` : `${n} ${many}`)
+
+/** What goes with a removal, as its confirmation asks. */
+function contestRemoval(contest: Contest): string {
+  const pictures = contest.candidates.filter((candidate) => candidate.picture !== null).length
+  const withWhat = [contest.candidates.length > 0 ? plural(contest.candidates.length, 'Kandidat:in', 'Kandidat:innen') : '', pictures > 0 ? plural(pictures, 'Foto', 'Fotos') : '']
+    .filter((part) => part !== '')
+  return withWhat.length > 0 ? `Wahl „${contest.title}“ mit ${withWhat.join(' und ')} entfernen?` : `Wahl „${contest.title}“ entfernen?`
+}
+function candidateRemoval(candidate: Candidate): string {
+  return candidate.picture === null ? `${fullName(candidate)} entfernen?` : `${fullName(candidate)} mit Foto entfernen?`
+}
+
+// The confirmation takes the place of the button that asked for it, and
+// focus moves to its "Abbrechen"; cancelling gives it back to that button.
+async function ask(key: string): Promise<void> {
+  confirming.value = key
+  await nextTick()
+  document.querySelector<HTMLButtonElement>(`[data-confirm="${CSS.escape(key)}"] .cancel`)?.focus()
+}
+async function cancel(): Promise<void> {
+  const key = confirming.value
+  confirming.value = null
+  if (key === null) return
+  await nextTick()
+  document.querySelector<HTMLButtonElement>(`[data-remove="${CSS.escape(key)}"]`)?.focus()
+}
+async function confirmed(removal: () => Promise<void>): Promise<void> {
+  confirming.value = null
+  await removal()
+}
+
 function checked(event: Event): boolean {
   return (event.target as HTMLInputElement).checked
 }
@@ -369,11 +407,13 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         </button>
         <SaveState :state="saveState(`contest:${contest.id}`, contestDirty(contest.id))" />
         <button
+          v-if="confirming !== `contest:${contest.id}`"
           type="button"
           class="danger"
           :disabled="pending.has(`contest:${contest.id}`)"
           :aria-label="`Wahl entfernen: ${contest.title}`"
-          @click="removeContest(contest)"
+          :data-remove="`contest:${contest.id}`"
+          @click="ask(`contest:${contest.id}`)"
         >
           Wahl entfernen
         </button>
@@ -384,6 +424,29 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
           {{ RULESET_LABELS[contest.rulesetId] }}
         </p>
       </template>
+      <fieldset
+        v-if="rules.structure && confirming === `contest:${contest.id}`"
+        class="confirm"
+        :aria-label="`Entfernen bestätigen: ${contest.title}`"
+        :data-confirm="`contest:${contest.id}`"
+      >
+        <span>{{ contestRemoval(contest) }}</span>
+        <button
+          type="button"
+          class="danger"
+          :disabled="pending.has(`contest:${contest.id}`)"
+          @click="confirmed(() => removeContest(contest))"
+        >
+          Ja, entfernen
+        </button>
+        <button
+          type="button"
+          class="secondary cancel"
+          @click="cancel"
+        >
+          Abbrechen
+        </button>
+      </fieldset>
       <p
         v-if="errors[`contest:${contest.id}`]"
         class="message error"
@@ -444,12 +507,13 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
             </button>
             <SaveState :state="saveState(`candidate:${candidate.id}`, candidateDirty(candidate.id))" />
             <button
-              v-if="rules.structure || contest.candidates.length > 1"
+              v-if="(rules.structure || contest.candidates.length > 1) && confirming !== `candidate:${candidate.id}`"
               type="button"
               class="danger"
               :disabled="pending.has(`candidate:${candidate.id}`)"
               :aria-label="`Entfernen: ${fullName(candidate)}`"
-              @click="removeCandidate(candidate)"
+              :data-remove="`candidate:${candidate.id}`"
+              @click="ask(`candidate:${candidate.id}`)"
             >
               Entfernen
             </button>
@@ -457,6 +521,29 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
           <p v-else>
             {{ fullName(candidate) }}
           </p>
+          <fieldset
+            v-if="rules.candidates && confirming === `candidate:${candidate.id}`"
+            class="confirm full"
+            :aria-label="`Entfernen bestätigen: ${fullName(candidate)}`"
+            :data-confirm="`candidate:${candidate.id}`"
+          >
+            <span>{{ candidateRemoval(candidate) }}</span>
+            <button
+              type="button"
+              class="danger"
+              :disabled="pending.has(`candidate:${candidate.id}`)"
+              @click="confirmed(() => removeCandidate(candidate))"
+            >
+              Ja, entfernen
+            </button>
+            <button
+              type="button"
+              class="secondary cancel"
+              @click="cancel"
+            >
+              Abbrechen
+            </button>
+          </fieldset>
           <p
             v-if="errors[`candidate:${candidate.id}`]"
             class="message error full"
@@ -593,11 +680,13 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         </button>
         <SaveState :state="saveState(`group:${group.id}`, groupDirty(group.id))" />
         <button
+          v-if="confirming !== `group:${group.id}`"
           type="button"
           class="danger"
           :disabled="pending.has(`group:${group.id}`)"
           :aria-label="`Entfernen: ${group.name}`"
-          @click="removeGroup(group)"
+          :data-remove="`group:${group.id}`"
+          @click="ask(`group:${group.id}`)"
         >
           Entfernen
         </button>
@@ -605,6 +694,29 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
       <h4 v-else>
         {{ group.name }}
       </h4>
+      <fieldset
+        v-if="rules.structure && confirming === `group:${group.id}`"
+        class="confirm"
+        :aria-label="`Entfernen bestätigen: ${group.name}`"
+        :data-confirm="`group:${group.id}`"
+      >
+        <span>Klasse oder Gruppe „{{ group.name }}“ entfernen?</span>
+        <button
+          type="button"
+          class="danger"
+          :disabled="pending.has(`group:${group.id}`)"
+          @click="confirmed(() => removeGroup(group))"
+        >
+          Ja, entfernen
+        </button>
+        <button
+          type="button"
+          class="secondary cancel"
+          @click="cancel"
+        >
+          Abbrechen
+        </button>
+      </fieldset>
       <p
         v-if="errors[`group:${group.id}`]"
         class="message error"
@@ -699,7 +811,7 @@ h4 {
   align-items: start;
 }
 
-fieldset {
+fieldset:not(.confirm) {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   margin: 8px 0 0;

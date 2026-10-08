@@ -76,6 +76,13 @@ test('Kandidat:innen, in der Reihenfolge des Stimmzettels, eine mit Foto', async
   await expect(paula.locator('img[src*="/picture/"]')).toBeVisible()
   await expect(paula.getByRole('group', { name: 'Bild von Paula Berger' }).getByRole('status')).toHaveText('Bild gespeichert.')
   await expect(toast('Bild von Paula Berger gespeichert.')).toBeVisible()
+  // A new picture answers the question about removing the old one.
+  await paula.getByRole('button', { name: 'Bild entfernen' }).click()
+  await expect(paula.getByRole('group', { name: 'Entfernen bestätigen: Bild von Paula Berger' })).toBeVisible()
+  await paula.locator('input[type="file"]').setInputFiles({ name: 'paula-neu.png', mimeType: 'image/png', buffer: photo(600, 800) })
+  await expect(paula.getByRole('group', { name: 'Entfernen bestätigen: Bild von Paula Berger' })).toHaveCount(0)
+  await expect(paula.getByRole('group', { name: 'Bild von Paula Berger' }).getByRole('status')).toHaveText('Bild gespeichert.')
+  await expect(paula.getByRole('button', { name: 'Bild entfernen' })).toBeEnabled()
   const { body: configuration } = await apiGet<{ contests: { title: string, candidates: { surname: string, picture: string | null }[] }[] }>(page, `/api/elections/${electionId()}/configuration`)
   const stored = configuration.contests.find((c) => c.title === SCHOOL)?.candidates.find((c) => c.surname === 'Berger')
   expect(stored?.picture).toMatch(/\/picture\/[0-9a-f]{64}$/)
@@ -126,6 +133,32 @@ test('ein zweiter Wahlgang mit zwei Kandidat:innen', async () => {
   await addCandidate(CLASS_1A, 'Fuchs', 'Max')
   await addCandidate(CLASS_1A, 'Bauer', 'Lena')
   expect(await listed(CLASS_1A)).toEqual(['Lena Bauer', 'Max Fuchs'])
+})
+
+test('Entfernen fragt zuerst und nennt, was mitgeht', async () => {
+  const form = page.getByRole('form', { name: 'Wahl hinzufügen' })
+  await form.getByLabel('Titel der neuen Wahl').fill('Probewahl')
+  await form.getByRole('button', { name: 'Wahl hinzufügen' }).click()
+  await expect(toast('Wahl „Probewahl“ hinzugefügt.')).toBeVisible()
+  await addCandidate('Probewahl', 'Person', 'Test')
+
+  // Cancelled: nothing happens, and the focus is back on the button that asked.
+  const remove = candidates('Probewahl').getByRole('button', { name: 'Entfernen: Test Person' })
+  await remove.click()
+  const asked = page.getByRole('group', { name: 'Entfernen bestätigen: Test Person' })
+  await expect(asked).toContainText('Test Person entfernen?')
+  await expect(asked.getByRole('button', { name: 'Abbrechen' })).toBeFocused()
+  await asked.getByRole('button', { name: 'Abbrechen' }).click()
+  await expect(asked).toHaveCount(0)
+  await expect(remove).toBeFocused()
+
+  // Confirmed: the contest goes with its candidate, as the question said.
+  await contest('Probewahl').getByRole('button', { name: 'Wahl entfernen: Probewahl' }).click()
+  const contestAsked = page.getByRole('group', { name: 'Entfernen bestätigen: Probewahl' })
+  await expect(contestAsked).toContainText('Wahl „Probewahl“ mit 1 Kandidat:in entfernen?')
+  await contestAsked.getByRole('button', { name: 'Ja, entfernen' }).click()
+  await expect(toast('Wahl „Probewahl“ entfernt.')).toBeVisible()
+  await expect(contest('Probewahl')).toHaveCount(0)
 })
 
 test('die Klassen und was sie wählen', async () => {

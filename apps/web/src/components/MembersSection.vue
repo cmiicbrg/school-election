@@ -1,10 +1,10 @@
 <script setup lang="ts">
 // Mitglieder: co-admins and witnesses, pending or bound, invited by their
 // school e-mail address. An invitation takes effect at the invited
-// person's next sign-in, which the page says after inviting. A toast
-// confirms a removal.
+// person's next sign-in, which the page says after inviting. Removing a
+// member asks first, in place, and a toast confirms it.
 
-import { ref, useId } from 'vue'
+import { nextTick, ref, useId } from 'vue'
 import { apiDelete, apiPost } from '../lib/api.ts'
 import { errorMessage } from '../lib/api-rules.ts'
 import { MEMBER_STATUS_LABELS, ROLE_LABELS } from '../lib/labels.ts'
@@ -26,6 +26,8 @@ const role = ref<'admin' | 'witness'>('witness')
 const busy = ref(false)
 const error = ref<string | null>(null)
 const hint = ref<string | null>(null)
+/** The member whose removal waits for its confirmation. */
+const confirming = ref<string | null>(null)
 
 async function invite(): Promise<void> {
   busy.value = true
@@ -43,7 +45,20 @@ async function invite(): Promise<void> {
   }
 }
 
+async function ask(member: Member): Promise<void> {
+  confirming.value = member.id
+  await nextTick()
+  document.querySelector<HTMLButtonElement>(`[data-confirm="${CSS.escape(member.id)}"] .cancel`)?.focus()
+}
+async function cancel(): Promise<void> {
+  const id = confirming.value
+  confirming.value = null
+  if (id === null) return
+  await nextTick()
+  document.querySelector<HTMLButtonElement>(`[data-remove="${CSS.escape(id)}"]`)?.focus()
+}
 async function remove(member: Member): Promise<void> {
+  confirming.value = null
   busy.value = true
   error.value = null
   hint.value = null
@@ -86,15 +101,39 @@ function nameOf(member: Member): string {
           > · {{ member.email }}</span>
         </span>
         <button
-          v-if="manage && member.role !== 'owner'"
+          v-if="manage && member.role !== 'owner' && confirming !== member.id"
           type="button"
           class="danger"
           :disabled="busy"
           :aria-label="`Entfernen: ${nameOf(member)}`"
-          @click="remove(member)"
+          :data-remove="member.id"
+          @click="ask(member)"
         >
           Entfernen
         </button>
+        <fieldset
+          v-if="manage && confirming === member.id"
+          class="confirm"
+          :aria-label="`Entfernen bestätigen: ${nameOf(member)}`"
+          :data-confirm="member.id"
+        >
+          <span>{{ nameOf(member) }} ({{ ROLE_LABELS[member.role] }}) entfernen?</span>
+          <button
+            type="button"
+            class="danger"
+            :disabled="busy"
+            @click="remove(member)"
+          >
+            Ja, entfernen
+          </button>
+          <button
+            type="button"
+            class="secondary cancel"
+            @click="cancel"
+          >
+            Abbrechen
+          </button>
+        </fieldset>
       </li>
     </ul>
     <form
