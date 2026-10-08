@@ -99,6 +99,8 @@ test('das Protokoll: die Kette ist vollständig, jeder Eintrag ein Satz mit Pers
   await expect(entries.filter({ hasText: 'Ergebnis festgestellt: 2 entschieden, 0 offen. Begründung: Ergebnis festgestellt' })).toHaveCount(1)
   await expect(entries.filter({ hasText: 'Stapel für „1A“ (1. Wahlgang) ersetzt: 25 neue Stimmkarten, die alten ungültig.' })).toHaveCount(1)
   await expect(entries.filter({ hasText: 'wanda.zeugin@schule.example.org hat sich angemeldet (Zeug:in).' })).toHaveCount(1)
+  await expect(entries.filter({ hasText: 'Wahlleitung an carla.kollegin@schule.example.org übergeben; die bisherige Wahlleitung ist jetzt Co-Admin.' })).toHaveCount(1)
+  await expect(entries.filter({ hasText: 'Wahlleitung an anna.lehrerin@schule.example.org übergeben; die bisherige Wahlleitung ist jetzt Co-Admin.' })).toHaveCount(1)
   // The runoff's count found the deputies tied: the outcome at that close still needed a lot.
   await expect(entries.filter({ hasText: /Ergebnis ausgezählt: „Schulsprecher\/in“, Stichwahl, 3 Stimmen: Losentscheid erforderlich\. Prüfsumme der Auszählung: [0-9a-f]{64}\./ })).toHaveCount(1)
   await expect(entries.filter({ hasText: /Ergebnis ausgezählt: „Klassensprecher\/in 1A“, 1\. Wahlgang, 4 Stimmen: entschieden\./ })).toHaveCount(1)
