@@ -37,6 +37,12 @@ test('the baseline applies, the fixture loads, and every later migration applies
          from election e join election_state s on s.state = e.state where s.final order by e.title`,
     )
     assert.deepEqual(finals, [{ title: 'Klassensprecherwahl 3B', outcomes: 1 }])
+    // Every election has its one owner, a person, whoever wrote the row.
+    const { rows: owners } = await client.query<{ owners: number, people: number }>(
+      `select count(m.id)::int as owners, count(m.user_id)::int as people
+         from election e left join election_member m on m.election_id = e.id and m.role = 'owner' group by e.id`,
+    )
+    assert.ok(owners.length > 0 && owners.every((row) => row.owners === 1 && row.people === 1), JSON.stringify(owners))
     const { rows } = await client.query<{ election_id: string }>('select distinct election_id from audit_event order by election_id')
     assert.ok(rows.length > 0)
     for (const { election_id: electionId } of rows) {

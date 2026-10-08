@@ -38,6 +38,10 @@ export const AUDIT_ACTIONS = {
   'member.invited': { email: 'text', role: INVITED_ROLES },
   'member.bound': { email: 'text', role: INVITED_ROLES },
   'member.removed': { email: 'text', role: INVITED_ROLES },
+  // The Wahlleitung handed over: the actor becomes a co-admin, and the
+  // co-admin named, by their address as the member events name them, the
+  // owner.
+  'lead.transferred': { to: 'text' },
   'contest.created': { contest: 'uuid', title: 'text', rulesetId: RULESET_IDS },
   'contest.updated': { contest: 'uuid', title: 'text', rulesetId: RULESET_IDS },
   // Its candidates, its ballot boxes and its place in the voter groups go with it.

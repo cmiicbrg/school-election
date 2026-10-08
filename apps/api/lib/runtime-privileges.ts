@@ -26,7 +26,8 @@ export const RUNTIME_TABLES: Readonly<Record<string, TableGrant>> = {
   // not at all; an election is removed only through
   // delete_election.
   election: { table: ['SELECT', 'INSERT'], updateColumns: ['title', 'description', 'state'] },
-  // Members are invited and removed; binding sets user_id once.
+  // Members are invited and removed; binding sets user_id once. A role
+  // changes only when the lead is handed over, through transfer_lead.
   election_member: { table: ['SELECT', 'INSERT', 'DELETE'], updateColumns: ['user_id'] },
   // The states of the lifecycle with their flags, and the transitions of
   // a round, which the triggers and the definer functions read as the
@@ -95,6 +96,8 @@ export const RUNTIME_FUNCTIONS: readonly string[] = [
   'delete_election(uuid)',
   // The runoff round, created open with its boxes and entitlements, once.
   'activate_runoff(uuid,jsonb)',
+  // The Wahlleitung handed to a co-admin who has signed in.
+  'transfer_lead(uuid,uuid)',
   // The clean-up at finalization: what still holds a snapshot older than
   // the election's seals, and the flush of the write-ahead log with its
   // check; then the declaration that makes the election final.

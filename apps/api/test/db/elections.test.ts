@@ -37,13 +37,25 @@ test('every audit event belongs to an election that exists', DB, async (t) => {
   })
 })
 
+/** Another signed-in person, inserted as the owner. */
+async function secondPerson(ownerUrl: string): Promise<string> {
+  return withClient(ownerUrl, async (client) => {
+    const { rows } = await client.query<{ id: string }>(
+      `insert into app_user (tid, oid, display_name, email)
+       values ('3f2b8c1d-6e4a-4b7f-9c2d-8a1e5f6b7c90', gen_random_uuid(), 'Carla', 'carla@schule.example.org') returning id`,
+    )
+    return rows[0]?.id ?? assert.fail('no app_user row')
+  })
+}
+
 test('members: one owner who is a person, invitations with an address, one per address in any case', DB, async (t) => {
-  const { runtimeUrl, userId } = await setup(t)
+  const { runtimeUrl, ownerUrl, userId } = await setup(t)
+  const carla = await secondPerson(ownerUrl)
   const insert = 'insert into election_member (election_id, role, user_id, invited_email) values ($1, $2, $3, $4)'
   await withClient(runtimeUrl, async (client) => {
     const refused: [string, string, string | null, string | null, string][] = [
       ['an owner without a person', 'owner', null, null, '23514'],
-      ['an invited owner', 'owner', userId, 'anna@schule.example.org', '23514'],
+      ['an invited owner who has not signed in', 'owner', null, 'anna@schule.example.org', '23514'],
       ['an invitation without an address', 'witness', null, null, '23514'],
       ['a role that does not exist', 'chair', null, 'x@schule.example.org', '23514'],
     ]
@@ -53,11 +65,36 @@ test('members: one owner who is a person, invitations with an address, one per a
     await client.query(insert, [ELECTION, 'owner', userId, null])
     await client.query(insert, [ELECTION, 'witness', null, 'Wanda@Schule.example.org'])
     for (const [label, role, user, email] of [
-      ['a second owner', 'owner', userId, null],
+      ['a second owner', 'owner', carla, 'carla@schule.example.org'],
       ['the same address in another case', 'admin', null, 'wanda@schule.EXAMPLE.org'],
     ] as const) {
       await assert.rejects(client.query(insert, [ELECTION, role, user, email]), (err) => sqlState(err) === '23505', label)
     }
+  })
+})
+
+test('the lead goes only through transfer_lead, and only to a co-admin of the election who has signed in', DB, async (t) => {
+  const { runtimeUrl, ownerUrl, userId } = await setup(t)
+  const carla = await secondPerson(ownerUrl)
+  await withClient(runtimeUrl, async (client) => {
+    const member = async (role: string, user: string | null, email: string | null) => (await client.query<{ id: string }>(
+      'insert into election_member (election_id, role, user_id, invited_email) values ($1, $2, $3, $4) returning id',
+      [ELECTION, role, user, email],
+    )).rows[0]?.id ?? assert.fail('no member row')
+    const anna = await member('owner', userId, null)
+    const pending = await member('admin', null, 'bernd@schule.example.org')
+    const witness = await member('witness', carla, 'carla@schule.example.org')
+    for (const target of [anna, pending, witness, '6c1e8b0a-1d2f-4e3a-9b8c-7d6e5f4a3b2c']) {
+      await assert.rejects(client.query('select transfer_lead($1, $2)', [ELECTION, target]), (err) => sqlState(err) === '55000', target)
+    }
+    await client.query('delete from election_member where id = $1', [witness])
+    const coAdmin = await member('admin', carla, 'carla@schule.example.org')
+    await client.query('select transfer_lead($1, $2)', [ELECTION, coAdmin])
+    const { rows } = await client.query<{ id: string, role: string }>('select id, role from election_member where election_id = $1 and user_id is not null order by role', [ELECTION])
+    assert.deepEqual(rows, [{ id: anna, role: 'admin' }, { id: coAdmin, role: 'owner' }])
+    // Handed back, to the former owner who was never invited.
+    await client.query('select transfer_lead($1, $2)', [ELECTION, anna])
+    assert.equal((await client.query<{ id: string }>('select id from election_member where election_id = $1 and role = \'owner\'', [ELECTION])).rows[0]?.id, anna)
   })
 })
 
