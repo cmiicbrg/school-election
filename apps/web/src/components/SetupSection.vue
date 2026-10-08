@@ -12,7 +12,8 @@
 // and one saved since its last edit says "Gespeichert". A change that went
 // through is confirmed by a toast.
 //
-// Fields save themselves: a text field when it is left or Enter is
+// Fields save themselves: a text field when it is left (blur, which unlike
+// change also fires for a value put back after an Enter) or Enter is
 // pressed, a choice when it is made, and only when the form differs from
 // what the server said last. Creating something and removing it stay
 // explicit. The buttons that ask before a removal stay enabled while
@@ -151,6 +152,8 @@ onBeforeRouteUpdate((to, from) => to.params.id === from.params.id || !unsaved.va
 const retries = reactive(new Map<string, () => void>())
 /** Forms changed again while their save was on its way: saved once more when it is done. */
 const again = new Set<string>()
+/** What a form's refused save sent: leaving a field does not send it again, a change or "Noch einmal" does. */
+const refusedValues = new Map<string, string>()
 
 /**
  * Saves a form if its fields differ from what the server said last: one
@@ -159,7 +162,7 @@ const again = new Set<string>()
  * way may store what it undid. A form put back to what is stored has
  * nothing to save, and an earlier refusal no longer applies to it.
  */
-async function autoSave(key: string, dirty: () => boolean, save: () => Promise<void>): Promise<void> {
+async function autoSave(key: string, dirty: () => boolean, save: () => Promise<void>, values: () => string, retry = false): Promise<void> {
   if (pending.has(key)) {
     again.add(key)
     return
@@ -167,13 +170,21 @@ async function autoSave(key: string, dirty: () => boolean, save: () => Promise<v
   if (!dirty()) {
     delete errors[key]
     retries.delete(key)
+    refusedValues.delete(key)
     return
   }
+  const sending = values()
+  if (!retry && errors[key] && refusedValues.get(key) === sending) return
   retries.delete(key)
   await save()
-  const more = again.delete(key)
-  if (errors[key]) retries.set(key, () => void autoSave(key, dirty, save))
-  else if (more) await autoSave(key, dirty, save)
+  if (errors[key]) {
+    refusedValues.set(key, sending)
+    retries.set(key, () => void autoSave(key, dirty, save, values, true))
+  } else {
+    refusedValues.delete(key)
+  }
+  // A change made meanwhile goes next, after a refusal as well: it may be the correction.
+  if (again.delete(key)) await autoSave(key, dirty, save, values)
 }
 
 // A saved name can move its row to its alphabetical place, which takes the
@@ -260,10 +271,13 @@ const saveGroup = (group: VoterGroup) => {
     served.groups[group.id] = entered
   }, () => `Name gespeichert: „${entered}“.`)
 }
-const saveElectionField = () => autoSave('election', electionDirty, saveElection)
-const saveContestField = (contest: Contest) => autoSave(`contest:${contest.id}`, () => contestDirty(contest.id), () => saveContest(contest))
-const saveCandidateField = (candidate: Candidate) => autoSave(`candidate:${candidate.id}`, () => candidateDirty(candidate.id), () => saveCandidate(candidate))
-const saveGroupField = (group: VoterGroup) => autoSave(`group:${group.id}`, () => groupDirty(group.id), () => saveGroup(group))
+const saveElectionField = () => autoSave('election', electionDirty, saveElection, () => JSON.stringify(draft))
+const saveContestField = (contest: Contest) =>
+  autoSave(`contest:${contest.id}`, () => contestDirty(contest.id), () => saveContest(contest), () => JSON.stringify(contestDrafts[contest.id]))
+const saveCandidateField = (candidate: Candidate) =>
+  autoSave(`candidate:${candidate.id}`, () => candidateDirty(candidate.id), () => saveCandidate(candidate), () => JSON.stringify(candidateDrafts[candidate.id]))
+const saveGroupField = (group: VoterGroup) =>
+  autoSave(`group:${group.id}`, () => groupDirty(group.id), () => saveGroup(group), () => JSON.stringify(groupDrafts[group.id]))
 const removeGroup = (group: VoterGroup) =>
   run(`group:${group.id}`, () => apiDelete(`${base.value}/voter-groups/${group.id}`), () => `„${group.name}“ entfernt.`)
 
@@ -380,14 +394,14 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         type="text"
         required
         maxlength="200"
-        @change="saveElectionField"
+        @blur="saveElectionField"
       >
       <label :for="ids.description">Beschreibung</label>
       <textarea
         :id="ids.description"
         v-model="draft.description"
         maxlength="2000"
-        @change="saveElectionField"
+        @blur="saveElectionField"
       />
       <SaveState :state="saveState('election', electionDirty())" />
       <p
@@ -436,7 +450,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
             type="text"
             required
             maxlength="200"
-            @change="saveContestField(contest)"
+            @blur="saveContestField(contest)"
           >
         </div>
         <div>
@@ -544,7 +558,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
                 type="text"
                 required
                 maxlength="100"
-                @change="saveCandidateField(candidate)"
+                @blur="saveCandidateField(candidate)"
                 @keydown.enter.prevent="saveCandidateField(candidate)"
               >
             </div>
@@ -555,7 +569,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
                 v-model="candidateDrafts[candidate.id]!.givenName"
                 type="text"
                 maxlength="100"
-                @change="saveCandidateField(candidate)"
+                @blur="saveCandidateField(candidate)"
                 @keydown.enter.prevent="saveCandidateField(candidate)"
               >
             </div>
@@ -729,7 +743,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
             type="text"
             required
             maxlength="100"
-            @change="saveGroupField(group)"
+            @blur="saveGroupField(group)"
           >
         </div>
         <SaveState :state="saveState(`group:${group.id}`, groupDirty(group.id))" />
