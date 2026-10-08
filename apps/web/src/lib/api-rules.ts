@@ -61,6 +61,7 @@ export const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   batch_void: 'Dieser Stapel wurde bereits ersetzt.',
   already_member: 'Diese Person ist bereits Mitglied.',
   owner_not_removable: 'Die Wahlleitung kann nicht entfernt werden.',
+  lead_needs_co_admin: 'Die Wahlleitung geht nur an eine Person, die Co-Admin ist und sich schon angemeldet hat.',
   duplicate_candidate: 'Diesen Namen gibt es in dieser Wahl schon.',
   too_many_candidates: 'Eine Wahl hat höchstens 50 Kandidat:innen.',
   duplicate_contest: 'Eine Wahl mit diesem Titel gibt es schon.',

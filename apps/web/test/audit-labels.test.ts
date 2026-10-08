@@ -15,6 +15,7 @@ test('every known action has a sentence that names what its metadata carries, an
     'member.invited': { email: 'w@schule.example.org', role: 'witness' },
     'member.bound': { email: 'w@schule.example.org', role: 'witness' },
     'member.removed': { email: 'w@schule.example.org', role: 'admin' },
+    'lead.transferred': { to: 'c@schule.example.org' },
     'contest.created': { contest: 'c1', title: 'Schulsprecher/in', rulesetId: 'at-school-speaker-v1' },
     'contest.updated': { contest: 'c1', title: 'Schulsprecher/in', rulesetId: 'at-school-speaker-v1' },
     'contest.removed': { contest: 'c1', title: 'Abstimmung', candidates: 1 },
@@ -50,6 +51,7 @@ test('every known action has a sentence that names what its metadata carries, an
     assert.ok(sentence.length > 0 && !sentence.includes('undefined') && !sentence.includes('NaN'), `${action}: ${sentence}`)
   }
   assert.equal(eventText('member.invited', samples['member.invited'] ?? {}, NAMES), 'w@schule.example.org als Zeug:in eingeladen.')
+  assert.equal(eventText('lead.transferred', samples['lead.transferred'] ?? {}, NAMES), 'Wahlleitung an c@schule.example.org übergeben; die bisherige Wahlleitung ist jetzt Co-Admin.')
   assert.equal(eventText('election.updated', samples['election.updated'] ?? {}, NAMES), 'Titel und Beschreibung geändert: „Neu“; Beschreibung: „x“.', 'a change of the description alone is readable')
   assert.equal(eventText('election.updated', { title: 'Neu', description: '' }, NAMES), 'Titel und Beschreibung geändert: „Neu“; Beschreibung: keine.')
   assert.equal(eventText('candidate.added', samples['candidate.added'] ?? {}, NAMES), 'Paula Berger zu „Wahl c1“ hinzugefügt.')
