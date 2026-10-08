@@ -262,6 +262,8 @@ test('ein Co-Admin schließt nicht ab; die Wahlleitung schließt mit Begründung
   await expect(run(anna).getByTestId('state')).toHaveText(/^Ergebnis festgestellt am \d{1,2}\.\d{1,2}\.\d{4}, \d{2}:\d{2} durch Anna Lehrerin: Ergebnis festgestellt$/)
   await expect(anna.getByText(/^Abgeschlossen · Ihre Rolle/)).toBeVisible()
   await expect(anna.getByText('Das Ergebnis ist festgestellt: nichts ändert sich mehr.')).toBeVisible()
+  await expect(anna.getByRole('region', { name: 'Mitglieder' })).toContainText('Das Ergebnis ist festgestellt; Mitglieder ändern sich nicht mehr.')
+  await expect(anna.getByRole('form', { name: 'Einladen' })).toHaveCount(0)
   await expect(run(anna).getByRole('button')).toHaveText(['Export herunterladen'])
   await expect(run(anna).getByRole('form')).toHaveCount(0)
   await expect(contestResult(anna, SCHOOL)).toContainText('Gewählt.')
