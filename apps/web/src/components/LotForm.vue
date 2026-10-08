@@ -72,7 +72,8 @@ const consequence = computed(() => {
     const sentence = `${listed(enter)} ${enter.length === 1 ? 'kommt' : 'kommen'} in die Stichwahl`
     return stay.length === 0 ? `${sentence}.` : `${sentence}; ${listed(stay)} nicht.`
   }
-  return `${drawn.map((name, place) => `${gets(place)}: ${name}`).join('; ')}.`
+  const places = drawn.map((name, place) => `${gets(place)}: ${name}`)
+  return `${places.join('; ')}.`
 })
 
 async function check(): Promise<void> {

@@ -554,7 +554,7 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
         class="actions"
       >
         <button
-          v-if="confirming === null"
+          v-if="confirming === null && !finalizing"
           type="button"
           :disabled="busy"
           data-step="activate"

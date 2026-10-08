@@ -167,6 +167,10 @@ test('Stichwahl aktivieren: der Hinweis auf die Stichwahl-Stimmkarten je Klasse,
   await expect(sheets).toContainText('1A: 10 Stichwahl-Stimmkarten')
   await expect(sheets.getByRole('link', { name: 'Drucken (10)' })).toHaveAttribute('href', `${BASE_PATH}/elections/${electionId()}/batches/${batchId('1A runoff')}/print`)
   await expect(sheets).toContainText('Für 2B gibt es noch keine Stichwahl-Stimmkarten')
+  // Establishing the result is offered too; while its dialog is open, no other step is.
+  await run(anna).getByRole('button', { name: 'Ergebnis endgültig feststellen' }).click()
+  await expect(run(anna).getByRole('button', { name: 'Stichwahl aktivieren' })).toHaveCount(0)
+  await dialog('Ergebnis endgültig feststellen?').getByRole('button', { name: 'Abbrechen' }).click()
   await run(anna).getByRole('button', { name: 'Stichwahl aktivieren' }).click()
   await expect(dialog('Stichwahl aktivieren?')).toContainText('Die Stimmkarten des 1. Wahlgangs gelten nicht mehr')
   await expect(dialog('Stichwahl aktivieren?').getByRole('listitem')).toHaveText(['1A: 10 Stimmkarten', '2B: keine gültigen Stimmkarten für die Stichwahl'])
