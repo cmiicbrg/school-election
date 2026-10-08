@@ -424,10 +424,9 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
           {{ RULESET_LABELS[contest.rulesetId] }}
         </p>
       </template>
-      <div
+      <fieldset
         v-if="rules.structure && confirming === `contest:${contest.id}`"
         class="confirm"
-        role="group"
         :aria-label="`Entfernen bestätigen: ${contest.title}`"
         :data-confirm="`contest:${contest.id}`"
       >
@@ -447,7 +446,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         >
           Abbrechen
         </button>
-      </div>
+      </fieldset>
       <p
         v-if="errors[`contest:${contest.id}`]"
         class="message error"
@@ -522,10 +521,9 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
           <p v-else>
             {{ fullName(candidate) }}
           </p>
-          <div
+          <fieldset
             v-if="rules.candidates && confirming === `candidate:${candidate.id}`"
             class="confirm full"
-            role="group"
             :aria-label="`Entfernen bestätigen: ${fullName(candidate)}`"
             :data-confirm="`candidate:${candidate.id}`"
           >
@@ -545,7 +543,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
             >
               Abbrechen
             </button>
-          </div>
+          </fieldset>
           <p
             v-if="errors[`candidate:${candidate.id}`]"
             class="message error full"
@@ -696,10 +694,9 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
       <h4 v-else>
         {{ group.name }}
       </h4>
-      <div
+      <fieldset
         v-if="rules.structure && confirming === `group:${group.id}`"
         class="confirm"
-        role="group"
         :aria-label="`Entfernen bestätigen: ${group.name}`"
         :data-confirm="`group:${group.id}`"
       >
@@ -719,7 +716,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         >
           Abbrechen
         </button>
-      </div>
+      </fieldset>
       <p
         v-if="errors[`group:${group.id}`]"
         class="message error"
@@ -814,7 +811,7 @@ h4 {
   align-items: start;
 }
 
-fieldset {
+fieldset:not(.confirm) {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   margin: 8px 0 0;

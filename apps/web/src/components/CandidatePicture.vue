@@ -55,6 +55,10 @@ const preview = ref<string | null>(null)
 watch(() => props.src, () => {
   preview.value = null
 })
+// A question about removing outlives no change of the rules.
+watch(() => props.disabled, (disabled) => {
+  if (disabled === true) askingRemove.value = false
+})
 watch(() => [props.busy, props.error] as const, ([busy, error], [wasBusy]) => {
   if ((wasBusy === true && busy !== true) || error) preview.value = null
   if (wasBusy !== true || busy === true || doing.value === null) return
@@ -76,6 +80,8 @@ function fail(reason: PictureProblem): void {
 
 async function take(files: File[]): Promise<void> {
   if (locked.value) return
+  // A new picture answers an open question about the old one.
+  askingRemove.value = false
   const picked = pickFile(files)
   if (picked.kind === 'none') return fail('no-file')
   preparing.value = true
@@ -220,10 +226,9 @@ watch(locked, (now) => {
             Bild entfernen
           </button>
         </div>
-        <div
+        <fieldset
           v-if="askingRemove"
           class="confirm"
-          role="group"
           :aria-label="`Entfernen bestätigen: Bild von ${name}`"
         >
           <span>Bild von {{ name }} entfernen?</span>
@@ -243,7 +248,7 @@ watch(locked, (now) => {
           >
             Abbrechen
           </button>
-        </div>
+        </fieldset>
       </div>
       <!-- Reached through "Bild auswählen"; the button is what keyboards and screen readers use. -->
       <label

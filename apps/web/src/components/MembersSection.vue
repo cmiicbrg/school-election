@@ -111,10 +111,9 @@ function nameOf(member: Member): string {
         >
           Entfernen
         </button>
-        <span
+        <fieldset
           v-if="manage && confirming === member.id"
           class="confirm"
-          role="group"
           :aria-label="`Entfernen bestätigen: ${nameOf(member)}`"
           :data-confirm="member.id"
         >
@@ -134,7 +133,7 @@ function nameOf(member: Member): string {
           >
             Abbrechen
           </button>
-        </span>
+        </fieldset>
       </li>
     </ul>
     <form
