@@ -22,7 +22,7 @@ test('die Protokollkette stimmt und zählt genau die Schritte der Journey', asyn
   expect(Object.fromEntries([...counts].toSorted())).toEqual({
     'candidate.added': 6,
     'candidate.picture-set': 2,
-    'candidate.renamed': 1,
+    'candidate.renamed': 3,
     'contest.created': 3,
     'contest.removed': 1,
     'credential-batch.issued': 3,

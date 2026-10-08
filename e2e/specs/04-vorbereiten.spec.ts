@@ -39,11 +39,12 @@ test('Vorbereiten legt den Aufbau fest; Namen bleiben änderbar', async () => {
   await expect(page.getByRole('button', { name: 'Klasse oder Gruppe hinzufügen' })).toHaveCount(0)
   await expect(page.getByText('Der Wahltermin ist vorbereitet: Aufbau und Zuordnung sind festgelegt.')).toBeVisible()
 
-  const quirin = page.getByRole('listitem').filter({ has: page.getByRole('button', { name: 'Speichern: Quirin Huber' }) })
+  const quirin = page.getByRole('listitem', { name: 'Quirin Huber', exact: true })
   await quirin.getByLabel('Nachname').fill('  Huber-Mayer ')
-  await quirin.getByRole('button', { name: 'Speichern: Quirin Huber' }).click()
-  await expect(page.getByRole('button', { name: 'Speichern: Quirin Huber-Mayer' })).toBeVisible()
-  await expect(quirin.getByLabel('Nachname')).toHaveValue('Huber-Mayer')
+  await quirin.getByLabel('Nachname').press('Tab')
+  const renamed = page.getByRole('listitem', { name: 'Quirin Huber-Mayer', exact: true })
+  await expect(renamed).toBeVisible()
+  await expect(renamed.getByLabel('Nachname')).toHaveValue('Huber-Mayer')
   await shot(page, '09-vorbereitet')
 })
 
