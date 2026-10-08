@@ -50,13 +50,15 @@ function gets(place: number): string {
   return position === undefined ? 'keine dieser Positionen' : functionLabel(props.rulesetId, position)
 }
 
-// Once every place but one is chosen, the last tied candidate takes it.
-watch(order, (places) => {
-  const open = places.filter((candidate) => candidate === null).length
+// When a choice leaves one place open, the last tied candidate takes it.
+// Only a choice: clearing a place to correct the order leaves it open.
+const openPlaces = (places: readonly (string | null)[]): number => places.filter((candidate) => candidate === null).length
+watch(() => [...order.value], (places, before) => {
+  if (openPlaces(places) !== 1 || openPlaces(before) <= 1) return
   const left = props.lot.candidates.filter((candidate) => !places.includes(candidate))
   const index = places.indexOf(null)
-  if (open === 1 && left.length === 1 && index >= 0) places[index] = left[0] ?? null
-}, { deep: true })
+  if (left.length === 1 && index >= 0) order.value[index] = left[0] ?? null
+})
 
 const complete = computed(() => order.value.every((candidate) => candidate !== null) && reason.value.trim() !== '')
 

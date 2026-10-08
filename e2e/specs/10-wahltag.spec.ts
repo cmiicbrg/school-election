@@ -139,6 +139,10 @@ test('die Zeugin sieht das Los ohne Formular; die Wahlleitung trägt die Ziehung
   const form = contestResult(anna, SCHOOL).getByRole('form', { name: `Losentscheid eintragen: ${SCHOOL} (Stichwahl)` })
   await form.getByLabel('1. gezogen').selectOption({ label: RENATE })
   await expect(form.getByLabel('2. gezogen').locator('option')).toHaveText(['– bitte wählen –', QUIRIN])
+  // The last place fills itself, and can still be cleared to correct the order.
+  await expect(form.getByLabel('2. gezogen').locator('option:checked')).toHaveText(QUIRIN)
+  await form.getByLabel('2. gezogen').selectOption({ label: '– bitte wählen –' })
+  await expect(form.getByLabel('2. gezogen').locator('option:checked')).toHaveText('– bitte wählen –')
   await expect(form.getByRole('button', { name: 'Losentscheid eintragen' })).toBeDisabled()
   await form.getByLabel('2. gezogen').selectOption({ label: QUIRIN })
   await expect(form.getByRole('button', { name: 'Losentscheid eintragen' })).toBeDisabled()
