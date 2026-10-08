@@ -8,7 +8,7 @@
 // has signed in, and becomes a co-admin. Removing a member and handing
 // over the lead ask first, in place, and a toast confirms each.
 
-import { computed, nextTick, ref, useId } from 'vue'
+import { computed, nextTick, ref, useId, watch } from 'vue'
 import { apiDelete, apiPost } from '../lib/api.ts'
 import { errorMessage } from '../lib/api-rules.ts'
 import { BASE_URL } from '../lib/base.ts'
@@ -44,6 +44,11 @@ const asked = (member: Member, kind: Question['kind']): boolean => confirming.va
 const keyOf = (question: Question): string => `${question.kind}:${question.id}`
 /** Where invited people sign in. */
 const address = `${BASE_URL}/`
+// Without co-admins to manage, after handing over the lead, the form
+// offers witnesses only, and invites one.
+watch(() => props.coAdmins, (coAdmins) => {
+  if (!coAdmins) role.value = 'witness'
+})
 /** Inviting a second co-admin: one is usually enough. */
 const anotherCoAdmin = computed(() => role.value === 'admin' && props.members.some((member) => member.role === 'admin'))
 
