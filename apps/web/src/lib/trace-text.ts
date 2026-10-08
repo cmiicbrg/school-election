@@ -10,7 +10,7 @@ import { committeeText, functionLabel, listed, lotText, type Names } from './out
 
 const BASIS: Readonly<Record<'first-places' | 'points' | 'votes', string>> = {
   'first-places': 'ersten Stellen',
-  'points': 'Punkten der ersten Runde',
+  'points': 'Punkten des 1. Wahlgangs',
   'votes': 'Stimmen',
 }
 
@@ -41,7 +41,7 @@ export function stepText(rulesetId: RulesetId, step: TraceStep, names: Names): s
     case 'runoff':
       return `Stichwahl zwischen ${names.candidate(step.candidates[0])} und ${names.candidate(step.candidates[1])}.`
     case 'positions':
-      return `Die weiteren Positionen nach den Punkten der ersten Runde, ohne ${names.candidate(step.excluded)}: ${valuesText(step.values, names) || 'niemand mehr'}.`
+      return `Die weiteren Positionen nach den Punkten des 1. Wahlgangs, ohne ${names.candidate(step.excluded)}: ${valuesText(step.values, names) || 'niemand mehr'}.`
     case 'lot-required':
       return `Losentscheid: ${lotText(rulesetId, step.lot, names)}`
     case 'lot-applied':

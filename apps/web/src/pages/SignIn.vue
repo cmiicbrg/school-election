@@ -8,10 +8,12 @@ import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { loginUrl, ownPath } from '../lib/api-rules.ts'
 import { withBase, withoutBase } from '../lib/base.ts'
+import { usePageTitle } from '../lib/page-title.ts'
 import { session } from '../lib/session.ts'
 
 const route = useRoute()
 const router = useRouter()
+usePageTitle(() => 'Anmeldung')
 const returnTo = computed(() => ownPath(typeof route.query.returnTo === 'string' ? route.query.returnTo : withBase('/')))
 const target = computed(() => withBase(loginUrl(returnTo.value)))
 
@@ -22,7 +24,7 @@ watch([session, returnTo], ([who, to]) => {
 
 <template>
   <h1>Anmeldung</h1>
-  <p>Melden Sie sich mit Ihrem Schulkonto an. Zeuginnen und Zeugen melden sich mit dem Konto an, an das die Einladung ging.</p>
+  <p>Melden Sie sich mit Ihrem Schulkonto an. Zeug:innen melden sich mit dem Konto an, an das die Einladung ging.</p>
   <a
     class="button"
     :href="target"

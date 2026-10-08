@@ -18,6 +18,7 @@
 
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { usePageTitle } from '../lib/page-title.ts'
 import { toSend } from '../voter/ballot-state.ts'
 import { pendingKey } from '../voter/bootstrap.ts'
 import ContestList from '../voter/ContestList.vue'
@@ -43,6 +44,7 @@ const router = useRouter()
 const root = ref<HTMLElement | null>(null)
 const step = ref<Step>({ kind: 'loading' })
 const election = ref<VoterElection | null>(null)
+usePageTitle(() => 'Stimmabgabe')
 const message = ref<string | null>(null)
 const busy = ref(false)
 

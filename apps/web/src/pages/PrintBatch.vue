@@ -18,6 +18,7 @@ import { formatKey, type Lifecycle, type RoundKind } from '@school-election/elec
 import { apiGet } from '../lib/api.ts'
 import { ApiError } from '../lib/api-rules.ts'
 import { BASE_URL } from '../lib/base.ts'
+import { usePageTitle } from '../lib/page-title.ts'
 import { cardsOf, pagesOf, printable, ROUND_LABELS, voterAddress, type Card } from '../lib/sheet.ts'
 
 const props = defineProps<{
@@ -40,8 +41,8 @@ interface BatchKeys {
 }
 
 const MESSAGES: Record<string, string> = {
-  forbidden: 'Die Codes dieses Stapels sind für Zeuginnen und Zeugen erst sichtbar, wenn die Runde geschlossen ist.',
-  not_found: 'Diesen Stapel gibt es nicht, oder die Wahl ist nicht Ihre.',
+  forbidden: 'Die Codes dieses Stapels sind für Zeug:innen erst sichtbar, wenn ihr Wahlgang beendet ist.',
+  not_found: 'Diesen Stapel gibt es nicht, oder der Wahltermin ist nicht Ihrer.',
 }
 
 const election = ref<ElectionDetail>()
@@ -68,6 +69,7 @@ const usage = computed(() => {
 const usedCount = computed(() => usage.value?.codes.filter((entry) => entry.used === true).length ?? 0)
 const pages = computed(() => pagesOf(cards.value))
 const roundLabel = computed(() => batch.value ? ROUND_LABELS[batch.value.batch.roundKind] : '')
+usePageTitle(() => ['Stimmkarten drucken', election.value?.title, roundLabel.value, groupName.value].filter(Boolean).join(' · '))
 /** An issued batch whose round has not opened: the only kind with sheets. */
 const prints = computed(() => batch.value !== undefined && election.value !== undefined
   && batch.value.batch.state === 'issued' && printable(election.value.lifecycle, batch.value.batch.roundKind))
@@ -127,7 +129,7 @@ onMounted(() => {
         {{ election.title }} · {{ roundLabel }} · {{ groupName }} · {{ batch.batch.keys }} Karten auf {{ pages.length }} Seiten.
       </p>
       <p v-if="prints">
-        Diese Seite zeigt immer dieselben Codes. Sie kann bis zum Beginn der Runde noch einmal gedruckt werden; neue Codes gibt es nur über „Stapel ersetzen“ in der Wahl.
+        Diese Seite zeigt immer dieselben Codes. Sie kann bis zum Beginn des Wahlgangs noch einmal gedruckt werden; neue Codes gibt es nur über „Stapel ersetzen“ auf der Seite des Wahltermins.
       </p>
       <p v-if="prints">
         Ohne Verkleinerung drucken (tatsächliche Größe, keine Ränder): Jede Karte ist genau ein Sechstel des Blattes, drei Schnitte entlang der Linien trennen sie.
@@ -164,7 +166,7 @@ onMounted(() => {
       class="replaced"
       data-testid="not-printable"
     >
-      Die Runde hat begonnen: Die Stimmkarten dieses Stapels werden nicht mehr gedruckt.
+      Der Wahlgang hat begonnen: Die Stimmkarten dieses Stapels werden nicht mehr gedruckt.
     </output>
 
     <section
@@ -176,7 +178,7 @@ onMounted(() => {
         {{ usage.known ? 'Codes und ihre Verwendung' : 'Codes dieses Stapels' }}
       </h2>
       <p v-if="usage.known">
-        {{ election.title }} · {{ roundLabel }} · {{ groupName }}: {{ usedCount }} von {{ usage.codes.length }} Codes wurden verwendet. Die Runde ist geschlossen; übrig gebliebene Stimmkarten müssen hier als „nicht verwendet“ erscheinen.
+        {{ election.title }} · {{ roundLabel }} · {{ groupName }}: {{ usedCount }} von {{ usage.codes.length }} Codes wurden verwendet. Der Wahlgang ist beendet; übrig gebliebene Stimmkarten müssen hier als „nicht verwendet“ erscheinen.
       </p>
       <p v-else>
         {{ election.title }} · {{ roundLabel }} · {{ groupName }}: {{ usage.codes.length }} Codes, zum Vergleich mit den alten Stimmkarten.

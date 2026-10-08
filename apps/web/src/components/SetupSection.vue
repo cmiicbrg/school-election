@@ -193,7 +193,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
       {{ locked }}
     </p>
 
-    <h3>Titel und Beschreibung</h3>
+    <h3>Wahltermin</h3>
     <form
       v-if="rules.candidates"
       @submit.prevent="saveElection"
@@ -231,7 +231,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
       </p>
     </template>
 
-    <h3>Wahlgänge</h3>
+    <h3>Wahlen an diesem Termin</h3>
     <article
       v-for="contest in configuration.contests"
       :key="contest.id"
@@ -244,7 +244,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         @submit.prevent="saveContest(contest)"
       >
         <div>
-          <label :for="`contest-title-${contest.id}`">Titel des Wahlgangs</label>
+          <label :for="`contest-title-${contest.id}`">Titel der Wahl</label>
           <input
             :id="`contest-title-${contest.id}`"
             v-model="contestDrafts[contest.id]!.title"
@@ -279,10 +279,10 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
           type="button"
           class="danger"
           :disabled="busy"
-          :aria-label="`Wahlgang entfernen: ${contest.title}`"
+          :aria-label="`Wahl entfernen: ${contest.title}`"
           @click="removeContest(contest)"
         >
-          Wahlgang entfernen
+          Wahl entfernen
         </button>
       </form>
       <template v-else>
@@ -402,11 +402,11 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
     <form
       v-if="rules.structure"
       class="card-box row"
-      aria-label="Wahlgang hinzufügen"
+      aria-label="Wahl hinzufügen"
       @submit.prevent="addContest"
     >
       <div>
-        <label :for="ids.contestTitle">Titel des neuen Wahlgangs</label>
+        <label :for="ids.contestTitle">Titel der neuen Wahl</label>
         <input
           :id="ids.contestTitle"
           v-model="newContest.title"
@@ -435,7 +435,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         type="submit"
         :disabled="busy"
       >
-        Wahlgang hinzufügen
+        Wahl hinzufügen
       </button>
     </form>
 
@@ -501,7 +501,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
           v-if="configuration.contests.length === 0"
           class="muted"
         >
-          Zuerst Wahlgänge anlegen.
+          Zuerst Wahlen anlegen.
         </p>
       </fieldset>
       <p

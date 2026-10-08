@@ -1,14 +1,37 @@
 // The German words for what the API names by its codes: states, roles,
 // rulesets, round kinds, and what preparing reports. Free of the DOM, so
 // node:test can check that every code has its word.
+//
+// The glossary: an election in the API is a Wahltermin, the date with
+// everything voted on it; a contest is a Wahl ("Schulsprecher/in"), or an
+// Abstimmung for a poll; a round is a Wahlgang, the 1. Wahlgang or the
+// Stichwahl. Closing a round ends its Stimmabgabe and counts it;
+// finalizing establishes the Ergebnis for good. Functions are written with
+// a slash as on the ballot (Schulsprecher/in), other people with a colon
+// (Kandidat:innen, Zeug:innen).
 
-import type { ElectionState, RoundKind, RulesetId } from '@school-election/election-core'
+import type { ElectionState, Lifecycle, RoundKind, RulesetId } from '@school-election/election-core'
 
+/** A Wahltermin's state as a list names it, where only the termin's own state is known. */
 export const STATE_LABELS: Readonly<Record<ElectionState, string>> = {
   draft: 'Entwurf',
   prepared: 'Vorbereitet',
-  active: 'Wahl läuft',
+  active: 'Stimmabgabe begonnen',
   final: 'Abgeschlossen',
+}
+
+/** A Wahltermin's state with its rounds, as its page names it: which Wahlgang runs, or is counted. */
+export function stateLabel(lifecycle: Lifecycle): string {
+  switch (lifecycle.election) {
+    case 'draft':
+    case 'final':
+      return STATE_LABELS[lifecycle.election]
+    case 'prepared':
+      return lifecycle.regular === 'testing' ? 'Probelauf' : STATE_LABELS.prepared
+    case 'active':
+      if (lifecycle.runoff !== null) return lifecycle.runoff === 'open' ? 'Stichwahl läuft' : 'Stichwahl ausgezählt'
+      return lifecycle.regular === 'open' ? '1. Wahlgang läuft' : '1. Wahlgang ausgezählt'
+  }
 }
 
 export type Role = 'owner' | 'admin' | 'witness'
@@ -16,7 +39,7 @@ export type Role = 'owner' | 'admin' | 'witness'
 export const ROLE_LABELS: Readonly<Record<Role, string>> = {
   owner: 'Wahlleitung',
   admin: 'Co-Admin',
-  witness: 'Zeugin/Zeuge',
+  witness: 'Zeug:in',
 }
 
 export const RULESET_LABELS: Readonly<Record<RulesetId, string>> = {
@@ -25,8 +48,9 @@ export const RULESET_LABELS: Readonly<Record<RulesetId, string>> = {
   'single-choice-v1': 'Eine Stimme',
 }
 
+/** A round as a Wahlgang: on the cards, in the turnout, in the log. */
 export const ROUND_LABELS: Readonly<Record<RoundKind, string>> = {
-  regular: 'Wahl',
+  regular: '1. Wahlgang',
   runoff: 'Stichwahl',
 }
 
@@ -57,26 +81,26 @@ export interface Names {
 export function problemText(problem: Problem, names: Names): string {
   switch (problem.kind) {
     case 'no-contests':
-      return 'Die Wahl hat noch keine Wahlgänge.'
+      return 'Der Wahltermin hat noch keine Wahl.'
     case 'no-voter-groups':
-      return 'Die Wahl hat noch keine Klassen oder Gruppen.'
+      return 'Der Wahltermin hat noch keine Klassen oder Gruppen.'
     case 'contest-without-candidates':
-      return `Der Wahlgang „${names.contest(problem.contestId)}“ hat noch keine Kandidat:innen.`
+      return `Die Wahl „${names.contest(problem.contestId)}“ hat noch keine Kandidat:innen.`
     case 'contest-without-voter-groups':
-      return `Im Wahlgang „${names.contest(problem.contestId)}“ wählt noch keine Klasse oder Gruppe.`
+      return `In der Wahl „${names.contest(problem.contestId)}“ wählt noch keine Klasse oder Gruppe.`
     case 'voter-group-without-contests':
-      return `Die Klasse oder Gruppe „${names.group(problem.voterGroupId)}“ wählt in keinem Wahlgang.`
+      return `Die Klasse oder Gruppe „${names.group(problem.voterGroupId)}“ wählt in keiner Wahl.`
   }
 }
 
 export function warningText(warning: Warning): string {
   switch (warning.kind) {
     case 'no-co-admin':
-      return 'Es gibt noch keinen Co-Admin, der sich angemeldet hat.'
+      return 'Als Co-Admin hat sich noch niemand angemeldet.'
     case 'too-few-witnesses':
       return warning.witnesses === 0
-        ? 'Es hat sich noch keine Zeugin und kein Zeuge angemeldet; üblich sind zwei.'
-        : 'Es hat sich erst eine Zeugin oder ein Zeuge angemeldet; üblich sind zwei.'
+        ? 'Als Zeug:in hat sich noch niemand angemeldet; üblich sind zwei.'
+        : 'Als Zeug:in hat sich erst eine Person angemeldet; üblich sind zwei.'
     case 'pending-invitations':
       return warning.count === 1
         ? 'Eine Einladung ist noch offen: die Person hat sich noch nicht angemeldet.'
@@ -90,10 +114,10 @@ export function lockedText(state: ElectionState): string {
     case 'draft':
       return ''
     case 'prepared':
-      return 'Die Wahl ist vorbereitet: Aufbau und Zuordnung sind festgelegt. Für Änderungen daran zurück zum Entwurf.'
+      return 'Der Wahltermin ist vorbereitet: Aufbau und Zuordnung sind festgelegt. Für Änderungen daran zurück zum Entwurf.'
     case 'active':
-      return 'Die Wahl läuft: Kandidat:innen und Stimmkarten der ersten Runde sind festgelegt.'
+      return 'Die Stimmabgabe hat begonnen: Kandidat:innen und die Stimmkarten des 1. Wahlgangs sind festgelegt.'
     case 'final':
-      return 'Die Wahl ist abgeschlossen: nichts ändert sich mehr.'
+      return 'Das Ergebnis ist festgestellt: nichts ändert sich mehr.'
   }
 }

@@ -30,12 +30,12 @@ export const GENERAL_MESSAGE = 'Das hat nicht geklappt. Bitte versuchen Sie es n
 export const VOTER_MESSAGES: Readonly<Record<string, string>> = {
   unknown_key: 'Diesen Code gibt es nicht. Bitte vergleichen Sie Ihre Eingabe mit der Stimmkarte.',
   invalid_key: KEY_HINTS.check,
-  round_planned: 'Die Wahl hat noch nicht begonnen. Bitte versuchen Sie es später noch einmal.',
-  round_closed: 'Die Wahl ist beendet. Es können keine Stimmen mehr abgegeben werden.',
+  round_planned: 'Die Stimmabgabe hat noch nicht begonnen. Bitte versuchen Sie es später noch einmal.',
+  round_closed: 'Die Stimmabgabe ist beendet. Es können keine Stimmen mehr abgegeben werden.',
   rate_limited: 'Zu viele Versuche. Bitte warten Sie einen Moment und versuchen Sie es dann noch einmal.',
   no_session: 'Ihre Zeit ist abgelaufen. Bitte geben Sie den Code noch einmal ein.',
-  already_voted: 'In diesem Wahlgang wurde mit diesem Code schon abgestimmt.',
-  not_entitled: 'Mit diesem Code kann in diesem Wahlgang nicht abgestimmt werden.',
+  already_voted: 'In dieser Wahl wurde mit diesem Code schon abgestimmt.',
+  not_entitled: 'Mit diesem Code kann in dieser Wahl nicht abgestimmt werden.',
   invalid_ballot: 'Der Stimmzettel wurde nicht angenommen. Bitte prüfen Sie Ihre Auswahl noch einmal.',
   cross_site_request: 'Die Anfrage kam nicht von dieser Seite. Bitte öffnen Sie die Seite neu.',
   internal_error: GENERAL_MESSAGE,
@@ -85,10 +85,10 @@ export function candidateName(candidate: Pick<VoterCandidate, 'surname' | 'given
   return `${candidate.givenName} ${candidate.surname}`.trim()
 }
 
-/** "Noch 2 Wahlgänge offen.", "Noch 1 Wahlgang offen.", or that everything is cast. */
+/** "Noch 2 Wahlen offen.", "Noch 1 Wahl offen.", or that everything is cast. */
 export function remainingText(remaining: number): string {
-  if (remaining === 0) return 'Sie haben in allen Wahlgängen abgestimmt.'
-  return remaining === 1 ? 'Noch 1 Wahlgang offen.' : `Noch ${remaining} Wahlgänge offen.`
+  if (remaining === 0) return 'Sie haben in allen Wahlen abgestimmt.'
+  return remaining === 1 ? 'Noch 1 Wahl offen.' : `Noch ${remaining} Wahlen offen.`
 }
 
 /** "1 von 2 Zeilen ist leer", "2 von 3 Zeilen sind leer". */

@@ -44,7 +44,7 @@ test('a batch prints until its round opens, a runoff batch until the runoff is a
 })
 
 test('the labels and the typed address', () => {
-  assert.deepEqual(ROUND_LABELS, { regular: 'Wahl', runoff: 'Stichwahl' })
+  assert.deepEqual(ROUND_LABELS, { regular: '1. Wahlgang', runoff: 'Stichwahl' })
   assert.equal(voterAddress('https://wahl.example.org'), 'wahl.example.org/v')
   assert.equal(voterAddress('http://127.0.0.1:3100'), '127.0.0.1:3100/v')
   assert.equal(voterAddress('https://www.example.org/wahl'), 'www.example.org/wahl/v')

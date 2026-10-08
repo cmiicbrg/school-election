@@ -34,7 +34,7 @@ const plural = (n: number, one: string, many: string): string => (n === 1 ? `1 $
 
 /** The sentence of every action this version knows, from the event's metadata. */
 const SENTENCES: Readonly<Record<string, (metadata: Metadata, names: AuditNames) => string>> = {
-  'election.created': (metadata) => `Wahl „${text(metadata, 'title')}“ angelegt.`,
+  'election.created': (metadata) => `Wahltermin „${text(metadata, 'title')}“ angelegt.`,
   'election.updated': (metadata) => {
     const description = text(metadata, 'description')
     const quoted = description === '' ? 'keine' : `„${description}“`
@@ -43,9 +43,9 @@ const SENTENCES: Readonly<Record<string, (metadata: Metadata, names: AuditNames)
   'member.invited': (metadata) => `${text(metadata, 'email')} als ${role(metadata)} eingeladen.`,
   'member.bound': (metadata) => `${text(metadata, 'email')} hat sich angemeldet (${role(metadata)}).`,
   'member.removed': (metadata) => `${text(metadata, 'email')} (${role(metadata)}) entfernt.`,
-  'contest.created': (metadata) => `Wahlgang „${text(metadata, 'title')}“ angelegt: ${ruleset(metadata)}.`,
-  'contest.updated': (metadata) => `Wahlgang „${text(metadata, 'title')}“ geändert: ${ruleset(metadata)}.`,
-  'contest.removed': (metadata) => `Wahlgang „${text(metadata, 'title')}“ entfernt, mit ${plural(num(metadata, 'candidates'), 'Kandidat:in', 'Kandidat:innen')}.`,
+  'contest.created': (metadata) => `Wahl „${text(metadata, 'title')}“ angelegt: ${ruleset(metadata)}.`,
+  'contest.updated': (metadata) => `Wahl „${text(metadata, 'title')}“ geändert: ${ruleset(metadata)}.`,
+  'contest.removed': (metadata) => `Wahl „${text(metadata, 'title')}“ entfernt, mit ${plural(num(metadata, 'candidates'), 'Kandidat:in', 'Kandidat:innen')}.`,
   'candidate.added': (metadata, names) => `${person(metadata)} zu „${names.contest(text(metadata, 'contest'))}“ hinzugefügt.`,
   'candidate.renamed': (metadata) => `Kandidat:in umbenannt in ${person(metadata)}.`,
   'candidate.removed': (metadata) => `${person(metadata)} entfernt.`,
@@ -56,20 +56,20 @@ const SENTENCES: Readonly<Record<string, (metadata: Metadata, names: AuditNames)
   'voter-group.removed': (metadata) => `Klasse oder Gruppe „${text(metadata, 'name')}“ entfernt.`,
   'voter-group.contest-added': (metadata, names) => `„${names.group(text(metadata, 'group'))}“ wählt nun in „${names.contest(text(metadata, 'contest'))}“.`,
   'voter-group.contest-removed': (metadata, names) => `„${names.group(text(metadata, 'group'))}“ wählt nicht mehr in „${names.contest(text(metadata, 'contest'))}“.`,
-  'election.prepared': (metadata) => `Wahl vorbereitet: ${plural(num(metadata, 'contests'), 'Wahlgang', 'Wahlgänge')}, ${plural(num(metadata, 'voterGroups'), 'Klasse oder Gruppe', 'Klassen oder Gruppen')}, ${plural(num(metadata, 'candidates'), 'Kandidat:in', 'Kandidat:innen')}.`,
+  'election.prepared': (metadata) => `Wahltermin vorbereitet: ${plural(num(metadata, 'contests'), 'Wahl', 'Wahlen')}, ${plural(num(metadata, 'voterGroups'), 'Klasse oder Gruppe', 'Klassen oder Gruppen')}, ${plural(num(metadata, 'candidates'), 'Kandidat:in', 'Kandidat:innen')}.`,
   'election.unprepared': () => 'Zurück zum Entwurf.',
   'credential-batch.issued': (metadata, names) => `${plural(num(metadata, 'keys'), 'Stimmkarte', 'Stimmkarten')} (${round(metadata)}) für „${names.group(text(metadata, 'group'))}“ erzeugt.`,
   'credential-batch.replaced': (metadata, names) => `Stapel für „${names.group(text(metadata, 'group'))}“ (${round(metadata)}) ersetzt: ${plural(num(metadata, 'keys'), 'neue Stimmkarte', 'neue Stimmkarten')}, die alten ungültig.`,
   'credential-batch.voided': (metadata, names) => `${plural(num(metadata, 'keys'), 'Stimmkarte', 'Stimmkarten')} für „${names.group(text(metadata, 'group'))}“ ungültig gemacht.`,
   'test.started': () => 'Probelauf gestartet.',
-  'test.ended': (metadata) => `Probelauf beendet: ${plural(num(metadata, 'ballots'), 'Stimme', 'Stimmen')} entfernt, ${plural(num(metadata, 'keys'), 'Code', 'Codes')} wieder frei.`,
+  'test.ended': (metadata) => `Probelauf beendet: ${plural(num(metadata, 'ballots'), 'Stimmzettel', 'Stimmzettel')} entfernt, ${plural(num(metadata, 'keys'), 'Code', 'Codes')} wieder frei.`,
   'round.opened': (metadata) => `${round(metadata)} geöffnet.`,
-  'round.closed': (metadata) => `${round(metadata)} geschlossen und versiegelt: ${plural(num(metadata, 'ballots'), 'Stimme', 'Stimmen')}.`,
+  'round.closed': (metadata) => `${round(metadata)} beendet und versiegelt: ${plural(num(metadata, 'ballots'), 'Stimmzettel', 'Stimmzettel')}.`,
   'result.computed': (metadata, names) => `Ergebnis ausgezählt: „${names.contest(text(metadata, 'contest'))}“, ${round(metadata)}, ${plural(num(metadata, 'ballots'), 'Stimme', 'Stimmen')}: ${outcome(metadata)}. Prüfsumme der Auszählung: ${text(metadata, 'inputSha256')}.`,
   'lot.recorded': (metadata, names) => `Losentscheid für „${names.contest(text(metadata, 'contest'))}“ eingetragen: ${text(metadata, 'order').split(',').map(names.candidate).join(', ')}. Begründung: ${text(metadata, 'reason')}`,
   'runoff.pair': (metadata, names) => `Stichwahl in „${names.contest(text(metadata, 'contest'))}“: ${names.candidate(text(metadata, 'first'))} gegen ${names.candidate(text(metadata, 'second'))}.`,
-  'runoff.activated': (metadata) => `Stichwahl gestartet: ${plural(num(metadata, 'contests'), 'Wahlgang', 'Wahlgänge')}, ${plural(num(metadata, 'keys'), 'Stichwahl-Stimmkarte', 'Stichwahl-Stimmkarten')}.`,
-  'election.finalized': (metadata) => `Wahl abgeschlossen: ${num(metadata, 'resolved')} entschieden, ${num(metadata, 'unresolved')} offen. Begründung: ${text(metadata, 'reason')}`,
+  'runoff.activated': (metadata) => `Stichwahl gestartet: ${plural(num(metadata, 'contests'), 'Wahl', 'Wahlen')}, ${plural(num(metadata, 'keys'), 'Stichwahl-Stimmkarte', 'Stichwahl-Stimmkarten')}.`,
+  'election.finalized': (metadata) => `Ergebnis festgestellt: ${num(metadata, 'resolved')} entschieden, ${num(metadata, 'unresolved')} offen. Begründung: ${text(metadata, 'reason')}`,
   'export.generated': (metadata) => `Export erzeugt: ${num(metadata, 'bytes')} Bytes, SHA-256 ${text(metadata, 'sha256')}.`,
 }
 

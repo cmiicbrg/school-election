@@ -15,6 +15,7 @@ import { apiGet } from '../lib/api.ts'
 import { ApiError, errorMessage } from '../lib/api-rules.ts'
 import { ROUND_LABELS, RULESET_LABELS } from '../lib/labels.ts'
 import { dateTime, outcomeLine, positionLines, recordedLotLine, type Names } from '../lib/outcome-text.ts'
+import { usePageTitle } from '../lib/page-title.ts'
 import { statisticsTable, stepText } from '../lib/trace-text.ts'
 import type { Configuration, ContestResult, ElectionDetail, ElectionResult, Snapshot } from '../lib/types.ts'
 import { canShowResults, type RoundKind, type RulesetId } from '@school-election/election-core'
@@ -22,6 +23,7 @@ import { canShowResults, type RoundKind, type RulesetId } from '@school-election
 const props = defineProps<{ id: string }>()
 
 const election = ref<ElectionDetail>()
+usePageTitle(() => (election.value ? `Ergebnis: ${election.value.title}` : 'Ergebnis'))
 const configuration = ref<Configuration>()
 const result = ref<ElectionResult>()
 const error = ref<string | null>(null)
@@ -126,7 +128,7 @@ function ballotsText(snapshot: Snapshot): string {
     <h1>Ergebnis: {{ election.title }}</h1>
     <p class="muted">
       <RouterLink :to="`/wahlen/${election.id}`">
-        Zur Wahl
+        Zum Wahltermin
       </RouterLink>
       ·
       <RouterLink :to="`/wahlen/${election.id}/protokoll`">
@@ -138,20 +140,20 @@ function ballotsText(snapshot: Snapshot): string {
       class="muted"
       data-testid="early"
     >
-      Das Ergebnis gibt es, sobald die Wahl geschlossen ist. Solange eine Runde läuft, sieht niemand Zwischenstände.
+      Das Ergebnis gibt es, sobald der 1. Wahlgang beendet und ausgezählt ist. Solange ein Wahlgang läuft, sieht niemand Zwischenstände.
     </p>
     <template v-else-if="result">
       <p
         v-if="result.finalized"
         data-testid="finalized"
       >
-        <strong>Abgeschlossen am {{ dateTime(result.finalized.at) }} durch {{ result.finalized.actorName }}: {{ result.finalized.reason }}</strong>
+        <strong>Ergebnis festgestellt am {{ dateTime(result.finalized.at) }} durch {{ result.finalized.actorName }}: {{ result.finalized.reason }}</strong>
       </p>
       <p
         v-else
         class="muted"
       >
-        Das Ergebnis, wie es jetzt steht; die Wahl ist noch nicht abgeschlossen.
+        Das Ergebnis, wie es jetzt steht; es ist noch nicht endgültig festgestellt.
       </p>
       <article
         v-for="contest in result.contests"
