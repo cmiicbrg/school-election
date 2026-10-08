@@ -3,8 +3,12 @@
 // sign in with it (lib/members.ts), and grants nothing until then.
 //
 //   GET    /api/elections/:id/members             every member, pending or bound (any member)
-//   POST   /api/elections/:id/members             invite a co-admin or witness (owner)
-//   DELETE /api/elections/:id/members/:memberId   remove an invitation or a member (owner)
+//   POST   /api/elections/:id/members             invite a co-admin (owner) or a witness (owner, co-admin)
+//   DELETE /api/elections/:id/members/:memberId   remove a co-admin (owner) or a witness (owner, co-admin)
+//
+// The routes let in whoever may manage witnesses; whether the role at stake
+// is a co-admin's, which only the owner manages, is decided inside
+// (lib/members.ts), where the invitation's or the member's role is known.
 
 import type { FastifyInstance } from 'fastify'
 import { Type, type Static } from 'typebox'
@@ -40,7 +44,7 @@ export function memberRoutes(app: FastifyInstance, { db }: { db: Database }, don
   }, async (request) => listMembers(db, electionAccessOf(request).electionId))
 
   app.post<{ Body: Static<typeof InviteBody> }>('/api/elections/:id/members', {
-    onRequest: requireElectionAccess(db, 'manage-members', canManageMembers),
+    onRequest: requireElectionAccess(db, 'manage-witnesses', canManageMembers),
     schema: { body: InviteBody, response: { '201': Member, '4xx': ErrorResponse } },
   }, async (request, reply) => {
     const { email, role } = request.body
@@ -49,7 +53,7 @@ export function memberRoutes(app: FastifyInstance, { db }: { db: Database }, don
   })
 
   app.delete<{ Params: Static<typeof MemberParams> }>('/api/elections/:id/members/:memberId', {
-    onRequest: requireElectionAccess(db, 'manage-members', canManageMembers),
+    onRequest: requireElectionAccess(db, 'manage-witnesses', canManageMembers),
     schema: { params: MemberParams, response: { '4xx': ErrorResponse } },
   }, async (request, reply) => {
     await changeElection(db, request, (client, access) => removeMember(client, access, request.params.memberId))

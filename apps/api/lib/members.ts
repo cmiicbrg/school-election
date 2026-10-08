@@ -8,7 +8,7 @@ import type { EntraIdentity } from './app-user.ts'
 import { appendAudit, lockElections } from './audit.ts'
 import type { Database } from './db.ts'
 import { lifecycleOf, Refusal, ROUND_STATE_COLUMNS, ROUND_STATE_JOINS, type ElectionAccess } from './election-access.ts'
-import type { ElectionRole, InvitedRole } from './permissions.ts'
+import { isPermitted, type ElectionRole, type InvitedRole } from './permissions.ts'
 
 export interface Member {
   id: string
@@ -49,12 +49,18 @@ export async function listMembers(db: Pick<Database, 'query'>, electionId: strin
   return rows.map(toMember)
 }
 
+/** Whether the caller may invite or remove a member in `role`: witnesses with the route's permission, co-admins only as the owner. */
+function mayManage(access: ElectionAccess, role: InvitedRole): boolean {
+  return isPermitted(access.role, role === 'admin' ? 'manage-co-admins' : 'manage-witnesses')
+}
+
 /**
  * Invites a co-admin or witness, inside changeElection. An address that
  * already has an invitation in this election, or belongs to a member who
  * signed in with it, is refused (409 already_member).
  */
 export async function inviteMember(client: pg.ClientBase, access: ElectionAccess, email: string, role: InvitedRole): Promise<Member> {
+  if (!mayManage(access, role)) throw new Refusal(403, 'forbidden')
   const { rows } = await client.query<{ id: string }>(
     `insert into election_member (election_id, role, invited_email)
      select $1, $2, $3
@@ -82,6 +88,7 @@ export async function removeMember(client: pg.ClientBase, access: ElectionAccess
   const member = rows[0]
   if (!member) throw new Refusal(404, 'not_found')
   if (member.role === 'owner' || member.invited_email === null) throw new Refusal(409, 'owner_not_removable')
+  if (!mayManage(access, member.role)) throw new Refusal(403, 'forbidden')
   await client.query('delete from election_member where id = $1', [memberId])
   await appendAudit(client, access.electionId, {
     actor: access.actor,

@@ -45,7 +45,7 @@ test('create, invite, bind and remove: each change is audited in one chain that 
     role: 'owner',
     permissions: undefined,
   })
-  assert.ok(election.permissions.includes('manage-members'))
+  assert.ok(election.permissions.includes('manage-witnesses') && election.permissions.includes('manage-co-admins'))
   const id = election.id
 
   // Invited with the address as the owner typed it; Wanda's token has it in lowercase.
@@ -102,7 +102,7 @@ test('without an email claim the preferred username is matched; another address 
   const carla = await signIn(s, { ...CARLA, email: undefined, preferredUsername: 'Carla.Kollegin@schule.example.org' })
   const detail = (await carla.request('GET', `/api/elections/${id}`)).json<{ role: string, permissions: string[] }>()
   assert.equal(detail.role, 'admin')
-  assert.ok(!detail.permissions.includes('manage-members') && !detail.permissions.includes('finalize'))
+  assert.ok(detail.permissions.includes('manage-witnesses') && !detail.permissions.includes('manage-co-admins') && !detail.permissions.includes('finalize'))
 })
 
 test('a pending invitation grants nothing: someone already signed in gets access with their next sign-in', DB, async (t) => {
@@ -134,6 +134,27 @@ test('removal takes effect with the removed member\'s next request', DB, async (
   // Invited again, she is pending again until she signs in again.
   assert.equal((await invite(anna, id, CARLA.email, 'witness')).statusCode, 201)
   assert.equal((await carla.request('GET', `/api/elections/${id}`)).statusCode, 404)
+})
+
+test('a co-admin invites and removes witnesses, but co-admins only the owner', DB, async (t) => {
+  const s = await electionApp(t)
+  const anna = await signIn(s, ANNA)
+  const id = await createElection(anna)
+  assert.equal((await invite(anna, id, CARLA.email, 'admin')).statusCode, 201)
+  const bernd = (await invite(anna, id, BERND.email, 'admin')).json<MemberView>()
+  const carla = await signIn(s, CARLA)
+  const before = await auditActions(anna, id)
+
+  const wanda = await invite(carla, id, WANDA.email, 'witness')
+  assert.equal(wanda.statusCode, 201)
+  const coAdmin = await invite(carla, id, 'dora.kollegin@schule.example.org', 'admin')
+  assert.deepEqual([coAdmin.statusCode, coAdmin.json()], [403, { error: 'forbidden' }])
+  const removeCoAdmin = await carla.request('DELETE', `/api/elections/${id}/members/${bernd.id}`)
+  assert.deepEqual([removeCoAdmin.statusCode, removeCoAdmin.json()], [403, { error: 'forbidden' }])
+  assert.equal((await carla.request('DELETE', `/api/elections/${id}/members/${wanda.json<MemberView>().id}`)).statusCode, 204)
+
+  assert.deepEqual(await auditActions(anna, id), [...before, 'member.invited', 'member.removed'])
+  assert.deepEqual((await members(anna, id)).map((member) => member.role), ['owner', 'admin', 'admin'])
 })
 
 test('refused member changes: a second invitation, the owner, an unknown member, a bad address; none leaves an event', DB, async (t) => {

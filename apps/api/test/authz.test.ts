@@ -8,8 +8,8 @@ import { DB, withClient } from './helpers/db.ts'
 import { ANNA, auditActions, BERND, CARLA, createElection, electionApp, electionPath, forceElectionState, signIn, WANDA, type Browser } from './helpers/elections.ts'
 
 // Who may do what, read from the requirements rather than from the code:
-// the owner everything, a co-admin everything but members and finalizing,
-// a witness reading only.
+// the owner everything, a co-admin everything but co-admins, finalizing
+// and deleting, a witness reading only.
 const MATRIX: Record<ElectionAction, Record<ElectionRole, boolean>> = {
   'view': { owner: true, admin: true, witness: true },
   'view-results': { owner: true, admin: true, witness: true },
@@ -17,8 +17,8 @@ const MATRIX: Record<ElectionAction, Record<ElectionRole, boolean>> = {
   'prepare': { owner: true, admin: true, witness: false },
   'issue-keys': { owner: true, admin: true, witness: false },
   'run-rounds': { owner: true, admin: true, witness: false },
-  'enter-lot': { owner: true, admin: true, witness: false },
-  'manage-members': { owner: true, admin: false, witness: false },
+  'manage-witnesses': { owner: true, admin: true, witness: false },
+  'manage-co-admins': { owner: true, admin: false, witness: false },
   'finalize': { owner: true, admin: false, witness: false },
   'delete-election': { owner: true, admin: false, witness: false },
 }
@@ -123,7 +123,7 @@ test('teacher A can neither read nor change teacher B\'s election, and a guessed
   assert.deepEqual(await auditActions(anna, annas), ['election.created'])
 })
 
-test('a witness reads, but every change is 403 and leaves no event; without the teacher role nobody creates an election', DB, async (t) => {
+test('a witness reads, but every change is 403 and leaves no event, as is a co-admin inviting a co-admin; without the teacher role nobody creates an election', DB, async (t) => {
   const s = await electionApp(t)
   const anna = await signIn(s, ANNA)
   const id = await createElection(anna)
@@ -142,12 +142,13 @@ test('a witness reads, but every change is 403 and leaves no event; without the 
   const detail = (await wanda.request('GET', `/api/elections/${id}`)).json<{ role: string, permissions: string[] }>()
   assert.deepEqual([detail.role, detail.permissions], ['witness', ['view', 'view-results']])
 
-  for (const browser of [wanda, carla]) {
-    const invite = await browser.request('POST', `/api/elections/${id}/members`, { email: 'x@schule.example.org', role: 'witness' })
+  // A witness invites nobody, a co-admin no co-admin.
+  for (const [browser, role] of [[wanda, 'witness'], [carla, 'admin']] as const) {
+    const invite = await browser.request('POST', `/api/elections/${id}/members`, { email: 'x@schule.example.org', role })
     assert.deepEqual([invite.statusCode, invite.json()], [403, { error: 'forbidden' }])
-    const remove = await browser.request('DELETE', `/api/elections/${id}/members/${owner.id}`)
-    assert.deepEqual([remove.statusCode, remove.json()], [403, { error: 'forbidden' }])
   }
+  const remove = await wanda.request('DELETE', `/api/elections/${id}/members/${owner.id}`)
+  assert.deepEqual([remove.statusCode, remove.json()], [403, { error: 'forbidden' }])
   // An invalid body from someone not allowed to send one is still 403: the
   // guard runs before the body is read.
   assert.equal((await wanda.request('POST', `/api/elections/${id}/members`, { nonsense: true })).statusCode, 403)
@@ -174,7 +175,7 @@ test('a change checks access again under the election\'s lock: a removal or a st
   // A route whose guard passes, then something changes before the change runs.
   let meanwhile: () => Promise<unknown> = async () => {}
   s.app.post('/api/elections/:id/test-change', {
-    onRequest: requireElectionAccess(s.db, 'manage-members', canManageMembers),
+    onRequest: requireElectionAccess(s.db, 'manage-witnesses', canManageMembers),
     preHandler: async () => {
       await meanwhile()
     },

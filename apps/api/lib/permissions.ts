@@ -2,8 +2,10 @@
 // out. Whether the action is possible in the election's current state is
 // the lifecycle's question (election-core), asked after this one.
 //
-//   owner    everything: the teacher who created the election;
-//   admin    everything but managing members and finalizing: a co-admin;
+//   owner    everything: the teacher who created the election (the
+//            Wahlleitung);
+//   admin    everything but inviting and removing co-admins, finalizing
+//            and deleting: a co-admin, who may invite and remove witnesses;
 //   witness  reading only, results only once their round has closed (as
 //            for everyone: no role sees a result while voting is open).
 //
@@ -23,16 +25,16 @@ export const ELECTION_ACTIONS = [
   'configure', // title, description, contests, candidates, voter groups
   'prepare', // prepare and unprepare
   'issue-keys', // issue, top up and replace batches of keys, print their sheets
-  'run-rounds', // open and close rounds, activate the runoff
-  'enter-lot', // record the outcome of a lot the officials drew
-  'manage-members', // invite and remove co-admins and witnesses
+  'run-rounds', // open and close rounds, activate the runoff, record a lot the officials drew
+  'manage-witnesses', // invite and remove witnesses
+  'manage-co-admins', // invite and remove co-admins
   'finalize',
   'delete-election', // remove an election nobody used
 ] as const
 export type ElectionAction = typeof ELECTION_ACTIONS[number]
 
 const READ_ONLY: ReadonlySet<ElectionAction> = new Set(['view', 'view-results'])
-const OWNER_ONLY: ReadonlySet<ElectionAction> = new Set(['manage-members', 'finalize', 'delete-election'])
+const OWNER_ONLY: ReadonlySet<ElectionAction> = new Set(['manage-co-admins', 'finalize', 'delete-election'])
 
 export function isPermitted(role: ElectionRole, action: ElectionAction): boolean {
   switch (role) {
