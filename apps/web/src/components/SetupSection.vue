@@ -91,7 +91,9 @@ watch(() => props.configuration, (configuration) => {
   for (const group of configuration.voterGroups) {
     if (groupDrafts[group.id] === served.groups[group.id] || groupDrafts[group.id] === undefined) groupDrafts[group.id] = group.name
     served.groups[group.id] = group.name
-    votes[group.id] = [...group.contestIds]
+    // A reload another form started must not undo boxes whose own save is
+    // still on its way: the next click would send a list without them.
+    if (!pending.has(`votes:${group.id}`)) votes[group.id] = [...group.contestIds]
   }
 }, { immediate: true })
 
@@ -369,6 +371,12 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
           Wahl entfernen
         </button>
       </form>
+      <template v-else>
+        <h4>{{ contest.title }}</h4>
+        <p class="muted">
+          {{ RULESET_LABELS[contest.rulesetId] }}
+        </p>
+      </template>
       <p
         v-if="errors[`contest:${contest.id}`]"
         class="message error"
@@ -376,12 +384,6 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
       >
         {{ errors[`contest:${contest.id}`] }}
       </p>
-      <template v-else>
-        <h4>{{ contest.title }}</h4>
-        <p class="muted">
-          {{ RULESET_LABELS[contest.rulesetId] }}
-        </p>
-      </template>
 
       <ul
         class="plain candidates"
@@ -626,17 +628,17 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         </p>
       </fieldset>
       <p
+        v-else
+        class="muted"
+      >
+        Wählt in: {{ configuration.contests.filter((contest) => group.contestIds.includes(contest.id)).map((contest) => contest.title).join(', ') || '–' }}
+      </p>
+      <p
         v-if="errors[`votes:${group.id}`]"
         class="message error"
         role="alert"
       >
         {{ errors[`votes:${group.id}`] }}
-      </p>
-      <p
-        v-else
-        class="muted"
-      >
-        Wählt in: {{ configuration.contests.filter((contest) => group.contestIds.includes(contest.id)).map((contest) => contest.title).join(', ') || '–' }}
       </p>
     </article>
     <form

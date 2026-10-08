@@ -144,6 +144,9 @@ test('die Klassen und was sie wählen', async () => {
   await assignContest(page, '1A', CLASS_1A)
   await assignContest(page, '2B', SCHOOL)
   await expect(page.getByRole('article', { name: '2B', exact: true }).getByRole('checkbox', { name: CLASS_1A })).not.toBeChecked()
+  // While the draft is editable, only the forms show, not the read-only summaries beside them.
+  await expect(page.getByRole('article', { name: '1A', exact: true }).getByText(/^Wählt in:/)).toHaveCount(0)
+  await expect(contest(SCHOOL).getByRole('heading', { level: 4 })).toHaveCount(0)
   await expect(missing).toHaveCount(0)
   await shot(page, '05-klassen')
 
