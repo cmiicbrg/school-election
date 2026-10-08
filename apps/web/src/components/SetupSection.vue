@@ -150,10 +150,15 @@ async function run(key: string, action: () => Promise<unknown>, done: () => stri
   }
 }
 
-const saveElection = () => run('election', async () => {
-  await apiPatch(base.value, { title: draft.title, description: draft.description })
-  served.election = { title: draft.title, description: draft.description }
-}, () => 'Titel und Beschreibung gespeichert.')
+// Each save sends a copy of the form as it is now and records that copy as
+// stored: what is typed while it is on its way stays unsaved, and says so.
+const saveElection = () => {
+  const entered = { title: draft.title, description: draft.description }
+  return run('election', async () => {
+    await apiPatch(base.value, entered)
+    served.election = entered
+  }, () => 'Titel und Beschreibung gespeichert.')
+}
 const addContest = () => {
   const title = newContest.title
   return run('new-contest', async () => {
@@ -162,11 +167,11 @@ const addContest = () => {
   }, () => `Wahl „${title}“ hinzugefügt.`)
 }
 const saveContest = (contest: Contest) => {
-  const entered = contestDrafts[contest.id]
+  const entered = { ...(contestDrafts[contest.id] ?? { title: contest.title, rulesetId: contest.rulesetId }) }
   return run(`contest:${contest.id}`, async () => {
     await apiPatch(`${base.value}/contests/${contest.id}`, entered)
-    if (entered) served.contests[contest.id] = { ...entered }
-  }, () => `Wahl „${entered?.title ?? contest.title}“ gespeichert.`)
+    served.contests[contest.id] = entered
+  }, () => `Wahl „${entered.title}“ gespeichert.`)
 }
 const removeContest = (contest: Contest) =>
   run(`contest:${contest.id}`, () => apiDelete(`${base.value}/contests/${contest.id}`), () => `Wahl „${contest.title}“ entfernt.`)
@@ -178,11 +183,11 @@ const addCandidate = (contest: Contest) => {
   }, () => `${joined(entered)} hinzugefügt.`)
 }
 const saveCandidate = (candidate: Candidate) => {
-  const entered = candidateDrafts[candidate.id]
+  const entered = { ...(candidateDrafts[candidate.id] ?? { surname: candidate.surname, givenName: candidate.givenName }) }
   return run(`candidate:${candidate.id}`, async () => {
     await apiPatch(`${base.value}/candidates/${candidate.id}`, entered)
-    if (entered) served.candidates[candidate.id] = { ...entered }
-  }, () => `Name gespeichert: ${joined(entered ?? candidate)}.`)
+    served.candidates[candidate.id] = entered
+  }, () => `Name gespeichert: ${joined(entered)}.`)
 }
 const removeCandidate = (candidate: Candidate) =>
   run(`candidate:${candidate.id}`, () => apiDelete(`${base.value}/candidates/${candidate.id}`), () => `${fullName(candidate)} entfernt.`)

@@ -1,18 +1,18 @@
 <script setup lang="ts">
-// The toasts of lib/toast.ts, in one polite live region that is on the
-// page from the start: a region that appeared together with its text
-// would often not be read out. A toast can be dismissed; it also goes by
-// itself after a few seconds.
+// The toasts of lib/toast.ts, in one polite live region (an <output>, a
+// status for assistive technology) that is on the page from the start: a
+// region that appeared together with its text would often not be read
+// out. A toast can be dismissed; it also goes by itself after a few
+// seconds.
 import { dismiss, toasts } from '../lib/toast.ts'
 </script>
 
 <template>
-  <div
+  <output
     class="toasts"
-    role="status"
     aria-live="polite"
   >
-    <p
+    <span
       v-for="toast in toasts"
       :key="toast.id"
       class="toast"
@@ -26,8 +26,8 @@ import { dismiss, toasts } from '../lib/toast.ts'
       >
         Ausblenden
       </button>
-    </p>
-  </div>
+    </span>
+  </output>
 </template>
 
 <style scoped>
