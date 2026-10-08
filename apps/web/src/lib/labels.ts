@@ -43,6 +43,12 @@ export const ROLE_LABELS: Readonly<Record<Role, string>> = {
   witness: 'Zeug:in',
 }
 
+/** What an invited member may do, said where they are invited. */
+export const ROLE_DESCRIPTIONS: Readonly<Record<Exclude<Role, 'owner'>, string>> = {
+  admin: 'Richtet ein, lädt Zeug:innen ein und führt durch den Wahltag; das Ergebnis stellt nur die Wahlleitung fest.',
+  witness: 'Sieht alles, ändert nichts; die Stimmkarten erst, wenn ihr Wahlgang beendet ist.',
+}
+
 export const RULESET_LABELS: Readonly<Record<RulesetId, string>> = {
   'at-school-speaker-v1': 'Schulsprecherwahl: sechs Reihungen, 6 bis 1 Punkt',
   'at-representative-v1': 'Vertretung und Stellvertretung: zwei Reihungen, 2 und 1 Punkt',

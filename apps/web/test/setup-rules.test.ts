@@ -6,8 +6,8 @@ import { lockedText, MEMBER_STATUS_LABELS, problemText, ROLE_LABELS, ROUND_LABEL
 import { isPresetId, PRESETS } from '../src/lib/presets.ts'
 import { mayReadKeys, setupRules, type Permission } from '../src/lib/setup-rules.ts'
 
-const OWNER: Permission[] = ['view', 'view-results', 'configure', 'prepare', 'issue-keys', 'run-rounds', 'enter-lot', 'manage-members', 'finalize']
-const ADMIN: Permission[] = OWNER.filter((permission) => permission !== 'manage-members' && permission !== 'finalize')
+const OWNER: Permission[] = ['view', 'view-results', 'configure', 'prepare', 'issue-keys', 'run-rounds', 'manage-witnesses', 'manage-co-admins', 'finalize']
+const ADMIN: Permission[] = OWNER.filter((permission) => permission !== 'manage-co-admins' && permission !== 'finalize')
 const WITNESS: Permission[] = ['view', 'view-results']
 
 const DRAFT: Lifecycle = NEW_ELECTION
@@ -16,36 +16,37 @@ const ACTIVE: Lifecycle = { election: 'active', regular: 'open', runoff: null }
 const CLOSED: Lifecycle = { election: 'active', regular: 'closed', runoff: null }
 const FINAL: Lifecycle = { election: 'final', regular: 'closed', runoff: null }
 
-test('the owner may change the structure in a draft only, candidates until voting starts, members until final, and keys from prepared until the round opens', () => {
+test('the owner may change the structure in a draft only, candidates until voting starts, witnesses and co-admins until final, and keys from prepared until the round opens', () => {
   const draft = setupRules(DRAFT, OWNER)
   assert.deepEqual(draft, {
-    structure: true, candidates: true, members: true, prepare: true, unprepare: false,
+    structure: true, candidates: true, witnesses: true, coAdmins: true, prepare: true, unprepare: false,
     issue: { regular: false, runoff: false }, replace: { regular: false, runoff: false },
   })
   const prepared = setupRules(PREPARED, OWNER)
   assert.deepEqual(prepared, {
-    structure: false, candidates: true, members: true, prepare: false, unprepare: true,
+    structure: false, candidates: true, witnesses: true, coAdmins: true, prepare: false, unprepare: true,
     issue: { regular: true, runoff: true }, replace: { regular: true, runoff: true },
   })
   const active = setupRules(ACTIVE, OWNER)
   assert.deepEqual(active, {
-    structure: false, candidates: false, members: true, prepare: false, unprepare: false,
+    structure: false, candidates: false, witnesses: true, coAdmins: true, prepare: false, unprepare: false,
     issue: { regular: false, runoff: true }, replace: { regular: false, runoff: true },
   })
   assert.deepEqual(setupRules(CLOSED, OWNER).issue, { regular: false, runoff: true })
   assert.deepEqual(setupRules(FINAL, OWNER), {
-    structure: false, candidates: false, members: false, prepare: false, unprepare: false,
+    structure: false, candidates: false, witnesses: false, coAdmins: false, prepare: false, unprepare: false,
     issue: { regular: false, runoff: false }, replace: { regular: false, runoff: false },
   })
 })
 
-test('a co-admin may do everything but manage members; a witness may do nothing', () => {
+test('a co-admin may do everything but manage co-admins; a witness may do nothing', () => {
   const admin = setupRules(PREPARED, ADMIN)
-  assert.equal(admin.members, false)
-  assert.deepEqual({ ...admin, members: true }, setupRules(PREPARED, OWNER))
+  assert.equal(admin.witnesses, true)
+  assert.deepEqual({ ...admin, coAdmins: true }, setupRules(PREPARED, OWNER))
+  assert.equal(setupRules(FINAL, ADMIN).witnesses, false)
   for (const lifecycle of [DRAFT, PREPARED, ACTIVE, FINAL]) {
     assert.deepEqual(setupRules(lifecycle, WITNESS), {
-      structure: false, candidates: false, members: false, prepare: false, unprepare: false,
+      structure: false, candidates: false, witnesses: false, coAdmins: false, prepare: false, unprepare: false,
       issue: { regular: false, runoff: false }, replace: { regular: false, runoff: false },
     })
   }
