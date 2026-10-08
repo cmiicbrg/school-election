@@ -128,6 +128,32 @@ test('ein zweiter Wahlgang mit zwei Kandidat:innen', async () => {
   expect(await listed(CLASS_1A)).toEqual(['Lena Bauer', 'Max Fuchs'])
 })
 
+test('Entfernen fragt zuerst und nennt, was mitgeht', async () => {
+  const form = page.getByRole('form', { name: 'Wahl hinzufügen' })
+  await form.getByLabel('Titel der neuen Wahl').fill('Probewahl')
+  await form.getByRole('button', { name: 'Wahl hinzufügen' }).click()
+  await expect(toast('Wahl „Probewahl“ hinzugefügt.')).toBeVisible()
+  await addCandidate('Probewahl', 'Person', 'Test')
+
+  // Cancelled: nothing happens, and the focus is back on the button that asked.
+  const remove = candidates('Probewahl').getByRole('button', { name: 'Entfernen: Test Person' })
+  await remove.click()
+  const asked = page.getByRole('group', { name: 'Entfernen bestätigen: Test Person' })
+  await expect(asked).toContainText('Test Person entfernen?')
+  await expect(asked.getByRole('button', { name: 'Abbrechen' })).toBeFocused()
+  await asked.getByRole('button', { name: 'Abbrechen' }).click()
+  await expect(asked).toHaveCount(0)
+  await expect(remove).toBeFocused()
+
+  // Confirmed: the contest goes with its candidate, as the question said.
+  await contest('Probewahl').getByRole('button', { name: 'Wahl entfernen: Probewahl' }).click()
+  const contestAsked = page.getByRole('group', { name: 'Entfernen bestätigen: Probewahl' })
+  await expect(contestAsked).toContainText('Wahl „Probewahl“ mit 1 Kandidat:in entfernen?')
+  await contestAsked.getByRole('button', { name: 'Ja, entfernen' }).click()
+  await expect(toast('Wahl „Probewahl“ entfernt.')).toBeVisible()
+  await expect(contest('Probewahl')).toHaveCount(0)
+})
+
 test('die Klassen und was sie wählen', async () => {
   const form = page.getByRole('form', { name: 'Klasse oder Gruppe hinzufügen' })
   for (const name of ['1A', '2B']) {

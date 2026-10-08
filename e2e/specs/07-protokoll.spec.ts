@@ -20,10 +20,11 @@ test('die Protokollkette stimmt und zählt genau die Schritte der Journey', asyn
   const counts = new Map<string, number>()
   for (const event of audit.events) counts.set(event.action, (counts.get(event.action) ?? 0) + 1)
   expect(Object.fromEntries([...counts].toSorted())).toEqual({
-    'candidate.added': 5,
+    'candidate.added': 6,
     'candidate.picture-set': 1,
     'candidate.renamed': 1,
-    'contest.created': 2,
+    'contest.created': 3,
+    'contest.removed': 1,
     'credential-batch.issued': 3,
     'credential-batch.replaced': 1,
     'credential-batch.voided': 1,

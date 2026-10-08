@@ -53,6 +53,18 @@ test('die Zeugin meldet sich an, sieht die Wahl ohne Bedienelemente, und steht b
   await expect(list(anna)).toContainText('Wanda Zeugin · Zeug:in · angemeldet · wanda.zeugin@schule.example.org')
 })
 
+test('Entfernen fragt zuerst; abgebrochen bleibt, wer eingeladen ist', async () => {
+  const remove = list(anna).getByRole('button', { name: 'Entfernen: Wanda Zeugin' })
+  await remove.click()
+  const asked = list(anna).getByRole('group', { name: 'Entfernen bestätigen: Wanda Zeugin' })
+  await expect(asked).toContainText('Wanda Zeugin (Zeug:in) entfernen?')
+  await expect(asked.getByRole('button', { name: 'Abbrechen' })).toBeFocused()
+  await asked.getByRole('button', { name: 'Abbrechen' }).click()
+  await expect(asked).toHaveCount(0)
+  await expect(remove).toBeFocused()
+  await expect(list(anna)).toContainText('Wanda Zeugin · Zeug:in · angemeldet')
+})
+
 test('der Co-Admin meldet sich an und darf einrichten, aber keine Mitglieder verwalten', async ({ browser }) => {
   const carla = await (await browser.newContext()).newPage()
   await openAs(carla, CARLA, `/wahlen/${electionId()}`)
