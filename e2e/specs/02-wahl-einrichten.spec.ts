@@ -40,14 +40,12 @@ async function addCandidate(title: string, surname: string, givenName: string): 
   await form.getByLabel('Nachname').fill(surname)
   await form.getByLabel('Vorname').fill(givenName)
   await form.getByRole('button', { name: 'Kandidat:in hinzufügen' }).click()
-  await expect(candidates(title).getByRole('button', { name: `Speichern: ${givenName} ${surname}` })).toBeVisible()
+  await expect(candidates(title).getByRole('listitem', { name: `${givenName} ${surname}`, exact: true })).toBeVisible()
 }
 
-/** The candidates of a contest in the order the page lists them, by the name on their "Speichern" button. */
+/** The candidates of a contest in the order the page lists them, by the name each row carries. */
 async function listed(title: string): Promise<string[]> {
-  const names = await candidates(title).getByRole('button', { name: /^Speichern: / }).evaluateAll((buttons) =>
-    buttons.map((button) => button.getAttribute('aria-label') ?? ''))
-  return names.map((name) => name.replace('Speichern: ', ''))
+  return candidates(title).getByRole('listitem').evaluateAll((rows) => rows.map((row) => row.getAttribute('aria-label') ?? ''))
 }
 
 test('eine neue Wahl aus der Vorlage Schulsprecherwahl', async () => {
@@ -71,7 +69,7 @@ test('Kandidat:innen, in der Reihenfolge des Stimmzettels, eine mit Foto', async
   await addCandidate(SCHOOL, 'Huber', 'Quirin')
   expect(await listed(SCHOOL)).toEqual(['Paula Berger', 'Quirin Huber', 'Renate Wagner'])
 
-  const paula = candidates(SCHOOL).getByRole('listitem').filter({ has: page.getByRole('button', { name: 'Speichern: Paula Berger' }) })
+  const paula = candidates(SCHOOL).getByRole('listitem', { name: 'Paula Berger', exact: true })
   await paula.locator('input[type="file"]').setInputFiles({ name: 'paula.png', mimeType: 'image/png', buffer: photo() })
   await expect(paula.locator('img[src*="/picture/"]')).toBeVisible()
   await expect(paula.getByRole('group', { name: 'Bild von Paula Berger' }).getByRole('status')).toHaveText('Bild gespeichert.')
@@ -89,11 +87,26 @@ test('Kandidat:innen, in der Reihenfolge des Stimmzettels, eine mit Foto', async
   await shot(page, '04-kandidatinnen')
 })
 
-test('ein geänderter Name sagt, dass er noch nicht gespeichert ist, und eine Meldung bestätigt jedes Speichern', async () => {
-  const renate = candidates(SCHOOL).getByRole('listitem').filter({ has: page.getByRole('button', { name: 'Speichern: Renate Wagner' }) })
+test('ein Name speichert sich beim Verlassen des Felds; was abgewiesen wird, bleibt ungespeichert, und Weggehen fragt', async () => {
+  const renate = candidates(SCHOOL).getByRole('listitem', { name: 'Renate Wagner', exact: true })
   await renate.getByLabel('Vorname').fill('Renata')
   await expect(renate.getByText('Nicht gespeichert')).toBeVisible()
-  // Leaving now would lose it: the page asks, and staying keeps everything as typed.
+  // Leaving the field saves it, and the focus stays where Tab took it while the page reads everything again.
+  await renate.getByLabel('Vorname').press('Tab')
+  await expect(toast('Name gespeichert: Renata Wagner.')).toBeVisible()
+  const renata = candidates(SCHOOL).getByRole('listitem', { name: 'Renata Wagner', exact: true })
+  await expect(renata.getByText('Gespeichert', { exact: true })).toBeVisible()
+  await expect(renata.getByRole('button', { name: 'Entfernen: Renata Wagner' })).toBeFocused()
+  // Enter saves as well.
+  await renata.getByLabel('Vorname').fill('Renate')
+  await renata.getByLabel('Vorname').press('Enter')
+  await expect(toast('Name gespeichert: Renate Wagner.')).toBeVisible()
+
+  // A refused change stays unsaved, next to its reason, and leaving the page now asks first.
+  await renate.getByLabel('Nachname').fill('')
+  await refused(page, 400, () => renate.getByLabel('Nachname').press('Tab'))
+  await expect(renate.getByRole('alert')).toContainText('Die Eingabe ist unvollständig oder zu lang.')
+  await expect(renate.getByRole('button', { name: 'Noch einmal' })).toBeVisible()
   // The click waits for the question to be answered, so the answer is set up before it.
   let asked = ''
   page.once('dialog', (dialog) => {
@@ -103,13 +116,11 @@ test('ein geänderter Name sagt, dass er noch nicht gespeichert ist, und eine Me
   await page.getByRole('navigation', { name: 'Seiten des Wahltermins' }).getByRole('link', { name: 'Protokoll' }).click()
   expect(asked).toBe('Es gibt Änderungen, die noch nicht gespeichert sind. Seite trotzdem verlassen?')
   await expect(page).toHaveURL(urlOf(`/wahlen/${electionId()}`))
-  await expect(renate.getByLabel('Vorname')).toHaveValue('Renata')
-  await renate.getByLabel('Vorname').fill('Renate')
+  // Put back as stored: nothing is left to save, and the refusal no longer applies.
+  await renate.getByLabel('Nachname').fill('Wagner')
+  await renate.getByLabel('Nachname').press('Tab')
+  await expect(renate.getByRole('alert')).toHaveCount(0)
   await expect(renate.getByText('Nicht gespeichert')).toHaveCount(0)
-  // Saved as it is: the page confirms it, and the server writes nothing, since nothing changed.
-  await page.getByRole('button', { name: 'Titel und Beschreibung speichern' }).click()
-  await expect(toast('Titel und Beschreibung gespeichert.')).toBeVisible()
-  await expect(page.getByText('Gespeichert', { exact: true })).toBeVisible()
 })
 
 test('falsche Eingaben ändern nichts: ein doppelter Name wird abgewiesen', async () => {
