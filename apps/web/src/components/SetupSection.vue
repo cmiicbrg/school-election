@@ -10,7 +10,14 @@
 // only its own controls wait; a refusal shows next to it; a form whose
 // fields differ from what the server said last says "Nicht gespeichert",
 // and one saved since its last edit says "Gespeichert". A change that went
-// through is confirmed by a toast. Removing anything asks first, in place,
+// through is confirmed by a toast.
+//
+// Fields save themselves: a text field when it is left or Enter is
+// pressed, a choice when it is made, and only when the form differs from
+// what the server said last. Creating something and removing it stay
+// explicit. The buttons that ask before a removal stay enabled while
+// their form saves, since leaving a field for them starts that save and a
+// disabled button would drop the focus; their "Ja, entfernen" waits. Removing anything asks first, in place,
 // naming what goes with it.
 
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue'
@@ -140,6 +147,44 @@ onBeforeRouteLeave(() => !unsaved.value || window.confirm(LEAVE_QUESTION))
 // Another termin on the same page (the browser's history can jump there) reuses this page and clears it.
 onBeforeRouteUpdate((to, from) => to.params.id === from.params.id || !unsaved.value || window.confirm(LEAVE_QUESTION))
 
+/** The save to repeat for a form whose last save was refused, offered as "Noch einmal". */
+const retries = reactive(new Map<string, () => void>())
+/** Forms changed again while their save was on its way: saved once more when it is done. */
+const again = new Set<string>()
+
+/**
+ * Saves a form if its fields differ from what the server said last: one
+ * save at a time per form, and a change made meanwhile right after it. A
+ * form put back to what is stored has nothing to save, and an earlier
+ * refusal no longer applies to it.
+ */
+async function autoSave(key: string, dirty: () => boolean, save: () => Promise<void>): Promise<void> {
+  if (!dirty()) {
+    delete errors[key]
+    retries.delete(key)
+    return
+  }
+  if (pending.has(key)) {
+    again.add(key)
+    return
+  }
+  retries.delete(key)
+  await save()
+  if (errors[key]) retries.set(key, () => void autoSave(key, dirty, save))
+  else if (again.delete(key)) await autoSave(key, dirty, save)
+}
+
+// A saved name can move its row to its alphabetical place, which takes the
+// focus out of the field that had it; it is given back.
+watch(() => props.configuration, () => {
+  const id = document.activeElement?.id
+  if (!id) return
+  void nextTick(() => {
+    const field = document.getElementById(id)
+    if (field && document.activeElement !== field) field.focus()
+  })
+})
+
 /** Runs a form's change; a change that went through is confirmed with `done` and the page reads everything again. */
 async function run(key: string, action: () => Promise<unknown>, done: () => string): Promise<void> {
   pending.add(key)
@@ -157,7 +202,8 @@ async function run(key: string, action: () => Promise<unknown>, done: () => stri
 }
 
 // Each save sends a copy of the form as it is now and records that copy as
-// stored: what is typed while it is on its way stays unsaved, and says so.
+// stored: what is typed while it is on its way stays unsaved, and is saved
+// next (autoSave).
 const saveElection = () => {
   const entered = { title: draft.title, description: draft.description }
   return run('election', async () => {
@@ -211,6 +257,10 @@ const saveGroup = (group: VoterGroup) => {
     served.groups[group.id] = entered
   }, () => `Name gespeichert: „${entered}“.`)
 }
+const saveElectionField = () => autoSave('election', electionDirty, saveElection)
+const saveContestField = (contest: Contest) => autoSave(`contest:${contest.id}`, () => contestDirty(contest.id), () => saveContest(contest))
+const saveCandidateField = (candidate: Candidate) => autoSave(`candidate:${candidate.id}`, () => candidateDirty(candidate.id), () => saveCandidate(candidate))
+const saveGroupField = (group: VoterGroup) => autoSave(`group:${group.id}`, () => groupDirty(group.id), () => saveGroup(group))
 const removeGroup = (group: VoterGroup) =>
   run(`group:${group.id}`, () => apiDelete(`${base.value}/voter-groups/${group.id}`), () => `„${group.name}“ entfernt.`)
 
@@ -223,6 +273,7 @@ async function setVotes(group: VoterGroup, contest: Contest, checked: boolean): 
   delete errors[key]
   try {
     await apiPut(`${base.value}/voter-groups/${group.id}/contests`, { contestIds: after })
+    saved.add(key)
     notify(checked ? `„${group.name}“ wählt jetzt in „${contest.title}“.` : `„${group.name}“ wählt nicht mehr in „${contest.title}“.`)
     emit('changed')
   } catch (err) {
@@ -317,7 +368,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
     <h3>Wahltermin</h3>
     <form
       v-if="rules.candidates"
-      @submit.prevent="saveElection"
+      @submit.prevent="saveElectionField"
     >
       <label :for="ids.title">Titel</label>
       <input
@@ -326,28 +377,30 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         type="text"
         required
         maxlength="200"
+        @change="saveElectionField"
       >
       <label :for="ids.description">Beschreibung</label>
       <textarea
         :id="ids.description"
         v-model="draft.description"
         maxlength="2000"
+        @change="saveElectionField"
       />
-      <div class="actions">
-        <button
-          type="submit"
-          :disabled="pending.has('election')"
-        >
-          Titel und Beschreibung speichern
-        </button>
-        <SaveState :state="saveState('election', electionDirty())" />
-      </div>
+      <SaveState :state="saveState('election', electionDirty())" />
       <p
         v-if="errors.election"
         class="message error"
         role="alert"
       >
         {{ errors.election }}
+        <button
+          v-if="retries.has('election')"
+          type="button"
+          class="link"
+          @click="retries.get('election')?.()"
+        >
+          Noch einmal
+        </button>
       </p>
     </form>
     <template v-else>
@@ -370,7 +423,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
       <form
         v-if="rules.structure && contestDrafts[contest.id]"
         class="row"
-        @submit.prevent="saveContest(contest)"
+        @submit.prevent="saveContestField(contest)"
       >
         <div>
           <label :for="`contest-title-${contest.id}`">Titel der Wahl</label>
@@ -380,6 +433,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
             type="text"
             required
             maxlength="200"
+            @change="saveContestField(contest)"
           >
         </div>
         <div>
@@ -387,6 +441,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
           <select
             :id="`contest-ruleset-${contest.id}`"
             v-model="contestDrafts[contest.id]!.rulesetId"
+            @change="saveContestField(contest)"
           >
             <option
               v-for="rulesetId in RULESET_IDS"
@@ -397,20 +452,11 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
             </option>
           </select>
         </div>
-        <button
-          type="submit"
-          class="secondary"
-          :disabled="pending.has(`contest:${contest.id}`)"
-          :aria-label="`Speichern: ${contest.title}`"
-        >
-          Speichern
-        </button>
         <SaveState :state="saveState(`contest:${contest.id}`, contestDirty(contest.id))" />
         <button
           v-if="confirming !== `contest:${contest.id}`"
           type="button"
           class="danger"
-          :disabled="pending.has(`contest:${contest.id}`)"
           :aria-label="`Wahl entfernen: ${contest.title}`"
           :data-remove="`contest:${contest.id}`"
           @click="ask(`contest:${contest.id}`)"
@@ -453,6 +499,14 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         role="alert"
       >
         {{ errors[`contest:${contest.id}`] }}
+        <button
+          v-if="retries.has(`contest:${contest.id}`)"
+          type="button"
+          class="link"
+          @click="retries.get(`contest:${contest.id}`)?.()"
+        >
+          Noch einmal
+        </button>
       </p>
 
       <ul
@@ -463,6 +517,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
           v-for="candidate in contest.candidates"
           :key="candidate.id"
           class="candidate"
+          :aria-label="fullName(candidate)"
         >
           <CandidatePicture
             :name="fullName(candidate)"
@@ -476,7 +531,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
           <form
             v-if="rules.candidates && candidateDrafts[candidate.id]"
             class="row"
-            @submit.prevent="saveCandidate(candidate)"
+            @submit.prevent="saveCandidateField(candidate)"
           >
             <div>
               <label :for="`candidate-surname-${candidate.id}`">Nachname</label>
@@ -486,6 +541,8 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
                 type="text"
                 required
                 maxlength="100"
+                @change="saveCandidateField(candidate)"
+                @keydown.enter.prevent="saveCandidateField(candidate)"
               >
             </div>
             <div>
@@ -495,22 +552,15 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
                 v-model="candidateDrafts[candidate.id]!.givenName"
                 type="text"
                 maxlength="100"
+                @change="saveCandidateField(candidate)"
+                @keydown.enter.prevent="saveCandidateField(candidate)"
               >
             </div>
-            <button
-              type="submit"
-              class="secondary"
-              :disabled="pending.has(`candidate:${candidate.id}`)"
-              :aria-label="`Speichern: ${fullName(candidate)}`"
-            >
-              Speichern
-            </button>
             <SaveState :state="saveState(`candidate:${candidate.id}`, candidateDirty(candidate.id))" />
             <button
               v-if="(rules.structure || contest.candidates.length > 1) && confirming !== `candidate:${candidate.id}`"
               type="button"
               class="danger"
-              :disabled="pending.has(`candidate:${candidate.id}`)"
               :aria-label="`Entfernen: ${fullName(candidate)}`"
               :data-remove="`candidate:${candidate.id}`"
               @click="ask(`candidate:${candidate.id}`)"
@@ -550,6 +600,14 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
             role="alert"
           >
             {{ errors[`candidate:${candidate.id}`] }}
+            <button
+              v-if="retries.has(`candidate:${candidate.id}`)"
+              type="button"
+              class="link"
+              @click="retries.get(`candidate:${candidate.id}`)?.()"
+            >
+              Noch einmal
+            </button>
           </p>
         </li>
       </ul>
@@ -658,7 +716,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
       <form
         v-if="rules.structure"
         class="row"
-        @submit.prevent="saveGroup(group)"
+        @submit.prevent="saveGroupField(group)"
       >
         <div>
           <label :for="`group-name-${group.id}`">Name</label>
@@ -668,22 +726,14 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
             type="text"
             required
             maxlength="100"
+            @change="saveGroupField(group)"
           >
         </div>
-        <button
-          type="submit"
-          class="secondary"
-          :disabled="pending.has(`group:${group.id}`)"
-          :aria-label="`Speichern: ${group.name}`"
-        >
-          Speichern
-        </button>
         <SaveState :state="saveState(`group:${group.id}`, groupDirty(group.id))" />
         <button
           v-if="confirming !== `group:${group.id}`"
           type="button"
           class="danger"
-          :disabled="pending.has(`group:${group.id}`)"
           :aria-label="`Entfernen: ${group.name}`"
           :data-remove="`group:${group.id}`"
           @click="ask(`group:${group.id}`)"
@@ -723,6 +773,14 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         role="alert"
       >
         {{ errors[`group:${group.id}`] }}
+        <button
+          v-if="retries.has(`group:${group.id}`)"
+          type="button"
+          class="link"
+          @click="retries.get(`group:${group.id}`)?.()"
+        >
+          Noch einmal
+        </button>
       </p>
       <fieldset v-if="rules.structure">
         <legend>Wählt in</legend>
@@ -745,6 +803,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         >
           Zuerst Wahlen anlegen.
         </p>
+        <SaveState :state="saveState(`votes:${group.id}`, false)" />
       </fieldset>
       <p
         v-else
