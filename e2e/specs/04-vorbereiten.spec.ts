@@ -26,7 +26,7 @@ test('die Zusammenfassung zeigt, wer wo wählt, und weist auf die fehlende zweit
   await expect(prepare.getByRole('table').first()).toContainText('1A')
   await expect(prepare.getByRole('table').first()).toContainText('Klassensprecher/in 1A, Schulsprecher/in')
   await expect(prepare.getByRole('table').nth(1)).toContainText('Schulsprecher/in')
-  await expect(prepare.getByRole('list', { name: 'Hinweise' })).toContainText('erst eine Zeugin oder ein Zeuge angemeldet')
+  await expect(prepare.getByRole('list', { name: 'Hinweise' })).toContainText('Als Zeug:in hat sich erst eine Person angemeldet')
   await expect(prepare.getByRole('list', { name: 'Was noch fehlt' })).toHaveCount(0)
   await shot(page, '08-vorbereiten')
 })
@@ -34,9 +34,9 @@ test('die Zusammenfassung zeigt, wer wo wählt, und weist auf die fehlende zweit
 test('Vorbereiten legt den Aufbau fest; Namen bleiben änderbar', async () => {
   await page.getByRole('button', { name: 'Vorbereiten', exact: true }).click()
   await expect(page.getByText(/^Vorbereitet · Ihre Rolle/)).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Wahlgang hinzufügen' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Wahl hinzufügen' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Klasse oder Gruppe hinzufügen' })).toHaveCount(0)
-  await expect(page.getByText('Die Wahl ist vorbereitet: Aufbau und Zuordnung sind festgelegt.')).toBeVisible()
+  await expect(page.getByText('Der Wahltermin ist vorbereitet: Aufbau und Zuordnung sind festgelegt.')).toBeVisible()
 
   const quirin = page.getByRole('listitem').filter({ has: page.getByRole('button', { name: 'Speichern: Quirin Huber' }) })
   await quirin.getByLabel('Nachname').fill('  Huber-Mayer ')
@@ -49,7 +49,7 @@ test('Vorbereiten legt den Aufbau fest; Namen bleiben änderbar', async () => {
 test('zurück zum Entwurf und wieder vorbereiten', async () => {
   await page.getByRole('button', { name: 'Zurück zum Entwurf' }).click()
   await expect(page.getByText(/^Entwurf · Ihre Rolle/)).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Wahlgang hinzufügen' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Wahl hinzufügen' })).toBeVisible()
   await page.getByRole('button', { name: 'Vorbereiten', exact: true }).click()
   await expect(page.getByText(/^Vorbereitet · Ihre Rolle/)).toBeVisible()
 })

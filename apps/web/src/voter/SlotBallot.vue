@@ -73,10 +73,10 @@ function review(): void {
       {{ contest.title }}
     </h1>
     <p v-if="single">
-      In diesem Wahlgang gibt es eine Kandidatin oder einen Kandidaten. Stimmen Sie mit Ja oder Nein.
+      In dieser Wahl steht eine Person zur Wahl. Stimmen Sie mit Ja oder Nein.
     </p>
     <template v-else>
-      <p>Wählen Sie in jeder Zeile eine Kandidatin oder einen Kandidaten. Jede Person kann nur einmal gereiht werden.</p>
+      <p>Wählen Sie in jeder Zeile eine Person. Jede Person kann nur einmal gereiht werden.</p>
       <p v-if="morePeopleThanRows">
         Es gibt mehr Kandidat:innen als Zeilen: Wer nicht gereiht wird, bekommt keine Punkte.
       </p>

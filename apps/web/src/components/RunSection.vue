@@ -68,13 +68,13 @@ const address = computed(() => voterAddress(BASE_URL))
 const stateLine = computed(() => {
   const { lifecycle } = props.election
   const done = result.value?.finalized
-  if (lifecycle.election === 'final') return done ? `Abgeschlossen am ${dateTime(done.at)} durch ${done.actorName}: ${done.reason}` : 'Abgeschlossen.'
-  if (lifecycle.election === 'draft') return 'Die Wahl ist noch im Entwurf: zuerst vorbereiten.'
+  if (lifecycle.election === 'final') return done ? `Ergebnis festgestellt am ${dateTime(done.at)} durch ${done.actorName}: ${done.reason}` : 'Ergebnis festgestellt.'
+  if (lifecycle.election === 'draft') return 'Der Wahltermin ist noch im Entwurf: zuerst vorbereiten.'
   if (lifecycle.regular === 'testing') return 'Der Probelauf läuft: Stimmen zählen nicht, und nichts bleibt.'
-  if (lifecycle.regular === 'planned') return 'Vorbereitet. Sobald die Stimmkarten gedruckt sind, kann die Wahl geöffnet werden.'
-  if (lifecycle.regular === 'open') return 'Die Wahl läuft.'
+  if (lifecycle.regular === 'planned') return 'Vorbereitet. Sobald die Stimmkarten gedruckt sind, kann der 1. Wahlgang geöffnet werden.'
+  if (lifecycle.regular === 'open') return 'Der 1. Wahlgang läuft.'
   if (lifecycle.runoff === 'open') return 'Die Stichwahl läuft.'
-  return lifecycle.runoff === 'closed' ? 'Die Stichwahl ist geschlossen.' : 'Die Wahl ist geschlossen.'
+  return lifecycle.runoff === 'closed' ? 'Die Stichwahl ist beendet und ausgezählt.' : 'Der 1. Wahlgang ist beendet und ausgezählt.'
 })
 
 // The turnout is read once at a time, and its generation changes only
@@ -191,14 +191,14 @@ const count = (n: number, one: string, many: string): string => (n === 1 ? `1 ${
 
 const startTest = () => act(() => apiPost(`${base.value}/rounds/regular/test`))
 const endTest = () => act(() => apiPost<TestEnded>(`${base.value}/rounds/regular/test/end`), (ended) => {
-  notice.value = `Probelauf beendet: ${count(ended.ballots, 'Stimme', 'Stimmen')} entfernt, ${count(ended.keys, 'Code', 'Codes')} wieder frei.`
+  notice.value = `Probelauf beendet: ${count(ended.ballots, 'Stimmzettel', 'Stimmzettel')} entfernt, ${count(ended.keys, 'Code', 'Codes')} wieder frei.`
   testResult.value = null
 })
 const open = () => act(() => apiPost(`${base.value}/rounds/regular/open`), () => {
-  notice.value = 'Die Wahl ist geöffnet.'
+  notice.value = 'Der 1. Wahlgang ist geöffnet.'
 })
 const close = (kind: RoundKind) => act(() => apiPost<{ ballots: number }>(`${base.value}/rounds/${kind}/close`), (closed) => {
-  notice.value = `${ROUND_LABELS[kind]} geschlossen: ${count(closed.ballots, 'Stimme', 'Stimmen')} versiegelt und ausgezählt.`
+  notice.value = `${ROUND_LABELS[kind]} beendet: ${count(closed.ballots, 'Stimmzettel', 'Stimmzettel')} versiegelt und ausgezählt.`
 })
 const activate = () => act(() => apiPost<RunoffActivated>(`${base.value}/rounds/runoff/activate`), (activated) => {
   notice.value = `Die Stichwahl läuft: ${count(activated.keys, 'Stichwahl-Stimmkarte gilt', 'Stichwahl-Stimmkarten gelten')} jetzt.`
@@ -214,13 +214,13 @@ interface Dialog {
 const dialog = computed<Dialog | null>(() => {
   switch (confirming.value) {
     case 'open':
-      return { title: 'Wahl öffnen?', text: 'Ab jetzt können Stimmen abgegeben werden. Kandidat:innen und die Stimmkarten der ersten Runde ändern sich nicht mehr. Ein laufender Probelauf wird beendet.', yes: 'Ja, Wahl öffnen', run: open }
+      return { title: '1. Wahlgang öffnen?', text: 'Ab jetzt können Stimmen abgegeben werden. Kandidat:innen und die Stimmkarten des 1. Wahlgangs ändern sich nicht mehr. Ein laufender Probelauf wird beendet.', yes: 'Ja, 1. Wahlgang öffnen', run: open }
     case 'close-regular':
-      return { title: 'Wahl schließen?', text: 'Danach werden keine Stimmen mehr angenommen; wer gerade abgibt, bekommt eine Absage. Die Stimmen werden versiegelt und ausgezählt.', yes: 'Ja, schließen', run: () => close('regular') }
+      return { title: '1. Wahlgang beenden und auszählen?', text: 'Danach nimmt der 1. Wahlgang keine Stimmen mehr an; wer gerade abgibt, bekommt eine Absage. Die Stimmzettel werden versiegelt und ausgezählt.', yes: 'Ja, beenden und auszählen', run: () => close('regular') }
     case 'close-runoff':
-      return { title: 'Stichwahl schließen?', text: 'Danach werden keine Stimmen mehr angenommen; wer gerade abgibt, bekommt eine Absage. Die Stimmen werden versiegelt und ausgezählt.', yes: 'Ja, schließen', run: () => close('runoff') }
+      return { title: 'Stichwahl beenden und auszählen?', text: 'Danach nimmt die Stichwahl keine Stimmen mehr an; wer gerade abgibt, bekommt eine Absage. Die Stimmzettel werden versiegelt und ausgezählt.', yes: 'Ja, beenden und auszählen', run: () => close('runoff') }
     case 'activate':
-      return { title: 'Stichwahl aktivieren?', text: 'Die Stichwahl beginnt sofort, mit den Stichwahl-Stimmkarten. Die Stimmkarten der ersten Runde gelten nicht mehr.', yes: 'Ja, Stichwahl aktivieren', run: activate }
+      return { title: 'Stichwahl aktivieren?', text: 'Die Stichwahl beginnt sofort, mit den Stichwahl-Stimmkarten. Die Stimmkarten des 1. Wahlgangs gelten nicht mehr.', yes: 'Ja, Stichwahl aktivieren', run: activate }
     case null:
       return null
   }
@@ -236,7 +236,7 @@ async function finalize(): Promise<void> {
   await act(() => apiPost<ElectionFinalized>(`${base.value}/finalize`, { reason: reason.value.trim() }), (done) => {
     finalizing.value = false
     reason.value = ''
-    notice.value = done.batchesVoided > 0 ? 'Die Wahl ist abgeschlossen. Nicht verwendete Stichwahl-Stimmkarten sind ungültig.' : 'Die Wahl ist abgeschlossen.'
+    notice.value = done.batchesVoided > 0 ? 'Das Ergebnis ist festgestellt. Nicht verwendete Stichwahl-Stimmkarten sind ungültig.' : 'Das Ergebnis ist festgestellt.'
   })
 }
 
@@ -307,7 +307,7 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
       </p>
       <ul
         class="plain"
-        aria-label="Beteiligung je Wahlgang"
+        aria-label="Beteiligung je Wahl"
       >
         <li
           v-for="entry in turnout.contests"
@@ -361,7 +361,7 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
           {{ contestTitle(contest.contestId) }}
         </h4>
         <p class="muted">
-          Erste Runde: {{ countsLine(contest.first.result.statistics) }} {{ firstPlacesLine(rulesetOf(contest.contestId), contest.first.result.statistics, names) }}
+          1. Wahlgang: {{ countsLine(contest.first.result.statistics) }} {{ firstPlacesLine(rulesetOf(contest.contestId), contest.first.result.statistics, names) }}
         </p>
         <p
           v-if="contest.runoff"
@@ -532,9 +532,9 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
         ref="finalizeHeading"
         tabindex="-1"
       >
-        Wahl abschließen?
+        Ergebnis endgültig feststellen?
       </h3>
-      <p>Die Wahl wird endgültig: nichts ändert sich mehr, auch kein Losentscheid. Nicht verwendete Stichwahl-Stimmkarten werden ungültig. Die Datenbank wird bereinigt, was einige Sekunden dauert.</p>
+      <p>Der Wahltermin wird abgeschlossen: nichts ändert sich mehr, auch kein Losentscheid. Nicht verwendete Stichwahl-Stimmkarten werden ungültig. Die Datenbank wird bereinigt, was einige Sekunden dauert.</p>
       <label :for="ids.reason">Begründung</label>
       <textarea
         :id="ids.reason"
@@ -550,7 +550,7 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
           :disabled="busy || reason.trim() === ''"
           @click="finalize"
         >
-          Ja, Wahl abschließen
+          Ja, Ergebnis feststellen
         </button>
         <button
           type="button"
@@ -588,7 +588,7 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
         :disabled="busy"
         @click="confirming = 'open'"
       >
-        Wahl öffnen
+        1. Wahlgang öffnen
       </button>
       <button
         v-if="rules.closeRegular"
@@ -597,7 +597,7 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
         :disabled="busy"
         @click="confirming = 'close-regular'"
       >
-        Wahl schließen
+        1. Wahlgang beenden und auszählen
       </button>
       <button
         v-if="rules.closeRunoff"
@@ -606,7 +606,7 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
         :disabled="busy"
         @click="confirming = 'close-runoff'"
       >
-        Stichwahl schließen
+        Stichwahl beenden und auszählen
       </button>
       <button
         v-if="rules.finalize"
@@ -614,7 +614,7 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
         :disabled="busy"
         @click="finalizing = true"
       >
-        Wahl abschließen
+        Ergebnis endgültig feststellen
       </button>
       <button
         v-if="rules.exportFile"
@@ -631,7 +631,7 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
       class="muted"
       data-testid="exported"
     >
-      Export gespeichert als {{ exported.name }}. SHA-256: <code>{{ exported.sha256 }}</code>. Diese Prüfsumme steht auch im Protokoll (export.generated).
+      Export gespeichert als {{ exported.name }}. SHA-256: <code>{{ exported.sha256 }}</code>. Jeder Export enthält das Protokoll bis zu diesem Zeitpunkt und hat deshalb seine eigene Prüfsumme; sie steht auch im Protokoll.
     </p>
   </section>
 </template>

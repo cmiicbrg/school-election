@@ -62,17 +62,17 @@ function required<T>(value: T | undefined, what: string): T {
 const key = (index: number): string => required(keys[index], 'key')
 
 test('die Wahlleitung öffnet die Wahl: der Dialog, dann läuft sie, und der Aufbau ist festgelegt', async () => {
-  await expect(run(anna).getByTestId('state')).toHaveText('Vorbereitet. Sobald die Stimmkarten gedruckt sind, kann die Wahl geöffnet werden.')
-  await run(anna).getByRole('button', { name: 'Wahl öffnen' }).click()
-  await expect(dialog('Wahl öffnen?').getByRole('heading', { name: 'Wahl öffnen?' })).toBeFocused()
-  await expect(dialog('Wahl öffnen?')).toContainText('Ab jetzt können Stimmen abgegeben werden.')
+  await expect(run(anna).getByTestId('state')).toHaveText('Vorbereitet. Sobald die Stimmkarten gedruckt sind, kann der 1. Wahlgang geöffnet werden.')
+  await run(anna).getByRole('button', { name: '1. Wahlgang öffnen' }).click()
+  await expect(dialog('1. Wahlgang öffnen?').getByRole('heading', { name: '1. Wahlgang öffnen?' })).toBeFocused()
+  await expect(dialog('1. Wahlgang öffnen?')).toContainText('Ab jetzt können Stimmen abgegeben werden.')
   await shot(anna, '25-wahl-oeffnen')
-  await dialog('Wahl öffnen?').getByRole('button', { name: 'Ja, Wahl öffnen' }).click()
-  await expect(run(anna).getByRole('status')).toHaveText('Die Wahl ist geöffnet.')
-  await expect(run(anna).getByTestId('state')).toHaveText('Die Wahl läuft.')
-  await expect(anna.getByText(/^Wahl läuft · Ihre Rolle/)).toBeVisible()
-  await expect(anna.getByText('Die Wahl läuft: Kandidat:innen und Stimmkarten der ersten Runde sind festgelegt.')).toBeVisible()
-  await expect(run(anna).getByTestId('turnout')).toContainText('Wahl: 0 von 25 Stimmkarten verwendet')
+  await dialog('1. Wahlgang öffnen?').getByRole('button', { name: 'Ja, 1. Wahlgang öffnen' }).click()
+  await expect(run(anna).getByRole('status')).toHaveText('Der 1. Wahlgang ist geöffnet.')
+  await expect(run(anna).getByTestId('state')).toHaveText('Der 1. Wahlgang läuft.')
+  await expect(anna.getByText(/^1\. Wahlgang läuft · Ihre Rolle/)).toBeVisible()
+  await expect(anna.getByText('Die Stimmabgabe hat begonnen: Kandidat:innen und die Stimmkarten des 1. Wahlgangs sind festgelegt.')).toBeVisible()
+  await expect(run(anna).getByTestId('turnout')).toContainText('1. Wahlgang: 0 von 25 Stimmkarten verwendet')
 })
 
 test('vier Stimmkarten der 1A wählen am Handy; die Beteiligung steigt von selbst, und die Zeugin sieht sie ohne einen Knopf und kein Ergebnis', async () => {
@@ -82,37 +82,38 @@ test('vier Stimmkarten der 1A wählen am Handy; die Beteiligung steigt von selbs
   for (const [index, ranking] of school.entries()) {
     await voteOnPhone(phone, key(index), [{ contest: CLASS_1A, ranking: klass[index] ?? [] }, { contest: SCHOOL, ranking }])
   }
-  await expect(run(anna).getByTestId('turnout')).toContainText('Wahl: 4 von 25 Stimmkarten verwendet')
-  const perContest = run(anna).getByRole('list', { name: 'Beteiligung je Wahlgang' })
+  await expect(run(anna).getByTestId('turnout')).toContainText('1. Wahlgang: 4 von 25 Stimmkarten verwendet')
+  const perContest = run(anna).getByRole('list', { name: 'Beteiligung je Wahl' })
   await expect(perContest).toContainText(`${CLASS_1A}: 4 von 25`)
   await expect(perContest).toContainText(`${SCHOOL}: 4 von 25`)
   await shot(anna, '26-beteiligung')
 
   // The witness's page followed the opening by itself and shows the turnout, without a control.
-  await expect(run(wanda).getByTestId('state')).toHaveText('Die Wahl läuft.')
-  await expect(run(wanda).getByTestId('turnout')).toContainText('Wahl: 4 von 25 Stimmkarten verwendet')
+  await expect(run(wanda).getByTestId('state')).toHaveText('Der 1. Wahlgang läuft.')
+  await expect(run(wanda).getByTestId('turnout')).toContainText('1. Wahlgang: 4 von 25 Stimmkarten verwendet')
   await expect(run(wanda).getByRole('button')).toHaveCount(0)
   await expect(run(wanda).getByRole('heading', { name: 'Ergebnis' })).toHaveCount(0)
   expect((await apiGet(wanda, `/api/elections/${electionId()}/result`)).status).toBe(409)
 })
 
 test('die Wahl schließen: der Dialog, die Versiegelung, das Ergebnis in Worten; die Stichwahl wartet auf ein Los', async () => {
-  await run(anna).getByRole('button', { name: 'Wahl schließen' }).click()
-  await expect(dialog('Wahl schließen?')).toContainText('Die Stimmen werden versiegelt und ausgezählt.')
+  await run(anna).getByRole('button', { name: '1. Wahlgang beenden und auszählen' }).click()
+  await expect(dialog('1. Wahlgang beenden und auszählen?')).toContainText('Die Stimmzettel werden versiegelt und ausgezählt.')
   await shot(anna, '27-wahl-schliessen')
-  await dialog('Wahl schließen?').getByRole('button', { name: 'Ja, schließen' }).click()
-  await expect(run(anna).getByRole('status')).toHaveText('Wahl geschlossen: 8 Stimmen versiegelt und ausgezählt.')
-  await expect(run(anna).getByTestId('state')).toHaveText('Die Wahl ist geschlossen.')
+  await dialog('1. Wahlgang beenden und auszählen?').getByRole('button', { name: 'Ja, beenden und auszählen' }).click()
+  await expect(run(anna).getByRole('status')).toHaveText('1. Wahlgang beendet: 8 Stimmzettel versiegelt und ausgezählt.')
+  await expect(run(anna).getByTestId('state')).toHaveText('Der 1. Wahlgang ist beendet und ausgezählt.')
+  await expect(anna.getByText(/^1\. Wahlgang ausgezählt · Ihre Rolle/)).toBeVisible()
 
   const klass = contestResult(anna, CLASS_1A)
-  await expect(klass).toContainText('Erste Runde: 4 Stimmen. Erste Stellen: Max Fuchs 3, Lena Bauer 1.')
+  await expect(klass).toContainText('1. Wahlgang: 4 Stimmen. Erste Stellen: Max Fuchs 3, Lena Bauer 1.')
   await expect(klass).toContainText('Gewählt.')
   await expect(klass.getByRole('list', { name: `Positionen: ${CLASS_1A}` }).getByRole('listitem')).toHaveText([
     'Vertreter/in: Max Fuchs (absolute Mehrheit)',
     'Stellvertreter/in: Lena Bauer (nach Punkten)',
   ])
   const school = contestResult(anna, SCHOOL)
-  await expect(school).toContainText('Erste Runde: 4 Stimmen. Erste Stellen: Paula Berger 2, Quirin Huber-Mayer 1, Renate Wagner 1.')
+  await expect(school).toContainText('1. Wahlgang: 4 Stimmen. Erste Stellen: Paula Berger 2, Quirin Huber-Mayer 1, Renate Wagner 1.')
   await expect(school).toContainText('Losentscheid erforderlich.')
   await expect(school.getByTestId('lot-runoff-entry')).toContainText('Quirin Huber-Mayer und Renate Wagner sind gleichauf; das Los entscheidet, wer von ihnen in die Stichwahl kommt (ein Platz). Bereits in der Stichwahl: Paula Berger.')
   await expect(run(anna).getByRole('button', { name: 'Stichwahl aktivieren' })).toHaveCount(0)
@@ -121,7 +122,8 @@ test('die Wahl schließen: der Dialog, die Versiegelung, das Ergebnis in Worten;
 
 test('die Zeugin sieht das Los ohne Formular; die Wahlleitung trägt die Ziehung ein, und die Stichwahl steht fest, auch auf der Seite der Zeugin', async () => {
   // The close reached the witness's page by itself.
-  await expect(run(wanda).getByTestId('state')).toHaveText('Die Wahl ist geschlossen.')
+  await expect(run(wanda).getByTestId('state')).toHaveText('Der 1. Wahlgang ist beendet und ausgezählt.')
+  await expect(wanda.getByText(/^1\. Wahlgang ausgezählt · Ihre Rolle: Zeug:in/)).toBeVisible()
   const theirs = contestResult(wanda, SCHOOL)
   await expect(theirs.getByTestId('lot-runoff-entry')).toContainText('sind gleichauf')
   await expect(theirs.getByRole('form')).toHaveCount(0)
@@ -150,10 +152,11 @@ test('Stichwahl aktivieren: der Hinweis auf die Stichwahl-Stimmkarten je Klasse,
   await expect(sheets.getByRole('link', { name: 'Drucken (10)' })).toHaveAttribute('href', `${BASE_PATH}/elections/${electionId()}/batches/${batchId('1A runoff')}/print`)
   await expect(sheets).toContainText('Für 2B gibt es noch keine Stichwahl-Stimmkarten')
   await run(anna).getByRole('button', { name: 'Stichwahl aktivieren' }).click()
-  await expect(dialog('Stichwahl aktivieren?')).toContainText('Die Stimmkarten der ersten Runde gelten nicht mehr.')
+  await expect(dialog('Stichwahl aktivieren?')).toContainText('Die Stimmkarten des 1. Wahlgangs gelten nicht mehr.')
   await dialog('Stichwahl aktivieren?').getByRole('button', { name: 'Ja, Stichwahl aktivieren' }).click()
   await expect(run(anna).getByRole('status')).toHaveText('Die Stichwahl läuft: 10 Stichwahl-Stimmkarten gelten jetzt.')
   await expect(run(anna).getByTestId('state')).toHaveText('Die Stichwahl läuft.')
+  await expect(anna.getByText(/^Stichwahl läuft · Ihre Rolle/)).toBeVisible()
   await expect(run(anna).getByTestId('turnout')).toContainText('Stichwahl: 0 von 10 Stimmkarten verwendet')
   await shot(anna, '30-stichwahl')
 
@@ -161,7 +164,7 @@ test('Stichwahl aktivieren: der Hinweis auf die Stichwahl-Stimmkarten je Klasse,
   await refused(old, 409, async () => {
     await old.goto(at(`/v#${key(5)}`))
   })
-  await expect(old.getByRole('alert')).toHaveText('Die Wahl ist beendet. Es können keine Stimmen mehr abgegeben werden.')
+  await expect(old.getByRole('alert')).toHaveText('Die Stimmabgabe ist beendet. Es können keine Stimmen mehr abgegeben werden.')
   await old.close()
 })
 
@@ -170,10 +173,11 @@ test('drei Stichwahl-Stimmkarten wählen; die Stichwahl schließen: Renate Wagne
     await voteOnPhone(phone, required(runoffKeys[index], 'runoff key'), [{ contest: SCHOOL, ranking: [choice] }])
   }
   await expect(run(anna).getByTestId('turnout')).toContainText('Stichwahl: 3 von 10 Stimmkarten verwendet')
-  await run(anna).getByRole('button', { name: 'Stichwahl schließen' }).click()
-  await dialog('Stichwahl schließen?').getByRole('button', { name: 'Ja, schließen' }).click()
-  await expect(run(anna).getByRole('status')).toHaveText('Stichwahl geschlossen: 3 Stimmen versiegelt und ausgezählt.')
-  await expect(run(anna).getByTestId('state')).toHaveText('Die Stichwahl ist geschlossen.')
+  await run(anna).getByRole('button', { name: 'Stichwahl beenden und auszählen' }).click()
+  await dialog('Stichwahl beenden und auszählen?').getByRole('button', { name: 'Ja, beenden und auszählen' }).click()
+  await expect(run(anna).getByRole('status')).toHaveText('Stichwahl beendet: 3 Stimmzettel versiegelt und ausgezählt.')
+  await expect(run(anna).getByTestId('state')).toHaveText('Die Stichwahl ist beendet und ausgezählt.')
+  await expect(anna.getByText(/^Stichwahl ausgezählt · Ihre Rolle/)).toBeVisible()
 
   const school = contestResult(anna, SCHOOL)
   await expect(school).toContainText('Stichwahl: 3 Stimmen. Stimmen: Renate Wagner 2, Paula Berger 1.')
@@ -214,22 +218,22 @@ test('ein Co-Admin schließt nicht ab; die Wahlleitung schließt mit Begründung
   const carla = await (await browser.newContext()).newPage()
   await openAs(carla, CARLA, `/wahlen/${electionId()}`)
   await expect(run(carla).getByRole('button', { name: 'Export herunterladen' })).toBeVisible()
-  await expect(run(carla).getByRole('button', { name: 'Wahl abschließen' })).toHaveCount(0)
+  await expect(run(carla).getByRole('button', { name: 'Ergebnis endgültig feststellen' })).toHaveCount(0)
   await carla.context().close()
 
-  await run(anna).getByRole('button', { name: 'Wahl abschließen' }).click()
-  const final = dialog('Wahl abschließen?')
-  await expect(final.getByRole('heading', { name: 'Wahl abschließen?' })).toBeFocused()
-  await expect(final).toContainText('Die Wahl wird endgültig: nichts ändert sich mehr')
-  await expect(final.getByRole('button', { name: 'Ja, Wahl abschließen' })).toBeDisabled()
+  await run(anna).getByRole('button', { name: 'Ergebnis endgültig feststellen' }).click()
+  const final = dialog('Ergebnis endgültig feststellen?')
+  await expect(final.getByRole('heading', { name: 'Ergebnis endgültig feststellen?' })).toBeFocused()
+  await expect(final).toContainText('Der Wahltermin wird abgeschlossen: nichts ändert sich mehr')
+  await expect(final.getByRole('button', { name: 'Ja, Ergebnis feststellen' })).toBeDisabled()
   await final.getByLabel('Begründung').fill('Ergebnis festgestellt')
   await shot(anna, '32-abschliessen')
-  await final.getByRole('button', { name: 'Ja, Wahl abschließen' }).click()
+  await final.getByRole('button', { name: 'Ja, Ergebnis feststellen' }).click()
   // The clean-up before the declaration takes a few seconds.
-  await expect(run(anna).getByRole('status')).toHaveText('Die Wahl ist abgeschlossen.', { timeout: 30_000 })
-  await expect(run(anna).getByTestId('state')).toHaveText(/^Abgeschlossen am \d{1,2}\.\d{1,2}\.\d{4}, \d{2}:\d{2} durch Anna Lehrerin: Ergebnis festgestellt$/)
+  await expect(run(anna).getByRole('status')).toHaveText('Das Ergebnis ist festgestellt.', { timeout: 30_000 })
+  await expect(run(anna).getByTestId('state')).toHaveText(/^Ergebnis festgestellt am \d{1,2}\.\d{1,2}\.\d{4}, \d{2}:\d{2} durch Anna Lehrerin: Ergebnis festgestellt$/)
   await expect(anna.getByText(/^Abgeschlossen · Ihre Rolle/)).toBeVisible()
-  await expect(anna.getByText('Die Wahl ist abgeschlossen: nichts ändert sich mehr.')).toBeVisible()
+  await expect(anna.getByText('Das Ergebnis ist festgestellt: nichts ändert sich mehr.')).toBeVisible()
   await expect(run(anna).getByRole('button')).toHaveText(['Export herunterladen'])
   await expect(run(anna).getByRole('form')).toHaveCount(0)
   await expect(contestResult(anna, SCHOOL)).toContainText('Gewählt.')

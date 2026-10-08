@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { NEW_ELECTION, type Lifecycle } from '@school-election/election-core'
 import { ERROR_MESSAGES, errorMessage, loginUrl, ApiError } from '../src/lib/api-rules.ts'
-import { lockedText, MEMBER_STATUS_LABELS, problemText, ROLE_LABELS, ROUND_LABELS, RULESET_LABELS, STATE_LABELS, warningText } from '../src/lib/labels.ts'
+import { lockedText, MEMBER_STATUS_LABELS, problemText, ROLE_LABELS, ROUND_LABELS, RULESET_LABELS, STATE_LABELS, stateLabel, warningText } from '../src/lib/labels.ts'
 import { isPresetId, PRESETS } from '../src/lib/presets.ts'
 import { mayReadKeys, setupRules, type Permission } from '../src/lib/setup-rules.ts'
 
@@ -71,21 +71,34 @@ test('every state, role, ruleset, round kind and member status has its German wo
   for (const code of ['election_final', 'not_draft', 'not_prepared', 'voting_started', 'round_planned', 'round_open', 'round_closed', 'round_testing', 'no_runoff', 'runoff_activated']) {
     assert.ok(ERROR_MESSAGES[code], code)
   }
-  assert.equal(errorMessage(new ApiError(409, 'voting_started')), 'Die Wahl hat bereits begonnen.')
+  assert.equal(errorMessage(new ApiError(409, 'voting_started')), 'Die Stimmabgabe hat bereits begonnen.')
   assert.equal(errorMessage(new ApiError(418, 'something_new')), ERROR_MESSAGES.request_failed)
   assert.equal(errorMessage(new TypeError('network')), ERROR_MESSAGES.request_failed)
   assert.equal(lockedText('draft'), '')
   assert.ok(lockedText('prepared').includes('zurück zum Entwurf'))
 })
 
+test('the state line names the Wahlgang that runs or is counted, not just that the termin is active', () => {
+  const at = (election: Lifecycle['election'], regular: Lifecycle['regular'], runoff: Lifecycle['runoff'] = null): string => stateLabel({ election, regular, runoff })
+  assert.equal(at('draft', 'planned'), 'Entwurf')
+  assert.equal(at('prepared', 'planned'), 'Vorbereitet')
+  assert.equal(at('prepared', 'testing'), 'Probelauf')
+  assert.equal(at('active', 'open'), '1. Wahlgang läuft')
+  assert.equal(at('active', 'closed'), '1. Wahlgang ausgezählt')
+  assert.equal(at('active', 'closed', 'open'), 'Stichwahl läuft')
+  assert.equal(at('active', 'closed', 'closed'), 'Stichwahl ausgezählt')
+  assert.equal(at('final', 'closed', 'closed'), 'Abgeschlossen')
+  assert.equal(STATE_LABELS.active, 'Stimmabgabe begonnen', 'a list knows only the state of the termin, and says nothing a closed round would contradict')
+})
+
 test('what preparing reports is told in German with the names of the contest or group', () => {
-  const names = { contest: (id: string) => `Wahlgang ${id}`, group: (id: string) => `Klasse ${id}` }
-  assert.equal(problemText({ kind: 'contest-without-candidates', contestId: '1' }, names), 'Der Wahlgang „Wahlgang 1“ hat noch keine Kandidat:innen.')
-  assert.equal(problemText({ kind: 'voter-group-without-contests', voterGroupId: '2' }, names), 'Die Klasse oder Gruppe „Klasse 2“ wählt in keinem Wahlgang.')
+  const names = { contest: (id: string) => `Wahl ${id}`, group: (id: string) => `Klasse ${id}` }
+  assert.equal(problemText({ kind: 'contest-without-candidates', contestId: '1' }, names), 'Die Wahl „Wahl 1“ hat noch keine Kandidat:innen.')
+  assert.equal(problemText({ kind: 'voter-group-without-contests', voterGroupId: '2' }, names), 'Die Klasse oder Gruppe „Klasse 2“ wählt in keiner Wahl.')
   assert.ok(problemText({ kind: 'no-contests' }, names).length > 0)
   assert.ok(problemText({ kind: 'no-voter-groups' }, names).length > 0)
-  assert.ok(problemText({ kind: 'contest-without-voter-groups', contestId: '1' }, names).includes('Wahlgang 1'))
-  assert.ok(warningText({ kind: 'too-few-witnesses', witnesses: 0 }).includes('keine'))
+  assert.ok(problemText({ kind: 'contest-without-voter-groups', contestId: '1' }, names).includes('Wahl 1'))
+  assert.ok(warningText({ kind: 'too-few-witnesses', witnesses: 0 }).includes('niemand'))
   assert.ok(warningText({ kind: 'too-few-witnesses', witnesses: 1 }).includes('erst eine'))
   assert.ok(warningText({ kind: 'pending-invitations', count: 1 }).startsWith('Eine Einladung'))
   assert.ok(warningText({ kind: 'pending-invitations', count: 3 }).startsWith('3 Einladungen'))

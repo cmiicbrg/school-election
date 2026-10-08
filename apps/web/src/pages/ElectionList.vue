@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Meine Wahlen: the elections the signed-in person is a member of, and
+// Meine Wahltermine: the elections the signed-in person is a member of, and
 // for teachers the way to a new one.
 
 import { onMounted, ref } from 'vue'
@@ -7,10 +7,12 @@ import { RouterLink } from 'vue-router'
 import { apiGet } from '../lib/api.ts'
 import { errorMessage } from '../lib/api-rules.ts'
 import { ROLE_LABELS, STATE_LABELS } from '../lib/labels.ts'
+import { usePageTitle } from '../lib/page-title.ts'
 import { isTeacher } from '../lib/session.ts'
 import type { ElectionSummary } from '../lib/types.ts'
 
 const elections = ref<ElectionSummary[]>()
+usePageTitle(() => 'Meine Wahltermine')
 const error = ref<string | null>(null)
 
 onMounted(async () => {
@@ -23,7 +25,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <h1>Meine Wahlen</h1>
+  <h1>Meine Wahltermine</h1>
   <p
     v-if="error"
     class="message error"
@@ -45,7 +47,7 @@ onMounted(async () => {
   <ul
     v-if="elections && elections.length > 0"
     class="plain"
-    aria-label="Wahlen"
+    aria-label="Wahltermine"
   >
     <li
       v-for="election in elections"
@@ -61,6 +63,6 @@ onMounted(async () => {
     v-else-if="elections"
     class="muted"
   >
-    Sie sind noch bei keiner Wahl Mitglied.
+    Sie sind noch bei keinem Wahltermin Mitglied.
   </p>
 </template>

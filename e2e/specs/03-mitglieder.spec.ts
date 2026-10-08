@@ -31,7 +31,7 @@ test('die Wahlleitung lädt einen Co-Admin und eine Zeugin ein', async () => {
     await anna.getByLabel('Rolle').selectOption(role)
     await anna.getByRole('button', { name: 'Einladen' }).click()
     await expect(members(anna).getByRole('status')).toContainText('gilt ab der nächsten Anmeldung')
-    await expect(list(anna)).toContainText(`${person.email} · ${role === 'admin' ? 'Co-Admin' : 'Zeugin/Zeuge'} · eingeladen, noch nicht angemeldet`)
+    await expect(list(anna)).toContainText(`${person.email} · ${role === 'admin' ? 'Co-Admin' : 'Zeug:in'} · eingeladen, noch nicht angemeldet`)
   }
   await shot(anna, '06-mitglieder-eingeladen')
 })
@@ -39,7 +39,7 @@ test('die Wahlleitung lädt einen Co-Admin und eine Zeugin ein', async () => {
 test('die Zeugin meldet sich an, sieht die Wahl ohne Bedienelemente, und steht bei der Wahlleitung als angemeldet', async ({ browser }) => {
   const wanda = await (await browser.newContext()).newPage()
   await openAs(wanda, WANDA, `/wahlen/${electionId()}`)
-  await expect(wanda.getByText(/Ihre Rolle: Zeugin\/Zeuge/)).toBeVisible()
+  await expect(wanda.getByText(/Ihre Rolle: Zeug:in/)).toBeVisible()
   await expect(wanda.getByRole('region', { name: 'Einrichten' })).toBeVisible()
   await expect(wanda.getByRole('button', { name: 'Kandidat:in hinzufügen' })).toHaveCount(0)
   await expect(wanda.getByRole('button', { name: 'Einladen' })).toHaveCount(0)
@@ -50,7 +50,7 @@ test('die Zeugin meldet sich an, sieht die Wahl ohne Bedienelemente, und steht b
   await wanda.context().close()
 
   await anna.reload()
-  await expect(list(anna)).toContainText('Wanda Zeugin · Zeugin/Zeuge · angemeldet · wanda.zeugin@schule.example.org')
+  await expect(list(anna)).toContainText('Wanda Zeugin · Zeug:in · angemeldet · wanda.zeugin@schule.example.org')
 })
 
 test('der Co-Admin meldet sich an und darf einrichten, aber keine Mitglieder verwalten', async ({ browser }) => {

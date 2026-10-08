@@ -6,6 +6,7 @@ import { ref, useId } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiPost } from '../lib/api.ts'
 import { errorMessage } from '../lib/api-rules.ts'
+import { usePageTitle } from '../lib/page-title.ts'
 import { PRESETS, type PresetId } from '../lib/presets.ts'
 import type { ElectionDetail } from '../lib/types.ts'
 
@@ -13,6 +14,7 @@ const router = useRouter()
 const ids = { title: useId(), description: useId() }
 const title = ref('')
 const description = ref('')
+usePageTitle(() => 'Neue Wahl')
 const preset = ref<PresetId>('school-speaker')
 const busy = ref(false)
 const error = ref<string | null>(null)
@@ -35,8 +37,11 @@ async function create(): Promise<void> {
 
 <template>
   <h1>Neue Wahl</h1>
+  <p class="muted">
+    Legt einen Wahltermin mit seiner ersten Wahl an. Weitere Wahlen am selben Termin, etwa je Abteilung oder Klasse, kommen auf seiner Seite dazu.
+  </p>
   <form @submit.prevent="create">
-    <label :for="ids.title">Titel</label>
+    <label :for="ids.title">Titel des Wahltermins</label>
     <input
       :id="ids.title"
       v-model="title"
@@ -52,7 +57,7 @@ async function create(): Promise<void> {
       maxlength="2000"
     />
     <fieldset>
-      <legend>Vorlage</legend>
+      <legend>Vorlage für die erste Wahl</legend>
       <div
         v-for="option in PRESETS"
         :key="option.id"
@@ -84,7 +89,7 @@ async function create(): Promise<void> {
         type="submit"
         :disabled="busy"
       >
-        Wahl anlegen
+        Wahltermin anlegen
       </button>
     </div>
   </form>

@@ -118,7 +118,7 @@ function nameOf(member: Member): string {
             v-model="role"
           >
             <option value="witness">
-              Zeugin/Zeuge
+              Zeug:in
             </option>
             <option value="admin">
               Co-Admin

@@ -16,11 +16,13 @@ import { apiGet } from '../lib/api.ts'
 import { errorMessage } from '../lib/api-rules.ts'
 import { eventText, type AuditNames } from '../lib/audit-labels.ts'
 import { dateTime } from '../lib/outcome-text.ts'
+import { usePageTitle } from '../lib/page-title.ts'
 import type { AuditLog, Configuration, ElectionDetail } from '../lib/types.ts'
 
 const props = defineProps<{ id: string }>()
 
 const election = ref<ElectionDetail>()
+usePageTitle(() => (election.value ? `Protokoll: ${election.value.title}` : 'Protokoll'))
 const configuration = ref<Configuration>()
 const audit = ref<AuditLog>()
 const error = ref<string | null>(null)
@@ -103,7 +105,7 @@ const chainText = computed(() => {
     <h1>Protokoll: {{ election.title }}</h1>
     <p class="muted">
       <RouterLink :to="`/wahlen/${election.id}`">
-        Zur Wahl
+        Zum Wahltermin
       </RouterLink>
       ·
       <RouterLink :to="`/wahlen/${election.id}/ergebnis`">
@@ -117,7 +119,7 @@ const chainText = computed(() => {
       {{ chainText }}
     </p>
     <p class="muted">
-      Das Protokoll hält fest, wer die Wahl wann eingerichtet, vorbereitet, geöffnet, geschlossen und abgeschlossen hat. Es enthält nichts über einzelne Stimmen oder Stimmkarten.
+      Das Protokoll hält fest, wer den Wahltermin wann eingerichtet und vorbereitet, wer die Wahlgänge geöffnet und beendet und wer das Ergebnis festgestellt hat. Es enthält nichts über einzelne Stimmen oder Stimmkarten.
     </p>
     <ol
       class="plain"

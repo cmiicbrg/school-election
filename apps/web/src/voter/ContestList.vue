@@ -42,10 +42,10 @@ const allDone = computed(() => props.election.remaining === 0)
     >
       {{ message }}
     </p>
-    <h2>Ihre Wahlgänge</h2>
+    <h2>Ihre Wahlen</h2>
     <ul
       class="plain contests"
-      aria-label="Wahlgänge"
+      aria-label="Wahlen"
     >
       <li
         v-for="contest in election.contests"

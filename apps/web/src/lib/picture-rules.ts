@@ -105,7 +105,7 @@ export function uploadMessage(code: string): string {
       return PICTURE_MESSAGES['too-large']
     case 'voting_started':
     case 'election_final':
-      return 'Die Wahl hat schon begonnen; Bilder lassen sich nicht mehr ändern.'
+      return 'Die Stimmabgabe hat schon begonnen; Bilder lassen sich nicht mehr ändern.'
     default:
       return 'Das Bild konnte nicht gespeichert werden. Bitte noch einmal versuchen.'
   }

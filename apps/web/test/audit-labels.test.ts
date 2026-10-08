@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { eventText, KNOWN_ACTIONS } from '../src/lib/audit-labels.ts'
 
 const NAMES = {
-  contest: (id: string) => `Wahlgang ${id}`,
+  contest: (id: string) => `Wahl ${id}`,
   candidate: (id: string) => `Person ${id}`,
   group: (id: string) => `Klasse ${id}`,
 }
@@ -49,16 +49,16 @@ test('every known action has a sentence that names what its metadata carries, an
     const sentence = eventText(action, samples[action] ?? {}, NAMES)
     assert.ok(sentence.length > 0 && !sentence.includes('undefined') && !sentence.includes('NaN'), `${action}: ${sentence}`)
   }
-  assert.equal(eventText('member.invited', samples['member.invited'] ?? {}, NAMES), 'w@schule.example.org als Zeugin/Zeuge eingeladen.')
+  assert.equal(eventText('member.invited', samples['member.invited'] ?? {}, NAMES), 'w@schule.example.org als Zeug:in eingeladen.')
   assert.equal(eventText('election.updated', samples['election.updated'] ?? {}, NAMES), 'Titel und Beschreibung geändert: „Neu“; Beschreibung: „x“.', 'a change of the description alone is readable')
   assert.equal(eventText('election.updated', { title: 'Neu', description: '' }, NAMES), 'Titel und Beschreibung geändert: „Neu“; Beschreibung: keine.')
-  assert.equal(eventText('candidate.added', samples['candidate.added'] ?? {}, NAMES), 'Paula Berger zu „Wahlgang c1“ hinzugefügt.')
-  assert.equal(eventText('contest.updated', samples['contest.updated'] ?? {}, NAMES), 'Wahlgang „Schulsprecher/in“ geändert: Schulsprecherwahl: sechs Reihungen, 6 bis 1 Punkt.', 'a change of the rules is readable')
-  assert.equal(eventText('election.prepared', samples['election.prepared'] ?? {}, NAMES), 'Wahl vorbereitet: 2 Wahlgänge, 1 Klasse oder Gruppe, 5 Kandidat:innen.')
+  assert.equal(eventText('candidate.added', samples['candidate.added'] ?? {}, NAMES), 'Paula Berger zu „Wahl c1“ hinzugefügt.')
+  assert.equal(eventText('contest.updated', samples['contest.updated'] ?? {}, NAMES), 'Wahl „Schulsprecher/in“ geändert: Schulsprecherwahl: sechs Reihungen, 6 bis 1 Punkt.', 'a change of the rules is readable')
+  assert.equal(eventText('election.prepared', samples['election.prepared'] ?? {}, NAMES), 'Wahltermin vorbereitet: 2 Wahlen, 1 Klasse oder Gruppe, 5 Kandidat:innen.')
   assert.equal(eventText('credential-batch.replaced', samples['credential-batch.replaced'] ?? {}, NAMES), 'Stapel für „Klasse g1“ (Stichwahl) ersetzt: 1 neue Stimmkarte, die alten ungültig.')
-  assert.equal(eventText('result.computed', samples['result.computed'] ?? {}, NAMES), 'Ergebnis ausgezählt: „Wahlgang c1“, Wahl, 4 Stimmen: Losentscheid erforderlich. Prüfsumme der Auszählung: ff.')
-  assert.equal(eventText('lot.recorded', samples['lot.recorded'] ?? {}, NAMES), 'Losentscheid für „Wahlgang c1“ eingetragen: Person k2, Person k1. Begründung: Los gezogen')
-  assert.equal(eventText('election.finalized', samples['election.finalized'] ?? {}, NAMES), 'Wahl abgeschlossen: 2 entschieden, 0 offen. Begründung: Ergebnis festgestellt')
+  assert.equal(eventText('result.computed', samples['result.computed'] ?? {}, NAMES), 'Ergebnis ausgezählt: „Wahl c1“, 1. Wahlgang, 4 Stimmen: Losentscheid erforderlich. Prüfsumme der Auszählung: ff.')
+  assert.equal(eventText('lot.recorded', samples['lot.recorded'] ?? {}, NAMES), 'Losentscheid für „Wahl c1“ eingetragen: Person k2, Person k1. Begründung: Los gezogen')
+  assert.equal(eventText('election.finalized', samples['election.finalized'] ?? {}, NAMES), 'Ergebnis festgestellt: 2 entschieden, 0 offen. Begründung: Ergebnis festgestellt')
   assert.equal(eventText('something.new', { count: 3, what: 'x' }, NAMES), 'something.new: count = 3, what = x')
   assert.equal(eventText('something.new', {}, NAMES), 'something.new: ohne Angaben')
 })

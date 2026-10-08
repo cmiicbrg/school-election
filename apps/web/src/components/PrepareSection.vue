@@ -96,7 +96,7 @@ const staleKeys = computed(() => (stale.value ?? []).reduce((sum, batch) => sum 
       Vorbereiten
     </h2>
     <p class="muted">
-      Vorbereiten legt den Aufbau fest: welche Klassen und Gruppen in welchen Wahlgängen wählen. Danach können Stimmkarten erzeugt werden; Namen von Kandidat:innen bleiben bis zum Beginn der Wahl änderbar.
+      Vorbereiten legt den Aufbau fest: welche Klassen und Gruppen in welchen Wahlen wählen. Danach können Stimmkarten erzeugt werden; Namen von Kandidat:innen bleiben bis zum Beginn der Stimmabgabe änderbar.
     </p>
 
     <h3>Wer wählt wo</h3>
@@ -106,7 +106,7 @@ const staleKeys = computed(() => (stale.value ?? []).reduce((sum, batch) => sum 
           <th scope="col">
             Klasse / Gruppe
           </th><th scope="col">
-            Wahlgänge
+            Wahlen
           </th>
         </tr>
       </thead>
@@ -127,12 +127,12 @@ const staleKeys = computed(() => (stale.value ?? []).reduce((sum, batch) => sum 
       Noch keine Klassen oder Gruppen.
     </p>
 
-    <h3>Wahlgänge</h3>
+    <h3>Wahlen</h3>
     <table v-if="preparation.summary.contests.length > 0">
       <thead>
         <tr>
           <th scope="col">
-            Wahlgang
+            Wahl
           </th><th scope="col">
             Regeln
           </th><th scope="col">
@@ -158,7 +158,7 @@ const staleKeys = computed(() => (stale.value ?? []).reduce((sum, batch) => sum 
       v-else
       class="muted"
     >
-      Noch keine Wahlgänge.
+      Noch keine Wahlen.
     </p>
 
     <ul
@@ -260,7 +260,7 @@ const staleKeys = computed(() => (stale.value ?? []).reduce((sum, batch) => sum 
         v-if="prepared && !rules.unprepare"
         class="muted"
       >
-        Die Wahl ist vorbereitet.
+        Der Wahltermin ist vorbereitet.
       </output>
     </div>
   </section>

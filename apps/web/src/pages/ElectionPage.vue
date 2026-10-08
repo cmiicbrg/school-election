@@ -13,13 +13,15 @@ import SetupSection from '../components/SetupSection.vue'
 import SheetsSection from '../components/SheetsSection.vue'
 import { apiGet } from '../lib/api.ts'
 import { errorMessage } from '../lib/api-rules.ts'
-import { ROLE_LABELS, STATE_LABELS } from '../lib/labels.ts'
+import { ROLE_LABELS, stateLabel } from '../lib/labels.ts'
+import { usePageTitle } from '../lib/page-title.ts'
 import { setupRules } from '../lib/setup-rules.ts'
 import type { BatchSummary, Configuration, ElectionDetail, Member, Preparation } from '../lib/types.ts'
 
 const props = defineProps<{ id: string }>()
 
 const election = ref<ElectionDetail>()
+usePageTitle(() => election.value?.title ?? 'Wahltermin')
 const configuration = ref<Configuration>()
 const members = ref<Member[]>()
 const preparation = ref<Preparation>()
@@ -90,10 +92,10 @@ function reload(): void {
   <template v-else-if="election && configuration && members && preparation && batches && rules">
     <h1>{{ election.title }}</h1>
     <p class="muted">
-      {{ STATE_LABELS[election.state] }} · Ihre Rolle: {{ ROLE_LABELS[election.role] }}
+      {{ stateLabel(election.lifecycle) }} · Ihre Rolle: {{ ROLE_LABELS[election.role] }}
     </p>
     <nav
-      aria-label="Seiten der Wahl"
+      aria-label="Seiten des Wahltermins"
       class="pages"
     >
       <RouterLink

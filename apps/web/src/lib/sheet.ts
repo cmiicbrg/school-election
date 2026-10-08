@@ -33,8 +33,8 @@ export function pageCount(count: number, perPage = CARDS_PER_PAGE): number {
   return Math.ceil(count / perPage)
 }
 
-/** The round a batch is for, as a card names it. */
-export const ROUND_LABELS: Readonly<Record<RoundKind, string>> = { regular: 'Wahl', runoff: 'Stichwahl' }
+/** The round a batch is for, as a card names it: the glossary's Wahlgang. */
+export { ROUND_LABELS } from './labels.ts'
 
 /** The address a voter types instead of scanning: the host, the base path and the voter page, without a scheme. */
 export function voterAddress(base: string): string {

@@ -109,13 +109,13 @@ function groupName(batch: BatchSummary): string {
       Stimmkarten
     </h2>
     <p class="muted">
-      Jede Klasse oder Gruppe bekommt ihren eigenen Stapel Stimmkarten, sechs je A4-Seite. Die Druckseite zeigt immer dieselben Codes und kann bis zum Beginn der Runde noch einmal gedruckt werden; danach nicht mehr. Für eine mögliche Stichwahl können Stimmkarten schon vorab erzeugt werden; sie gelten erst, wenn die Stichwahl beginnt.
+      Jede Klasse oder Gruppe bekommt ihren eigenen Stapel Stimmkarten, sechs je A4-Seite. Die Druckseite zeigt immer dieselben Codes und kann bis zum Beginn ihres Wahlgangs noch einmal gedruckt werden; danach nicht mehr. Für eine mögliche Stichwahl können Stimmkarten schon vorab erzeugt werden; sie gelten erst, wenn die Stichwahl beginnt.
     </p>
     <p
       v-if="!anyIssue && batches.length === 0"
       class="muted"
     >
-      Stimmkarten gibt es, sobald die Wahl vorbereitet ist.
+      Stimmkarten gibt es, sobald der Wahltermin vorbereitet ist.
     </p>
 
     <div
@@ -128,7 +128,7 @@ function groupName(batch: BatchSummary): string {
         <thead>
           <tr>
             <th scope="col">
-              Runde
+              Wahlgang
             </th><th scope="col">
               Stimmkarten
             </th><th scope="col">

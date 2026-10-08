@@ -17,7 +17,7 @@ test('Anmeldung, Meine Wahlen, die Wahl und die Druckseite am Handy', async ({ b
   await shot(page, '14-handy-anmeldung')
   await signInAs(page, ANNA)
   await expect(page).toHaveURL(urlOf('/'))
-  await expect(page.getByRole('heading', { name: 'Meine Wahlen' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Meine Wahltermine' })).toBeVisible()
   await shot(page, '15-handy-meine-wahlen')
   await page.getByRole('link', { name: 'Schulsprecherwahl 2026/27' }).click()
   await expect(page.getByRole('heading', { level: 1, name: 'Schulsprecherwahl 2026/27' })).toBeVisible()
