@@ -17,7 +17,7 @@ export interface Ballot {
 export async function voteOnPhone(context: BrowserContext, key: string, ballots: readonly Ballot[]): Promise<void> {
   const page = await context.newPage()
   await page.goto(at(`/v#${key}`))
-  await expect(page.getByRole('list', { name: 'Wahlgänge' })).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Wahlen' })).toBeVisible()
   for (const ballot of ballots) await castOne(page, ballot)
   await expect(page.getByRole('heading', { name: 'Danke!' })).toBeVisible()
   await page.close()

@@ -56,14 +56,15 @@ function voidKey(): string {
 }
 
 const run = () => anna.getByRole('region', { name: 'Ablauf' })
-const contests = () => page.getByRole('list', { name: 'Wahlgänge' }).getByRole('listitem')
+const contests = () => page.getByRole('list', { name: 'Wahlen' }).getByRole('listitem')
 const row = (label: string) => page.getByLabel(label, { exact: true })
 
 test('die Lehrkraft startet den Probelauf; der Code aus dem QR-Code verlässt die Adresse, bevor die Seite lädt', async () => {
-  await expect(run().getByTestId('state')).toHaveText('Vorbereitet. Sobald die Stimmkarten gedruckt sind, kann die Wahl geöffnet werden.')
+  await expect(run().getByTestId('state')).toHaveText('Vorbereitet. Sobald die Stimmkarten gedruckt sind, kann der 1. Wahlgang geöffnet werden.')
   await run().getByRole('button', { name: 'Probelauf starten' }).click()
   await expect(run().getByTestId('state')).toHaveText('Der Probelauf läuft: Stimmen zählen nicht, und nichts bleibt.')
-  await expect(run().getByTestId('turnout')).toContainText('Wahl: 0 von 25 Stimmkarten verwendet')
+  await expect(anna.getByText(/^Probelauf · Ihre Rolle: Wahlleitung/)).toBeVisible()
+  await expect(run().getByTestId('turnout')).toContainText('1. Wahlgang: 0 von 25 Stimmkarten verwendet')
   await shot(anna, '24-probelauf')
   await page.goto(at(`/v#${firstKey()}`))
   await expect(page.getByRole('heading', { name: 'Schulsprecherwahl 2026/27' })).toBeVisible()
@@ -72,7 +73,7 @@ test('die Lehrkraft startet den Probelauf; der Code aus dem QR-Code verlässt di
   expect(requested.filter((url) => url.includes(firstKey()))).toEqual([])
   await expect(page.getByText('Probelauf: Diese Stimmen zählen nicht.')).toBeVisible()
   await expect(contests()).toHaveText([/Klassensprecher\/in 1A/, /Schulsprecher\/in/])
-  await expect(page.getByRole('status')).toHaveText('Noch 2 Wahlgänge offen.')
+  await expect(page.getByRole('status')).toHaveText('Noch 2 Wahlen offen.')
   await shot(page, '19-handy-wahlgaenge')
 })
 
@@ -115,7 +116,7 @@ test('der Stimmzettel für Schulsprecher/in: drei Zeilen mit 6, 5 und 4 Punkten,
   await page.getByRole('button', { name: 'Abgeben', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Schulsprecherwahl 2026/27' })).toBeFocused()
   await expect(contests().filter({ hasText: SCHOOL })).toContainText('abgegeben')
-  await expect(page.getByRole('status')).toHaveText('Noch 1 Wahlgang offen.')
+  await expect(page.getByRole('status')).toHaveText('Noch 1 Wahl offen.')
 })
 
 test('der Klassensprecher-Stimmzettel mit einer leeren Zeile: ungültig, nur mit Bestätigung; die letzte Stimme beendet die Sitzung', async () => {
@@ -140,7 +141,7 @@ test('der Klassensprecher-Stimmzettel mit einer leeren Zeile: ungültig, nur mit
   expect(requested.filter((url) => url.includes(firstKey()))).toEqual([])
 
   // The teacher's page: one card used, and the rehearsal's count so far, the invalid vote counted as such.
-  await expect(run().getByTestId('turnout')).toContainText('Wahl: 1 von 25 Stimmkarten verwendet')
+  await expect(run().getByTestId('turnout')).toContainText('1. Wahlgang: 1 von 25 Stimmkarten verwendet')
   await run().getByRole('button', { name: 'Zwischenstand' }).click()
   const interim = run().getByRole('list', { name: 'Zwischenstand' })
   await expect(interim).toContainText(`${CLASS_1A}: 1 Stimme, davon 1 ungültig.`)
@@ -177,14 +178,14 @@ test('derselbe Code getippt: Tippfehler werden vor dem Senden erkannt, die Karte
   await typed.getByLabel('Code').fill(key.toLowerCase().match(/.{1,4}/g)?.join(' ') ?? '')
   await expect(typed.getByText(key.match(/.{1,4}/g)?.join('-') ?? '', { exact: true })).toBeVisible()
   await typed.getByRole('button', { name: 'Weiter' }).click()
-  await expect(typed.getByRole('status')).toHaveText('Sie haben in allen Wahlgängen abgestimmt.')
-  await expect(typed.getByRole('list', { name: 'Wahlgänge' }).getByText('abgegeben')).toHaveCount(2)
+  await expect(typed.getByRole('status')).toHaveText('Sie haben in allen Wahlen abgestimmt.')
+  await expect(typed.getByRole('list', { name: 'Wahlen' }).getByText('abgegeben')).toHaveCount(2)
   // "Fertig" that does not reach the server leaves the page as it is: the cookie is still there.
   await other.route('**/api/voter/session/end', (route) => route.abort())
   expectFailure(new URL(`${BASE_PATH}/api/voter/session/end`, typed.url()).toString())
   await typed.getByRole('button', { name: 'Fertig' }).click()
   await expect(typed.getByRole('alert')).toHaveText('Das hat nicht geklappt. Bitte versuchen Sie es noch einmal.')
-  await expect(typed.getByRole('status')).toHaveText('Sie haben in allen Wahlgängen abgestimmt.')
+  await expect(typed.getByRole('status')).toHaveText('Sie haben in allen Wahlen abgestimmt.')
   await other.unroute('**/api/voter/session/end')
   await typed.getByRole('button', { name: 'Fertig' }).click()
   await expect(typed.getByRole('heading', { name: 'Stimmabgabe' })).toBeVisible()
@@ -200,9 +201,9 @@ test('ein zweiter Code läuft über ein Neuladen der Seite weiter; nach dem Ende
   await reloaded.goto(at('/v'))
   await reloaded.getByLabel('Code').fill(second)
   await reloaded.getByRole('button', { name: 'Weiter' }).click()
-  await expect(reloaded.getByRole('status')).toHaveText('Noch 2 Wahlgänge offen.')
+  await expect(reloaded.getByRole('status')).toHaveText('Noch 2 Wahlen offen.')
   await reloaded.reload()
-  await expect(reloaded.getByRole('status')).toHaveText('Noch 2 Wahlgänge offen.')
+  await expect(reloaded.getByRole('status')).toHaveText('Noch 2 Wahlen offen.')
   await expect(reloaded).toHaveURL(urlOf('/v'))
 
   // A third card scanned into the same tab, while the page is on a ballot: the browser changes the
@@ -235,7 +236,7 @@ test('ein zweiter Code läuft über ein Neuladen der Seite weiter; nach dem Ende
     window.location.hash = `#${a}`
     window.location.hash = `#${b}`
   }, [fourth, fifth])
-  await expect(reloaded.getByRole('status')).toHaveText('Noch 2 Wahlgänge offen.')
+  await expect(reloaded.getByRole('status')).toHaveText('Noch 2 Wahlen offen.')
   await context.unroute('**/api/voter/session')
   expect(redeemed).toEqual([third, fifth])
   await expect.poll(cookieOf).not.toBe(before)
@@ -263,17 +264,17 @@ test('ein zweiter Code läuft über ein Neuladen der Seite weiter; nach dem Ende
     window.location.hash = `#${key}`
   }, sixth)
   await expect(reloaded.getByRole('status')).toHaveText('Einen Moment …')
-  await expect(reloaded.getByRole('status')).toHaveText('Noch 2 Wahlgänge offen.')
+  await expect(reloaded.getByRole('status')).toHaveText('Noch 2 Wahlen offen.')
   await context.unroute('**/api/voter/ballot')
   expect(order).toEqual(['ballot', 'session'])
 
   // The test ends on the teacher's page: the first key's two ballots, one of them invalid, and the fifth's one are gone, their entitlements unused again.
   await run().getByRole('button', { name: 'Probelauf beenden' }).click()
-  await expect(run().getByRole('status')).toHaveText('Probelauf beendet: 3 Stimmen entfernt, 2 Codes wieder frei.')
-  await expect(run().getByTestId('state')).toHaveText('Vorbereitet. Sobald die Stimmkarten gedruckt sind, kann die Wahl geöffnet werden.')
+  await expect(run().getByRole('status')).toHaveText('Probelauf beendet: 3 Stimmzettel entfernt, 2 Codes wieder frei.')
+  await expect(run().getByTestId('state')).toHaveText('Vorbereitet. Sobald die Stimmkarten gedruckt sind, kann der 1. Wahlgang geöffnet werden.')
   await refused(reloaded, 409, async () => {
     await reloaded.reload()
   })
-  await expect(reloaded.getByRole('alert')).toHaveText('Die Wahl hat noch nicht begonnen. Bitte versuchen Sie es später noch einmal.')
+  await expect(reloaded.getByRole('alert')).toHaveText('Die Stimmabgabe hat noch nicht begonnen. Bitte versuchen Sie es später noch einmal.')
   await context.close()
 })

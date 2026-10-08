@@ -41,20 +41,21 @@ test('die Protokollkette stimmt und zählt genau die Schritte der Journey', asyn
   expect([...actors].toSorted()).toEqual(['Anna Lehrerin', 'Carla Kollegin', 'Wanda Zeugin'])
 
   // The page shows the same entries, in order, as sentences.
-  await page.getByRole('navigation', { name: 'Seiten der Wahl' }).getByRole('link', { name: 'Protokoll' }).click()
+  await page.getByRole('navigation', { name: 'Seiten des Wahltermins' }).getByRole('link', { name: 'Protokoll' }).click()
+  await expect(page).toHaveTitle('Protokoll: Schulsprecherwahl 2026/27 – Schulwahl')
   await expect(page.getByTestId('chain')).toContainText(`Die Protokollkette ist in sich schlüssig: ${audit.events.length} Einträge, jeder mit der Prüfsumme des vorigen. Letzte Prüfsumme: ${audit.chain.head}.`)
   const entries = page.getByRole('list', { name: 'Protokoll' }).getByRole('listitem')
   await expect(entries).toHaveCount(audit.events.length)
-  await expect(entries.first()).toContainText('Wahl „Schulsprecherwahl 2026/27“ angelegt.')
-  await expect(entries.last()).toContainText('Wahl vorbereitet: 2 Wahlgänge, 2 Klassen oder Gruppen, 5 Kandidat:innen.')
+  await expect(entries.first()).toContainText('Wahltermin „Schulsprecherwahl 2026/27“ angelegt.')
+  await expect(entries.last()).toContainText('Wahltermin vorbereitet: 2 Wahlen, 2 Klassen oder Gruppen, 5 Kandidat:innen.')
   await expect(entries.filter({ hasText: 'Paula Berger zu „Schulsprecher/in“ hinzugefügt.' })).toHaveCount(1)
-  await expect(entries.filter({ hasText: 'Wahlgang „Klassensprecher/in 1A“ angelegt: Vertretung und Stellvertretung: zwei Reihungen, 2 und 1 Punkt.' })).toHaveCount(1)
+  await expect(entries.filter({ hasText: 'Wahl „Klassensprecher/in 1A“ angelegt: Vertretung und Stellvertretung: zwei Reihungen, 2 und 1 Punkt.' })).toHaveCount(1)
   await shot(page, '07a-protokoll-vorbereitet')
 })
 
 test('vor dem Schließen gibt es kein Ergebnis zu lesen, und die Wahl verlinkt es noch nicht', async ({ page }) => {
   await openAs(page, ANNA, `/wahlen/${electionId()}`)
-  await expect(page.getByRole('navigation', { name: 'Seiten der Wahl' }).getByRole('link', { name: 'Ergebnis und Herleitung' })).toHaveCount(0)
+  await expect(page.getByRole('navigation', { name: 'Seiten des Wahltermins' }).getByRole('link', { name: 'Ergebnis und Herleitung' })).toHaveCount(0)
   await page.goto(at(`/wahlen/${electionId()}/ergebnis`))
-  await expect(page.getByTestId('early')).toHaveText('Das Ergebnis gibt es, sobald die Wahl geschlossen ist. Solange eine Runde läuft, sieht niemand Zwischenstände.')
+  await expect(page.getByTestId('early')).toHaveText('Das Ergebnis gibt es, sobald der 1. Wahlgang beendet und ausgezählt ist. Solange ein Wahlgang läuft, sieht niemand Zwischenstände.')
 })
