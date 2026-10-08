@@ -188,15 +188,22 @@ async function autoSave(key: string, dirty: () => boolean, save: () => Promise<v
 }
 
 // A saved name can move its row to its alphabetical place, which takes the
-// focus out of the field that had it; it is given back.
+// focus out of whatever in the row had it; it is given back. The rows are
+// keyed, so the element itself moves and stays the same.
 watch(() => props.configuration, () => {
-  const id = document.activeElement?.id
-  if (!id) return
+  const focused = document.activeElement
+  if (!(focused instanceof HTMLElement) || focused === document.body) return
   void nextTick(() => {
-    const field = document.getElementById(id)
-    if (field && document.activeElement !== field) field.focus()
+    if (focused.isConnected && document.activeElement !== focused) focused.focus()
   })
 })
+
+/** Enter saves a candidate's names, except while an input method is still composing them. */
+function enterSaves(event: KeyboardEvent, candidate: Candidate): void {
+  if (event.isComposing) return
+  event.preventDefault()
+  void saveCandidateField(candidate)
+}
 
 /** Runs a form's change; a change that went through is confirmed with `done` and the page reads everything again. */
 async function run(key: string, action: () => Promise<unknown>, done: () => string): Promise<void> {
@@ -559,7 +566,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
                 required
                 maxlength="100"
                 @blur="saveCandidateField(candidate)"
-                @keydown.enter.prevent="saveCandidateField(candidate)"
+                @keydown.enter="enterSaves($event, candidate)"
               >
             </div>
             <div>
@@ -570,7 +577,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
                 type="text"
                 maxlength="100"
                 @blur="saveCandidateField(candidate)"
-                @keydown.enter.prevent="saveCandidateField(candidate)"
+                @keydown.enter="enterSaves($event, candidate)"
               >
             </div>
             <SaveState :state="saveState(`candidate:${candidate.id}`, candidateDirty(candidate.id))" />

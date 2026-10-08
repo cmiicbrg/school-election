@@ -89,18 +89,21 @@ test('Kandidat:innen, in der Reihenfolge des Stimmzettels, eine mit Foto', async
 
 test('ein Name speichert sich beim Verlassen des Felds; was abgewiesen wird, bleibt ungespeichert, und Weggehen fragt', async () => {
   const renate = candidates(SCHOOL).getByRole('listitem', { name: 'Renate Wagner', exact: true })
-  await renate.getByLabel('Vorname').fill('Renata')
+  await renate.getByLabel('Nachname').fill('Ahrens')
   await expect(renate.getByText('Nicht gespeichert')).toBeVisible()
-  // Leaving the field saves it, and the focus stays where Tab took it while the page reads everything again.
-  await renate.getByLabel('Vorname').press('Tab')
-  await expect(toast('Name gespeichert: Renata Wagner.')).toBeVisible()
-  const renata = candidates(SCHOOL).getByRole('listitem', { name: 'Renata Wagner', exact: true })
-  await expect(renata.getByText('Gespeichert', { exact: true })).toBeVisible()
-  await expect(renata.getByRole('button', { name: 'Entfernen: Renata Wagner' })).toBeFocused()
+  // Leaving the field saves it. The row moves to its alphabetical place, and the focus stays where Tab took it.
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Tab')
+  await expect(toast('Name gespeichert: Renate Ahrens.')).toBeVisible()
+  await expect.poll(() => listed(SCHOOL)).toEqual(['Renate Ahrens', 'Paula Berger', 'Quirin Huber'])
+  const ahrens = candidates(SCHOOL).getByRole('listitem', { name: 'Renate Ahrens', exact: true })
+  await expect(ahrens.getByRole('button', { name: 'Entfernen: Renate Ahrens' })).toBeFocused()
+  await expect(ahrens.getByText('Gespeichert', { exact: true })).toBeVisible()
   // Enter saves as well.
-  await renata.getByLabel('Vorname').fill('Renate')
-  await renata.getByLabel('Vorname').press('Enter')
+  await ahrens.getByLabel('Nachname').fill('Wagner')
+  await ahrens.getByLabel('Nachname').press('Enter')
   await expect(toast('Name gespeichert: Renate Wagner.')).toBeVisible()
+  await expect.poll(() => listed(SCHOOL)).toEqual(['Paula Berger', 'Quirin Huber', 'Renate Wagner'])
 
   // A refused change stays unsaved, next to its reason, and leaving the page now asks first.
   await renate.getByLabel('Nachname').fill('')
