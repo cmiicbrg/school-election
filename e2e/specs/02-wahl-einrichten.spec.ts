@@ -5,6 +5,7 @@
 import type { Page } from '@playwright/test'
 import { expect, test } from '../support/test.ts'
 import { apiGet } from '../support/api.ts'
+import { urlOf } from '../support/base.ts'
 import { assignContest } from '../support/classes.ts'
 import { refused } from '../support/console.ts'
 import { electionId, remember } from '../support/journey.ts'
@@ -30,6 +31,8 @@ test.afterAll(async () => {
 })
 
 const contest = (title: string) => page.getByRole('article', { name: title, exact: true })
+/** The toast that confirms a change, among the page's status messages. */
+const toast = (text: string) => page.getByRole('status').filter({ hasText: text })
 const candidates = (title: string) => page.getByRole('list', { name: `Kandidat:innen: ${title}` })
 
 async function addCandidate(title: string, surname: string, givenName: string): Promise<void> {
@@ -71,10 +74,35 @@ test('Kandidat:innen, in der Reihenfolge des Stimmzettels, eine mit Foto', async
   const paula = candidates(SCHOOL).getByRole('listitem').filter({ has: page.getByRole('button', { name: 'Speichern: Paula Berger' }) })
   await paula.locator('input[type="file"]').setInputFiles({ name: 'paula.png', mimeType: 'image/png', buffer: photo() })
   await expect(paula.locator('img[src*="/picture/"]')).toBeVisible()
+  await expect(paula.getByRole('group', { name: 'Bild von Paula Berger' }).getByRole('status')).toHaveText('Bild gespeichert.')
+  await expect(toast('Bild von Paula Berger gespeichert.')).toBeVisible()
   const { body: configuration } = await apiGet<{ contests: { title: string, candidates: { surname: string, picture: string | null }[] }[] }>(page, `/api/elections/${electionId()}/configuration`)
   const stored = configuration.contests.find((c) => c.title === SCHOOL)?.candidates.find((c) => c.surname === 'Berger')
   expect(stored?.picture).toMatch(/\/picture\/[0-9a-f]{64}$/)
   await shot(page, '04-kandidatinnen')
+})
+
+test('ein geänderter Name sagt, dass er noch nicht gespeichert ist, und eine Meldung bestätigt jedes Speichern', async () => {
+  const renate = candidates(SCHOOL).getByRole('listitem').filter({ has: page.getByRole('button', { name: 'Speichern: Renate Wagner' }) })
+  await renate.getByLabel('Vorname').fill('Renata')
+  await expect(renate.getByText('Nicht gespeichert')).toBeVisible()
+  // Leaving now would lose it: the page asks, and staying keeps everything as typed.
+  // The click waits for the question to be answered, so the answer is set up before it.
+  let asked = ''
+  page.once('dialog', (dialog) => {
+    asked = dialog.message()
+    void dialog.dismiss()
+  })
+  await page.getByRole('navigation', { name: 'Seiten des Wahltermins' }).getByRole('link', { name: 'Protokoll' }).click()
+  expect(asked).toBe('Es gibt Änderungen, die noch nicht gespeichert sind. Seite trotzdem verlassen?')
+  await expect(page).toHaveURL(urlOf(`/wahlen/${electionId()}`))
+  await expect(renate.getByLabel('Vorname')).toHaveValue('Renata')
+  await renate.getByLabel('Vorname').fill('Renate')
+  await expect(renate.getByText('Nicht gespeichert')).toHaveCount(0)
+  // Saved as it is: the page confirms it, and the server writes nothing, since nothing changed.
+  await page.getByRole('button', { name: 'Titel und Beschreibung speichern' }).click()
+  await expect(toast('Titel und Beschreibung gespeichert.')).toBeVisible()
+  await expect(page.getByText('Gespeichert', { exact: true })).toBeVisible()
 })
 
 test('falsche Eingaben ändern nichts: ein doppelter Name wird abgewiesen', async () => {
@@ -82,7 +110,8 @@ test('falsche Eingaben ändern nichts: ein doppelter Name wird abgewiesen', asyn
   await form.getByLabel('Nachname').fill('Berger')
   await form.getByLabel('Vorname').fill('Paula')
   await refused(page, 409, () => form.getByRole('button', { name: 'Kandidat:in hinzufügen' }).click())
-  await expect(page.getByRole('alert')).toContainText('Diesen Namen gibt es in dieser Wahl schon.')
+  // The refusal shows next to the form that caused it, in the contest's box.
+  await expect(contest(SCHOOL).getByRole('alert')).toContainText('Diesen Namen gibt es in dieser Wahl schon.')
   expect(await listed(SCHOOL)).toEqual(['Paula Berger', 'Quirin Huber', 'Renate Wagner'])
   await form.getByLabel('Nachname').fill('')
   await form.getByLabel('Vorname').fill('')
@@ -111,6 +140,7 @@ test('die Klassen und was sie wählen', async () => {
   await refused(page, 409, () => page.getByRole('button', { name: 'Vorbereiten', exact: true }).click())
   await expect(missing).toContainText('Die Klasse oder Gruppe „1A“ wählt in keiner Wahl.')
   await assignContest(page, '1A', SCHOOL)
+  await expect(toast(`„1A“ wählt jetzt in „${SCHOOL}“.`)).toBeVisible()
   await assignContest(page, '1A', CLASS_1A)
   await assignContest(page, '2B', SCHOOL)
   await expect(page.getByRole('article', { name: '2B', exact: true }).getByRole('checkbox', { name: CLASS_1A })).not.toBeChecked()

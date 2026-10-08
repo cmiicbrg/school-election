@@ -137,6 +137,7 @@ test('die Zeugin sieht das Los ohne Formular; die Wahlleitung trägt die Ziehung
   await form.getByLabel('Begründung').fill('Los gezogen von der Wahlkommission am 5. Oktober')
   await shot(anna, '29-losentscheid')
   await form.getByRole('button', { name: 'Losentscheid eintragen' }).click()
+  await expect(anna.getByRole('status').filter({ hasText: `Losentscheid für „${SCHOOL}“ eingetragen.` })).toBeVisible()
   const school = contestResult(anna, SCHOOL)
   await expect(school).toContainText('Stichwahl zwischen Paula Berger und Renate Wagner.')
   await expect(school.getByRole('list', { name: `Losentscheide: ${SCHOOL}` })).toHaveText(/^Los eingetragen von Anna Lehrerin am \d{1,2}\.\d{1,2}\.\d{4}, \d{2}:\d{2}: Renate Wagner, Quirin Huber-Mayer\. Begründung: Los gezogen von der Wahlkommission am 5\. Oktober$/)
@@ -243,6 +244,7 @@ test('ein Co-Admin schließt nicht ab; die Wahlleitung schließt mit Begründung
 test('der Export: die Datei, ihre Prüfsumme auf der Seite, auch für die Zeugin; und das Protokoll zählt den ganzen Wahltag', async () => {
   const [download] = await Promise.all([anna.waitForEvent('download'), run(anna).getByRole('button', { name: 'Export herunterladen' }).click()])
   expect(download.suggestedFilename()).toBe(`wahl-${electionId()}.json`)
+  await expect(anna.getByRole('status').filter({ hasText: `Export gespeichert: wahl-${electionId()}.json.` })).toBeVisible()
   const file = await readFile(required(await download.path(), 'downloaded file'))
   const document = JSON.parse(file.toString('utf8')) as { format: string, version: number, election: { state: string }, rounds: unknown[], lots: unknown[], finalOutcomes: { kind: string }[] }
   expect([document.format, document.version, document.election.state]).toEqual(['school-election-export', 2, 'final'])

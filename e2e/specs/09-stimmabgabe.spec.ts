@@ -62,6 +62,7 @@ const row = (label: string) => page.getByLabel(label, { exact: true })
 test('die Lehrkraft startet den Probelauf; der Code aus dem QR-Code verlässt die Adresse, bevor die Seite lädt', async () => {
   await expect(run().getByTestId('state')).toHaveText('Vorbereitet. Sobald die Stimmkarten gedruckt sind, kann der 1. Wahlgang geöffnet werden.')
   await run().getByRole('button', { name: 'Probelauf starten' }).click()
+  await expect(run().getByRole('status')).toHaveText('Probelauf gestartet: Stimmen zählen nicht, und nichts bleibt.')
   await expect(run().getByTestId('state')).toHaveText('Der Probelauf läuft: Stimmen zählen nicht, und nichts bleibt.')
   await expect(anna.getByText(/^Probelauf · Ihre Rolle: Wahlleitung/)).toBeVisible()
   await expect(run().getByTestId('turnout')).toContainText('1. Wahlgang: 0 von 25 Stimmkarten verwendet')
