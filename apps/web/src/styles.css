@@ -218,6 +218,19 @@ button:disabled {
   background: var(--ok-bg);
 }
 
+/* A removal waiting for its confirmation, in place of the button that asked. */
+.confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  background: var(--danger-bg);
+}
+
 .card-box {
   border: 1px solid var(--line);
   border-radius: var(--radius);
