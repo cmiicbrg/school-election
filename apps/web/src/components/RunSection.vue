@@ -3,17 +3,20 @@
 // while a round accepts ballots (read again every five seconds, counts
 // only, never a total), the result in words once the regular round has
 // closed, the lots the officials drew, and the steps in their order:
-// Probelauf, Wahl öffnen, schließen, Stichwahl aktivieren, Wahl
-// abschließen, Export. Every control comes from the caller's permissions
+// Probelauf, 1. Wahlgang öffnen, beenden und auszählen, Stichwahl
+// aktivieren, beenden und auszählen, Ergebnis feststellen, Export. A step
+// that makes cards final (opening, activating the runoff) lists every
+// class with its valid cards, and one without needs a second, explicit
+// confirmation: it could not vote in that Wahlgang. Every control comes from the caller's permissions
 // and election-core's guards (lib/run-rules.ts), so a witness sees the
 // same section without one; every step that cannot be undone asks first
 // and says what it does. While the election can change, the section asks
 // every five seconds whether it has, the result included, so a witness's
 // page follows the teacher's steps and the lots recorded without a reload.
 
-import { computed, onUnmounted, ref, useId, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, useId, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import type { LotRequest, RoundKind, RulesetId } from '@school-election/election-core'
+import type { LotRequest, Outcome, RoundKind, RulesetId } from '@school-election/election-core'
 import LotForm from './LotForm.vue'
 import { apiDownload, apiGet, apiPost } from '../lib/api.ts'
 import { BASE_URL, withBase } from '../lib/base.ts'
@@ -21,7 +24,7 @@ import { errorMessage } from '../lib/api-rules.ts'
 import { useDialogFocus } from '../lib/dialog-focus.ts'
 import { fileNameOf } from '../lib/download.ts'
 import { ROUND_LABELS } from '../lib/labels.ts'
-import { countsLine, dateTime, firstPlacesLine, lotText, outcomeLine, positionLines, recordedLotLine, type Names } from '../lib/outcome-text.ts'
+import { countsLine, dateTime, firstPlacesLine, listed, lotText, outcomeLine, positionLines, recordedLotLine, type Names } from '../lib/outcome-text.ts'
 import { notify } from '../lib/toast.ts'
 import { accepting, runoffState, runRules } from '../lib/run-rules.ts'
 import { voterAddress } from '../lib/sheet.ts'
@@ -210,23 +213,98 @@ const activate = () => act(() => apiPost<RunoffActivated>(`${base.value}/rounds/
 interface Dialog {
   title: string
   text: string
+  /** What the step affects, line by line: each class with its cards, or the cards left unused. */
+  lines: { text: string, missing: boolean }[]
+  /** What is missing that the step makes final: the step then waits for this to be ticked. */
+  override: string | null
   yes: string
   run: () => Promise<void>
 }
 
+/** Ticked in the dialog: the step goes ahead although a class has no cards. */
+const overridden = ref(false)
+watch(confirming, () => {
+  overridden.value = false
+})
+
+/** Each class of `groups` with its valid cards of the round, and the ones without. */
+function cardLines(groups: { name: string, keys: number }[], round: string): { lines: Dialog['lines'], missing: string[] } {
+  return {
+    lines: groups.map((group) => ({ text: group.keys > 0 ? `${group.name}: ${group.keys} Stimmkarten` : `${group.name}: keine gültigen Stimmkarten für ${round}`, missing: group.keys === 0 })),
+    missing: groups.filter((group) => group.keys === 0).map((group) => group.name),
+  }
+}
+
+const regularCards = computed(() => cardLines(props.configuration.voterGroups.map((group) => ({
+  name: group.name,
+  keys: props.batches.filter((batch) => batch.voterGroupId === group.id && batch.roundKind === 'regular' && batch.state === 'issued').reduce((sum, batch) => sum + batch.keys, 0),
+})), 'den 1. Wahlgang'))
+
+/** What closing leaves unused, from the turnout of the round that closes. */
+function unusedLine(kind: RoundKind): Dialog['lines'] {
+  const figures = turnout.value
+  if (figures?.kind !== kind) return []
+  const unused = figures.keys.issued - figures.keys.used
+  return [{ text: `${unused} von ${figures.keys.issued} Stimmkarten wurden nicht verwendet.`, missing: false }]
+}
+
+const can = (names: string[]): string => (names.length === 1 ? 'kann' : 'können')
+
 const dialog = computed<Dialog | null>(() => {
   switch (confirming.value) {
-    case 'open':
-      return { title: '1. Wahlgang öffnen?', text: 'Ab jetzt können Stimmen abgegeben werden. Kandidat:innen und die Stimmkarten des 1. Wahlgangs ändern sich nicht mehr. Ein laufender Probelauf wird beendet.', yes: 'Ja, 1. Wahlgang öffnen', run: open }
+    case 'open': {
+      const { lines, missing } = regularCards.value
+      return {
+        title: '1. Wahlgang öffnen?',
+        text: 'Ab jetzt können Stimmen abgegeben werden. Kandidat:innen und die Stimmkarten des 1. Wahlgangs ändern sich nicht mehr, und für den 1. Wahlgang können keine Stimmkarten mehr erzeugt oder gedruckt werden. Ein laufender Probelauf wird beendet.',
+        lines,
+        override: missing.length > 0 ? `Trotzdem öffnen: ${listed(missing)} ${can(missing)} im 1. Wahlgang nicht wählen.` : null,
+        yes: 'Ja, 1. Wahlgang öffnen',
+        run: open,
+      }
+    }
     case 'close-regular':
-      return { title: '1. Wahlgang beenden und auszählen?', text: 'Danach nimmt der 1. Wahlgang keine Stimmen mehr an; wer gerade abgibt, bekommt eine Absage. Die Stimmzettel werden versiegelt und ausgezählt.', yes: 'Ja, beenden und auszählen', run: () => close('regular') }
+      return { title: '1. Wahlgang beenden und auszählen?', text: 'Danach nimmt der 1. Wahlgang keine Stimmen mehr an; wer gerade abgibt, bekommt eine Absage. Die Stimmzettel werden versiegelt und ausgezählt. Ein beendeter Wahlgang öffnet nicht wieder.', lines: unusedLine('regular'), override: null, yes: 'Ja, beenden und auszählen', run: () => close('regular') }
     case 'close-runoff':
-      return { title: 'Stichwahl beenden und auszählen?', text: 'Danach nimmt die Stichwahl keine Stimmen mehr an; wer gerade abgibt, bekommt eine Absage. Die Stimmzettel werden versiegelt und ausgezählt.', yes: 'Ja, beenden und auszählen', run: () => close('runoff') }
-    case 'activate':
-      return { title: 'Stichwahl aktivieren?', text: 'Die Stichwahl beginnt sofort, mit den Stichwahl-Stimmkarten. Die Stimmkarten des 1. Wahlgangs gelten nicht mehr.', yes: 'Ja, Stichwahl aktivieren', run: activate }
+      return { title: 'Stichwahl beenden und auszählen?', text: 'Danach nimmt die Stichwahl keine Stimmen mehr an; wer gerade abgibt, bekommt eine Absage. Die Stimmzettel werden versiegelt und ausgezählt. Eine beendete Stichwahl öffnet nicht wieder.', lines: unusedLine('runoff'), override: null, yes: 'Ja, beenden und auszählen', run: () => close('runoff') }
+    case 'activate': {
+      const { lines, missing } = cardLines(runoffSheets.value.map((entry) => ({ name: entry.group.name, keys: entry.keys })), 'die Stichwahl')
+      return {
+        title: 'Stichwahl aktivieren?',
+        text: 'Die Stichwahl beginnt sofort, mit den Stichwahl-Stimmkarten. Die Stimmkarten des 1. Wahlgangs gelten nicht mehr, und Stichwahl-Stimmkarten können danach nicht mehr erzeugt oder gedruckt werden.',
+        lines,
+        override: missing.length > 0 ? `Trotzdem aktivieren: ${listed(missing)} ${can(missing)} in der Stichwahl nicht wählen.` : null,
+        yes: 'Ja, Stichwahl aktivieren',
+        run: activate,
+      }
+    }
     case null:
       return null
   }
+})
+
+/** What an undecided contest stays when the result is established now. */
+const UNDECIDED: Readonly<Record<Exclude<Outcome['kind'], 'final'>, string>> = {
+  'lot-required': 'der Losentscheid fehlt',
+  'runoff-required': 'die Stichwahl fehlt',
+  'tie': 'unentschieden; die Wahlkommission entscheidet',
+  'committee-decision': 'die Wahlkommission entscheidet',
+}
+const undecided = computed(() => (result.value?.contests ?? [])
+  .filter((contest) => contest.outcome.kind !== 'final')
+  .map((contest) => `${contestTitle(contest.contestId)}: ${contest.outcome.kind === 'final' ? '' : UNDECIDED[contest.outcome.kind]}`))
+
+// The step buttons are hidden while their dialog is open, so the focus goes
+// back to the one that comes back when the dialog is cancelled.
+async function refocusStep(step: string): Promise<void> {
+  await nextTick()
+  document.querySelector<HTMLElement>(`[data-step="${step}"]`)?.focus()
+}
+watch(confirming, (now, before) => {
+  if (now === null && before !== null) void refocusStep(before)
+})
+watch(finalizing, (now, before) => {
+  if (!now && before) void refocusStep('finalize')
 })
 
 async function confirm(): Promise<void> {
@@ -406,6 +484,8 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
             v-if="rules.recordLot"
             :election-id="election.id"
             :contest-id="contest.contestId"
+            :contest-title="contestTitle(contest.contestId)"
+            :ruleset-id="rulesetOf(contest.contestId)"
             :lot="lot"
             :names="names"
             @recorded="lotRecorded(contest.contestId)"
@@ -474,8 +554,10 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
         class="actions"
       >
         <button
+          v-if="confirming === null"
           type="button"
           :disabled="busy"
+          data-step="activate"
           @click="confirming = 'activate'"
         >
           Stichwahl aktivieren
@@ -511,11 +593,34 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
         {{ dialog.title }}
       </h3>
       <p>{{ dialog.text }}</p>
+      <ul
+        v-if="dialog.lines.length > 0"
+        class="plain dialog-lines"
+        :aria-label="`${dialog.title} – Stimmkarten`"
+      >
+        <li
+          v-for="line in dialog.lines"
+          :key="line.text"
+          :class="{ missing: line.missing }"
+        >
+          {{ line.text }}
+        </li>
+      </ul>
+      <label
+        v-if="dialog.override"
+        class="check override"
+      >
+        <input
+          v-model="overridden"
+          type="checkbox"
+        >
+        {{ dialog.override }}
+      </label>
       <div class="actions">
         <button
           type="button"
           :class="confirming === 'open' || confirming === 'activate' ? '' : 'danger'"
-          :disabled="busy"
+          :disabled="busy || (dialog.override !== null && !overridden)"
           @click="confirm"
         >
           {{ dialog.yes }}
@@ -545,6 +650,23 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
         Ergebnis endgültig feststellen?
       </h3>
       <p>Der Wahltermin wird abgeschlossen: nichts ändert sich mehr, auch kein Losentscheid. Nicht verwendete Stichwahl-Stimmkarten werden ungültig. Die Datenbank wird bereinigt, was einige Sekunden dauert.</p>
+      <template v-if="undecided.length > 0">
+        <p class="message warning">
+          Noch nicht entschieden; so festgestellt, bleibt es dabei:
+        </p>
+        <ul
+          class="plain dialog-lines"
+          aria-label="Noch nicht entschieden"
+        >
+          <li
+            v-for="line in undecided"
+            :key="line"
+            class="missing"
+          >
+            {{ line }}
+          </li>
+        </ul>
+      </template>
       <label :for="ids.reason">Begründung</label>
       <textarea
         :id="ids.reason"
@@ -573,7 +695,10 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
       </div>
     </div>
 
-    <div class="actions">
+    <div
+      v-if="confirming === null && !finalizing"
+      class="actions"
+    >
       <button
         v-if="rules.startTest"
         type="button"
@@ -596,6 +721,7 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
         v-if="rules.open"
         type="button"
         :disabled="busy"
+        data-step="open"
         @click="confirming = 'open'"
       >
         1. Wahlgang öffnen
@@ -605,6 +731,7 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
         type="button"
         class="danger"
         :disabled="busy"
+        data-step="close-regular"
         @click="confirming = 'close-regular'"
       >
         1. Wahlgang beenden und auszählen
@@ -614,6 +741,7 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
         type="button"
         class="danger"
         :disabled="busy"
+        data-step="close-runoff"
         @click="confirming = 'close-runoff'"
       >
         Stichwahl beenden und auszählen
@@ -622,6 +750,8 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
         v-if="rules.finalize"
         type="button"
         :disabled="busy"
+        :class="undecided.length > 0 ? 'secondary' : ''"
+        data-step="finalize"
         @click="finalizing = true"
       >
         Ergebnis endgültig feststellen
@@ -647,6 +777,21 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
 </template>
 
 <style scoped>
+.dialog-lines {
+  margin: 8px 0;
+}
+
+.dialog-lines .missing {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.override {
+  display: block;
+  margin: 8px 0;
+  font-weight: 600;
+}
+
 h4 {
   font-size: 1rem;
   margin: 0 0 6px;
