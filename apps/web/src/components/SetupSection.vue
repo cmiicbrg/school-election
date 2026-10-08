@@ -45,8 +45,11 @@ const pending = reactive(new Set<string>())
 const errors = reactive<Record<string, string>>({})
 /** The forms saved since their last edit. */
 const saved = reactive(new Set<string>())
-/** The removal waiting for its confirmation, by key. */
+/** The removal waiting for its confirmation, by key; a change of what may change closes it. */
 const confirming = ref<string | null>(null)
+watch(() => [props.rules.structure, props.rules.candidates], () => {
+  confirming.value = null
+})
 
 // What is being edited, taken from the election and its configuration
 // when the page reads them again, unless the person has changed it since:
@@ -422,7 +425,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         </p>
       </template>
       <div
-        v-if="confirming === `contest:${contest.id}`"
+        v-if="rules.structure && confirming === `contest:${contest.id}`"
         class="confirm"
         role="group"
         :aria-label="`Entfernen bestätigen: ${contest.title}`"
@@ -432,6 +435,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         <button
           type="button"
           class="danger"
+          :disabled="pending.has(`contest:${contest.id}`)"
           @click="confirmed(() => removeContest(contest))"
         >
           Ja, entfernen
@@ -519,7 +523,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
             {{ fullName(candidate) }}
           </p>
           <div
-            v-if="confirming === `candidate:${candidate.id}`"
+            v-if="rules.candidates && confirming === `candidate:${candidate.id}`"
             class="confirm full"
             role="group"
             :aria-label="`Entfernen bestätigen: ${fullName(candidate)}`"
@@ -529,6 +533,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
             <button
               type="button"
               class="danger"
+              :disabled="pending.has(`candidate:${candidate.id}`)"
               @click="confirmed(() => removeCandidate(candidate))"
             >
               Ja, entfernen
@@ -692,7 +697,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         {{ group.name }}
       </h4>
       <div
-        v-if="confirming === `group:${group.id}`"
+        v-if="rules.structure && confirming === `group:${group.id}`"
         class="confirm"
         role="group"
         :aria-label="`Entfernen bestätigen: ${group.name}`"
@@ -702,6 +707,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         <button
           type="button"
           class="danger"
+          :disabled="pending.has(`group:${group.id}`)"
           @click="confirmed(() => removeGroup(group))"
         >
           Ja, entfernen
