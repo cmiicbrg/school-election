@@ -13,7 +13,7 @@
 // through is confirmed by a toast.
 
 import { computed, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue'
-import { onBeforeRouteLeave } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { RULESET_IDS, type RulesetId } from '@school-election/election-core'
 import CandidatePicture from './CandidatePicture.vue'
 import SaveState from './SaveState.vue'
@@ -131,6 +131,8 @@ function onBeforeUnload(event: BeforeUnloadEvent): void {
 onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
 onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload))
 onBeforeRouteLeave(() => !unsaved.value || window.confirm(LEAVE_QUESTION))
+// Another termin on the same page (the browser's history can jump there) reuses this page and clears it.
+onBeforeRouteUpdate((to, from) => to.params.id === from.params.id || !unsaved.value || window.confirm(LEAVE_QUESTION))
 
 /** Runs a form's change; a change that went through is confirmed with `done` and the page reads everything again. */
 async function run(key: string, action: () => Promise<unknown>, done: () => string): Promise<void> {
