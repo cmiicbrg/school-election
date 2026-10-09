@@ -29,7 +29,7 @@ import { requiredItems } from '../lib/checklist.ts'
 import { ROLE_LABELS, ROUND_LABELS, stateLabel } from '../lib/labels.ts'
 import { usePageTitle } from '../lib/page-title.ts'
 import { setupRules } from '../lib/setup-rules.ts'
-import { collapsed, sectionOrder, STEP_LABELS, STEP_NUMBERS, stepStates, stepStatus, STEPS, useStepMarks, type Markable, type Step } from '../lib/steps.ts'
+import { collapsed, marksCards, sectionOrder, STEP_LABELS, STEP_NUMBERS, stepStates, stepStatus, STEPS, useStepMarks, type Markable, type Step } from '../lib/steps.ts'
 import type { BatchSummary, Configuration, ElectionDetail, Member, Preparation } from '../lib/types.ts'
 
 const props = defineProps<{ id: string }>()
@@ -47,6 +47,11 @@ const { marks, mark } = useStepMarks(() => props.id)
 const states = computed(() => election.value ? stepStates(election.value.lifecycle, marks.value) : undefined)
 const isCollapsed = (step: Markable): boolean => election.value !== undefined && collapsed(step, election.value.lifecycle, marks.value)
 const toggle = (step: Markable): void => mark(step, !isCollapsed(step))
+// A Probelauf that runs finishes the cards; marked done when this browser
+// sees it, they stay done here after it ends (lib/steps.ts, marksCards).
+watch(() => election.value?.lifecycle, (lifecycle) => {
+  if (lifecycle && marksCards(lifecycle, marks.value)) mark('stimmkarten', true)
+}, { immediate: true })
 /** The cards in the order the page shows them. */
 const order = computed(() => election.value ? sectionOrder(election.value.lifecycle, isCollapsed) : [])
 const draft = computed(() => election.value?.state === 'draft')

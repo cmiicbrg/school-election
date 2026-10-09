@@ -65,6 +65,10 @@ test('die Lehrkraft startet den Probelauf; der Code aus dem QR-Code verlässt di
   await expect(run().getByRole('status')).toHaveText('Probelauf gestartet: Stimmen zählen nicht, und nichts bleibt.')
   await expect(run().getByTestId('state')).toHaveText('Der Probelauf läuft: Stimmen zählen nicht, und nichts bleibt.')
   await expect(anna.getByText(/^Probelauf · Ihre Rolle: Wahlleitung/)).toBeVisible()
+  // The Probelauf is the step of the moment: starting it finished the cards, although nobody marked them done in this browser.
+  const steps = anna.getByRole('navigation', { name: 'Schritte' })
+  await expect(steps.locator('[aria-current="step"]')).toContainText('Probelauf')
+  await expect(steps.getByRole('listitem').filter({ hasText: 'Stimmkarten' })).toContainText('(erledigt)')
   // While it runs the page leads with the day, and a banner says so.
   await expect(anna.getByRole('region').first()).toHaveAccessibleName('Wahltag')
   await expect(anna.getByText('Probelauf läuft.', { exact: true })).toBeVisible()
@@ -278,6 +282,9 @@ test('ein zweiter Code läuft über ein Neuladen der Seite weiter; nach dem Ende
   await run().getByRole('button', { name: 'Probelauf beenden' }).click()
   await expect(run().getByRole('status')).toHaveText('Probelauf beendet: 3 Stimmzettel entfernt, 2 Codes wieder frei.')
   await expect(run().getByTestId('state')).toHaveText('Vorbereitet. Sobald die Stimmkarten gedruckt sind, kann der 1. Wahlgang geöffnet werden.')
+  // The cards stay done after it, and the Probelauf is the step again, until it is marked done.
+  await expect(anna.getByRole('navigation', { name: 'Schritte' }).getByRole('listitem').filter({ hasText: 'Stimmkarten' })).toContainText('(erledigt)')
+  await expect(anna.getByRole('navigation', { name: 'Schritte' }).locator('[aria-current="step"]')).toContainText('Probelauf')
 
   // Enough testing: the Probelauf is marked done and collapses.
   await run().getByRole('button', { name: 'Probelauf als erledigt einklappen' }).click()
