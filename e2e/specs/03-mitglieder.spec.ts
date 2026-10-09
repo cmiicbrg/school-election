@@ -61,6 +61,10 @@ test('die Zeugin meldet sich an, sieht die Wahl ohne Bedienelemente, und steht b
   // Pictures without the zone to drop a new one.
   await expect(wanda.getByRole('img', { name: 'Bild von Paula Berger' })).toBeVisible()
   await expect(wanda.getByText('Fotos auf das Bild einer Karte ziehen')).toHaveCount(0)
+  // The classes as the same grid, with marks instead of fields and boxes.
+  await expect(wanda.getByRole('rowheader', { name: '1A', exact: true })).toBeVisible()
+  await expect(wanda.getByRole('region', { name: 'Einrichten' }).getByRole('checkbox')).toHaveCount(0)
+  await expect(wanda.getByRole('region', { name: 'Einrichten' }).getByRole('textbox')).toHaveCount(0)
   await expect(row(wanda, 'Wanda Zeugin')).toContainText('Wanda Zeugin (Sie)')
   await shot(wanda, '07-zeugin-sicht')
   await wanda.context().close()

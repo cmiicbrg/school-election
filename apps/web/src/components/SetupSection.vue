@@ -1,8 +1,10 @@
 <script setup lang="ts">
 // Einrichten: the election's title and description, its contests, each a
 // panel of candidate cards with the picture on top and the form to add one
-// as the last card, and the classes and groups, a row each with the
-// contests it votes in. What may change now comes from the rules
+// as the last card, and the classes and groups as a grid, a row each and a
+// column per contest, ticked where the class votes. Classes are added one
+// or a pasted list at a time, a whole column is ticked at once, and a
+// termin without classes is offered one group for everyone. What may change now comes from the rules
 // (lib/setup-rules.ts): everything in a draft, candidates and the title
 // until voting starts, nothing for a witness. Every change goes to its
 // route and the page reads the configuration again.
@@ -47,7 +49,7 @@ const props = defineProps<{
 const emit = defineEmits<{ changed: [] }>()
 
 const base = computed(() => `/api/elections/${props.election.id}`)
-const ids = { title: useId(), description: useId(), pictureHint: useId(), contestTitle: useId(), contestRuleset: useId(), groupName: useId() }
+const ids = { title: useId(), description: useId(), pictureHint: useId(), contestTitle: useId(), contestRuleset: useId(), groupName: useId(), groupHint: useId() }
 
 /** The forms whose change is on its way, by key ("election", "contest:<id>", "candidate:<id>", ...). */
 const pending = reactive(new Set<string>())
@@ -266,12 +268,67 @@ const saveCandidate = (candidate: Candidate) => {
 }
 const removeCandidate = (candidate: Candidate) =>
   run(`candidate:${candidate.id}`, () => apiDelete(`${base.value}/candidates/${candidate.id}`), () => `${fullName(candidate)} entfernt.`)
-const addGroup = () => {
-  const name = newGroup.value
-  return run('new-group', async () => {
-    await apiPost(`${base.value}/voter-groups`, { name })
+/** The names in the field: one per line, as a pasted class list gives them, blank lines left out. */
+const typedNames = (text: string): string[] => text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== '')
+
+/**
+ * Adds the classes the field names, one after another. A refused one stays
+ * in the field with the ones after it, and the field says why; the ones
+ * before it are added and confirmed.
+ */
+async function addGroups(): Promise<void> {
+  const names = typedNames(newGroup.value)
+  if (names.length === 0 || pending.has('new-group')) return
+  pending.add('new-group')
+  delete errors['new-group']
+  const added: string[] = []
+  try {
+    for (const [index, name] of names.entries()) {
+      try {
+        await apiPost(`${base.value}/voter-groups`, { name })
+        added.push(name)
+      } catch (err) {
+        errors['new-group'] = names.length > 1 ? `„${name}“: ${errorMessage(err)}` : errorMessage(err)
+        newGroup.value = names.slice(index).join('\n')
+        return
+      }
+    }
     newGroup.value = ''
-  }, () => `„${name}“ hinzugefügt.`)
+  } finally {
+    pending.delete('new-group')
+    if (added.length > 0) {
+      notify(added.length === 1 ? `„${added[0] ?? ''}“ hinzugefügt.` : `${added.length} Klassen oder Gruppen hinzugefügt.`)
+      emit('changed')
+    }
+  }
+}
+
+/** Enter adds what the field names, except while an input method composes; Shift+Enter starts another line. */
+function enterAdds(event: KeyboardEvent): void {
+  if (event.isComposing || event.shiftKey) return
+  event.preventDefault()
+  void addGroups()
+}
+
+/** The group a termin gets where everyone votes in every Wahl, on the teacher's choice. */
+const ONE_FOR_ALL = 'Alle Wahlberechtigten'
+
+async function addOneForAll(): Promise<void> {
+  if (pending.has('new-group')) return
+  pending.add('new-group')
+  delete errors['new-group']
+  let created = false
+  try {
+    const group = await apiPost<VoterGroup>(`${base.value}/voter-groups`, { name: ONE_FOR_ALL })
+    created = true
+    await apiPut(`${base.value}/voter-groups/${group.id}/contests`, { contestIds: props.configuration.contests.map((contest) => contest.id) })
+    notify(`„${ONE_FOR_ALL}“ angelegt; sie wählt in allen Wahlen.`)
+  } catch (err) {
+    errors['new-group'] = errorMessage(err)
+  } finally {
+    pending.delete('new-group')
+    if (created) emit('changed')
+  }
 }
 const saveGroup = (group: VoterGroup) => {
   const entered = groupDrafts[group.id] ?? ''
@@ -290,7 +347,8 @@ const saveGroupField = (group: VoterGroup) =>
 const removeGroup = (group: VoterGroup) =>
   run(`group:${group.id}`, () => apiDelete(`${base.value}/voter-groups/${group.id}`), () => `„${group.name}“ entfernt.`)
 
-async function setVotes(group: VoterGroup, contest: Contest, checked: boolean): Promise<void> {
+/** Ticks or clears one box and saves the class's Wahlen; whether it went through, with a refusal shown in the class's row. */
+async function putVotes(group: VoterGroup, contest: Contest, checked: boolean): Promise<boolean> {
   const before = votes[group.id] ?? [...group.contestIds]
   const after = checked ? [...new Set([...before, contest.id])] : before.filter((id) => id !== contest.id)
   votes[group.id] = after
@@ -300,15 +358,43 @@ async function setVotes(group: VoterGroup, contest: Contest, checked: boolean): 
   try {
     await apiPut(`${base.value}/voter-groups/${group.id}/contests`, { contestIds: after })
     saved.add(key)
-    notify(checked ? `„${group.name}“ wählt jetzt in „${contest.title}“.` : `„${group.name}“ wählt nicht mehr in „${contest.title}“.`)
-    emit('changed')
+    return true
   } catch (err) {
     votes[group.id] = before
     errors[key] = errorMessage(err)
+    return false
   } finally {
     pending.delete(key)
   }
 }
+
+async function setVotes(group: VoterGroup, contest: Contest, checked: boolean): Promise<void> {
+  if (!await putVotes(group, contest, checked)) return
+  notify(checked ? `„${group.name}“ wählt jetzt in „${contest.title}“.` : `„${group.name}“ wählt nicht mehr in „${contest.title}“.`)
+  emit('changed')
+}
+
+/** Every class votes in `contest`, or none: the classes whose box differs, one after another, confirmed once. */
+async function setAll(contest: Contest, checked: boolean): Promise<void> {
+  const changing = props.configuration.voterGroups.filter((group) => votesIn(group, contest.id) !== checked)
+  let done = 0
+  for (const group of changing) {
+    if (await putVotes(group, contest, checked)) done += 1
+  }
+  if (done === 0) return
+  notify(checked ? `Alle Klassen und Gruppen wählen jetzt in „${contest.title}“.` : `Keine Klasse oder Gruppe wählt mehr in „${contest.title}“.`)
+  emit('changed')
+}
+
+/** How a column stands: every class ticked, none, or some. */
+function column(contest: Contest): 'all' | 'none' | 'some' {
+  const ticked = props.configuration.voterGroups.filter((group) => votesIn(group, contest.id)).length
+  if (ticked === 0) return 'none'
+  return ticked === props.configuration.voterGroups.length ? 'all' : 'some'
+}
+
+/** The boxes that tick a whole column wait while any class's Wahlen are being saved. */
+const votesPending = computed(() => [...pending].some((key) => key.startsWith('votes:')))
 
 async function picture(candidate: Candidate, action: () => Promise<unknown>, done: string): Promise<void> {
   const key = `picture:${candidate.id}`
@@ -773,157 +859,231 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
     </div>
 
     <div class="part">
-      <h3>Klassen und Gruppen</h3>
-      <div
-        v-if="configuration.voterGroups.length > 0 || rules.structure"
-        class="groups"
-      >
-        <article
-          v-for="group in configuration.voterGroups"
-          :key="group.id"
-          class="group"
-          :aria-label="group.name"
+      <div class="part-head">
+        <h3>Klassen und Gruppen</h3>
+        <p
+          v-if="configuration.voterGroups.length > 0 && configuration.contests.length > 0"
+          class="hint"
         >
-          <div class="group-row">
-            <form
-              v-if="rules.structure"
-              class="group-name"
-              @submit.prevent="saveGroupField(group)"
-            >
-              <label :for="`group-name-${group.id}`">Name</label>
-              <input
-                :id="`group-name-${group.id}`"
-                v-model="groupDrafts[group.id]"
-                type="text"
-                required
-                maxlength="100"
-                @blur="saveGroupField(group)"
-              >
-            </form>
-            <h4 v-else>
-              {{ group.name }}
-            </h4>
-            <fieldset
-              v-if="rules.structure"
-              class="votes"
-            >
-              <legend>Wählt in</legend>
-              <label
+          Ein Häkchen heißt: diese Klasse wählt in dieser Wahl.
+        </p>
+      </div>
+      <p
+        v-if="rules.structure"
+        class="explain"
+      >
+        Jede Klasse oder Gruppe bekommt einen eigenen Stapel Stimmkarten und wählt in den Wahlen, die für sie angehakt sind. Eigene Gruppen braucht es nur, wo Gruppen in verschiedenen Wahlen wählen oder wo die Stimmkarten je Klasse ausgeteilt werden. Wählt die ganze Oberstufe nur die Schulsprecher/in, genügt eine Gruppe „Oberstufe“.
+      </p>
+      <div
+        v-if="configuration.voterGroups.length > 0"
+        class="table-box"
+      >
+        <table class="grid">
+          <thead>
+            <tr>
+              <th scope="col">
+                Klasse / Gruppe
+              </th>
+              <th
                 v-for="contest in configuration.contests"
                 :key="contest.id"
-                class="check"
+                scope="col"
+                class="tick"
               >
-                <input
-                  type="checkbox"
-                  :checked="votesIn(group, contest.id)"
-                  :disabled="pending.has(`votes:${group.id}`)"
-                  @change="setVotes(group, contest, checked($event))"
+                <span class="contest-name">{{ contest.title }}</span>
+                <label
+                  v-if="rules.structure"
+                  class="check all"
                 >
-                {{ contest.title }}
-              </label>
-              <p
-                v-if="configuration.contests.length === 0"
-                class="muted"
+                  <input
+                    type="checkbox"
+                    :checked="column(contest) === 'all'"
+                    :indeterminate="column(contest) === 'some'"
+                    :disabled="votesPending"
+                    :aria-label="`Alle Klassen und Gruppen wählen in ${contest.title}`"
+                    @change="setAll(contest, checked($event))"
+                  >
+                  Alle
+                </label>
+              </th>
+              <th
+                v-if="rules.structure"
+                scope="col"
               >
-                Zuerst Wahlen anlegen.
-              </p>
-            </fieldset>
-            <p
-              v-else
-              class="muted votes"
+                <span class="visually-hidden">Aktionen</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <template
+              v-for="group in configuration.voterGroups"
+              :key="group.id"
             >
-              Wählt in: {{ configuration.contests.filter((contest) => group.contestIds.includes(contest.id)).map((contest) => contest.title).join(', ') || '–' }}
-            </p>
-            <div
-              v-if="rules.structure"
-              class="group-end"
-            >
-              <SaveState :state="saveState(`group:${group.id}`, groupDirty(group.id))" />
-              <SaveState :state="saveState(`votes:${group.id}`, false)" />
-              <button
-                v-if="confirming !== `group:${group.id}`"
-                type="button"
-                class="ghost danger small"
-                :aria-label="`Entfernen: ${group.name}`"
-                :data-remove="`group:${group.id}`"
-                @click="ask(`group:${group.id}`)"
+              <tr>
+                <th
+                  scope="row"
+                  class="group-cell"
+                >
+                  <form
+                    v-if="rules.structure"
+                    @submit.prevent="saveGroupField(group)"
+                  >
+                    <input
+                      :id="`group-name-${group.id}`"
+                      v-model="groupDrafts[group.id]"
+                      type="text"
+                      required
+                      maxlength="100"
+                      :aria-label="`Name von ${group.name}`"
+                      @blur="saveGroupField(group)"
+                    >
+                  </form>
+                  <template v-else>
+                    {{ group.name }}
+                  </template>
+                </th>
+                <td
+                  v-for="contest in configuration.contests"
+                  :key="contest.id"
+                  class="tick"
+                >
+                  <input
+                    v-if="rules.structure"
+                    type="checkbox"
+                    :checked="votesIn(group, contest.id)"
+                    :disabled="pending.has(`votes:${group.id}`)"
+                    :aria-label="`${group.name} wählt in ${contest.title}`"
+                    @change="setVotes(group, contest, checked($event))"
+                  >
+                  <template v-else-if="votesIn(group, contest.id)">
+                    <LineIcon name="check" /><span class="visually-hidden">wählt in {{ contest.title }}</span>
+                  </template>
+                  <span
+                    v-else
+                    class="muted"
+                  >–<span class="visually-hidden"> wählt nicht in {{ contest.title }}</span></span>
+                </td>
+                <td
+                  v-if="rules.structure"
+                  class="end"
+                >
+                  <SaveState :state="saveState(`group:${group.id}`, groupDirty(group.id))" />
+                  <SaveState :state="saveState(`votes:${group.id}`, false)" />
+                  <button
+                    v-if="confirming !== `group:${group.id}`"
+                    type="button"
+                    class="ghost danger small"
+                    :aria-label="`Entfernen: ${group.name}`"
+                    :data-remove="`group:${group.id}`"
+                    @click="ask(`group:${group.id}`)"
+                  >
+                    <LineIcon name="trash" />Entfernen
+                  </button>
+                </td>
+              </tr>
+              <tr
+                v-if="(rules.structure && confirming === `group:${group.id}`) || errors[`group:${group.id}`] || errors[`votes:${group.id}`]"
+                class="note-row"
               >
-                <LineIcon name="trash" />Entfernen
-              </button>
-            </div>
-          </div>
-          <fieldset
-            v-if="rules.structure && confirming === `group:${group.id}`"
-            class="confirm"
-            :aria-label="`Entfernen bestätigen: ${group.name}`"
-            :data-confirm="`group:${group.id}`"
-          >
-            <span>Klasse oder Gruppe „{{ group.name }}“ entfernen?</span>
-            <button
-              type="button"
-              class="danger"
-              :disabled="pending.has(`group:${group.id}`)"
-              @click="confirmed(() => removeGroup(group))"
-            >
-              Ja, entfernen
-            </button>
-            <button
-              type="button"
-              class="secondary cancel"
-              @click="cancel"
-            >
-              Abbrechen
-            </button>
-          </fieldset>
-          <p
-            v-if="errors[`group:${group.id}`]"
-            class="message error"
-            role="alert"
-          >
-            {{ errors[`group:${group.id}`] }}
-            <button
-              v-if="retries.has(`group:${group.id}`)"
-              type="button"
-              class="link"
-              @click="retries.get(`group:${group.id}`)?.()"
-            >
-              Noch einmal
-            </button>
-          </p>
-          <p
-            v-if="errors[`votes:${group.id}`]"
-            class="message error"
-            role="alert"
-          >
-            {{ errors[`votes:${group.id}`] }}
-          </p>
-        </article>
-        <form
-          v-if="rules.structure"
-          class="add-row"
-          aria-label="Klasse oder Gruppe hinzufügen"
-          @submit.prevent="addGroup"
-        >
-          <div class="grow">
-            <label :for="ids.groupName">Name der Klasse oder Gruppe</label>
-            <input
-              :id="ids.groupName"
-              v-model="newGroup"
-              type="text"
-              required
-              maxlength="100"
-              autocomplete="off"
-            >
-          </div>
-          <button
-            type="submit"
-            class="secondary"
-            :disabled="pending.has('new-group')"
-          >
-            <LineIcon name="plus" />Klasse oder Gruppe hinzufügen
-          </button>
-        </form>
+                <td :colspan="configuration.contests.length + 2">
+                  <fieldset
+                    v-if="rules.structure && confirming === `group:${group.id}`"
+                    class="confirm"
+                    :aria-label="`Entfernen bestätigen: ${group.name}`"
+                    :data-confirm="`group:${group.id}`"
+                  >
+                    <span>Klasse oder Gruppe „{{ group.name }}“ entfernen?</span>
+                    <button
+                      type="button"
+                      class="danger"
+                      :disabled="pending.has(`group:${group.id}`)"
+                      @click="confirmed(() => removeGroup(group))"
+                    >
+                      Ja, entfernen
+                    </button>
+                    <button
+                      type="button"
+                      class="secondary cancel"
+                      @click="cancel"
+                    >
+                      Abbrechen
+                    </button>
+                  </fieldset>
+                  <p
+                    v-if="errors[`group:${group.id}`]"
+                    class="message error"
+                    role="alert"
+                  >
+                    {{ errors[`group:${group.id}`] }}
+                    <button
+                      v-if="retries.has(`group:${group.id}`)"
+                      type="button"
+                      class="link"
+                      @click="retries.get(`group:${group.id}`)?.()"
+                    >
+                      Noch einmal
+                    </button>
+                  </p>
+                  <p
+                    v-if="errors[`votes:${group.id}`]"
+                    class="message error"
+                    role="alert"
+                  >
+                    {{ errors[`votes:${group.id}`] }}
+                  </p>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
       </div>
+      <p
+        v-else-if="!rules.structure"
+        class="muted"
+      >
+        Noch keine Klassen oder Gruppen.
+      </p>
+      <form
+        v-if="rules.structure"
+        class="add-groups"
+        aria-label="Klasse oder Gruppe hinzufügen"
+        @submit.prevent="addGroups"
+      >
+        <div class="grow">
+          <label :for="ids.groupName">Name der Klasse oder Gruppe</label>
+          <textarea
+            :id="ids.groupName"
+            v-model="newGroup"
+            :rows="Math.min(Math.max(newGroup.split('\n').length, 1), 8)"
+            required
+            autocomplete="off"
+            :aria-describedby="ids.groupHint"
+            @keydown.enter="enterAdds"
+          />
+          <p
+            :id="ids.groupHint"
+            class="field-hint"
+          >
+            Mehrere auf einmal: eine pro Zeile, etwa aus einer Klassenliste kopiert.
+          </p>
+        </div>
+        <button
+          type="submit"
+          class="secondary"
+          :disabled="pending.has('new-group')"
+        >
+          <LineIcon name="plus" />Klasse oder Gruppe hinzufügen
+        </button>
+        <button
+          v-if="configuration.voterGroups.length === 0 && configuration.contests.length > 0"
+          type="button"
+          class="secondary"
+          :disabled="pending.has('new-group')"
+          @click="addOneForAll"
+        >
+          Eine Gruppe für alle anlegen
+        </button>
+      </form>
       <p
         v-if="errors['new-group']"
         class="message error"
@@ -1146,107 +1306,110 @@ h4 {
   border-radius: 12px;
 }
 
-/* The classes: a row each, and a grey row that adds one. */
-.groups {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-}
-
-.group {
-  padding: 12px 16px;
-}
-
-.group + .group,
-.group + .add-row {
-  border-top: 1px solid var(--line);
-}
-
-.group-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 20px;
-}
-
-.group-name {
-  flex: 0 1 180px;
-}
-
-.group-name label {
-  margin-bottom: 4px;
-}
-
-.votes {
-  flex: 1 1 260px;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 18px;
-  min-inline-size: 0;
+/* The classes: a grid, a row per class and a column per Wahl. */
+.explain {
+  max-width: 72ch;
   margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.votes legend {
-  float: left;
-  margin: 0 4px 0 0;
-  padding: 0;
   color: var(--ink2);
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-size: 0.85rem;
 }
 
-.votes p {
-  margin: 0;
+.grid {
+  min-width: 480px;
+}
+
+.grid .tick {
+  text-align: center;
+}
+
+.contest-name {
+  display: block;
 }
 
 .check {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin: 0;
   color: var(--ink);
   font-size: 0.9rem;
   font-weight: 400;
 }
 
-.check input {
+.check.all {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.grid input[type='checkbox'] {
   width: 18px;
   height: 18px;
   margin: 0;
   accent-color: var(--accent);
 }
 
-.group-end {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
-  margin-left: auto;
+/* A row's head is the class's name: a field while it can change. */
+.group-cell {
+  background: none;
+  color: var(--ink);
+  font-size: 0.9rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.group-cell input {
+  max-width: 160px;
+  font-weight: 400;
+}
+
+.end {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.end > * + * {
+  margin-left: 8px;
+}
+
+.end :deep(.save-state) {
   font-size: 0.8rem;
 }
 
-.group .confirm,
-.group .message {
-  margin: 10px 0 0;
+.note-row td {
+  padding-top: 0;
 }
 
-.add-row {
+.note-row .confirm,
+.note-row .message {
+  margin: 0;
+  white-space: normal;
+}
+
+.add-groups {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 10px;
   padding: 12px 16px;
-  border-radius: 0 0 12px 12px;
+  border-radius: 12px;
   background: var(--soft);
 }
 
-.add-row:first-child {
-  border-radius: 12px;
+.add-groups .grow {
+  flex: 0 1 280px;
 }
 
-.add-row .grow {
-  flex: 0 1 280px;
+.add-groups textarea {
+  min-height: 40px;
+  resize: vertical;
+}
+
+.field-hint {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
 }
 </style>
