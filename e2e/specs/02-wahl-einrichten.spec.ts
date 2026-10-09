@@ -214,7 +214,14 @@ test('die Klassen und was sie wählen', async () => {
   // The Wahl's column: some classes ticked, then all with one box.
   const all = page.getByRole('checkbox', { name: `Alle Klassen und Gruppen wählen in ${SCHOOL}`, exact: true })
   await expect(page.getByRole('checkbox', { name: `Alle Klassen und Gruppen wählen in ${CLASS_1A}`, exact: true })).toHaveJSProperty('indeterminate', true)
-  await all.check()
+  // The first class's save fails, as with a dropped connection: the toast says only one of two changed, the failed row says why.
+  await page.route('**/api/elections/*/voter-groups/*/contests', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"unavailable"}' }), { times: 1 })
+  await refused(page, 503, () => all.check())
+  await expect(toast('Nur 1 von 2 Klassen oder Gruppen geändert; bei den übrigen steht, warum nicht.')).toBeVisible()
+  await expect(page.getByRole('checkbox', { name: `1A wählt in ${SCHOOL}`, exact: true })).not.toBeChecked()
+  await expect(all).toHaveJSProperty('indeterminate', true)
+  // A click on a mixed box ticks it.
+  await all.click()
   await expect(toast(`Alle Klassen und Gruppen wählen jetzt in „${SCHOOL}“.`)).toBeVisible()
   await expect(all).toBeChecked()
   for (const name of ['1A', '2B']) await expect(page.getByRole('checkbox', { name: `${name} wählt in ${SCHOOL}`, exact: true })).toBeChecked()

@@ -374,16 +374,42 @@ async function setVotes(group: VoterGroup, contest: Contest, checked: boolean): 
   emit('changed')
 }
 
-/** Every class votes in `contest`, or none: the classes whose box differs, one after another, confirmed once. */
+/** A whole column is being saved: every box waits, so no class's own save can overtake the column's. */
+const columnSaving = ref(false)
+
+/**
+ * Every class votes in `contest`, or none: the classes whose box differs,
+ * one after another, confirmed once. Where some were refused, the toast
+ * says how many changed, and the refused rows say why.
+ */
 async function setAll(contest: Contest, checked: boolean): Promise<void> {
   const changing = props.configuration.voterGroups.filter((group) => votesIn(group, contest.id) !== checked)
+  columnSaving.value = true
   let done = 0
-  for (const group of changing) {
-    if (await putVotes(group, contest, checked)) done += 1
+  try {
+    for (const group of changing) {
+      if (await putVotes(group, contest, checked)) done += 1
+    }
+  } finally {
+    columnSaving.value = false
   }
   if (done === 0) return
-  notify(checked ? `Alle Klassen und Gruppen wählen jetzt in „${contest.title}“.` : `Keine Klasse oder Gruppe wählt mehr in „${contest.title}“.`)
+  if (done < changing.length) notify(`Nur ${done} von ${changing.length} Klassen oder Gruppen geändert; bei den übrigen steht, warum nicht.`)
+  else notify(checked ? `Alle Klassen und Gruppen wählen jetzt in „${contest.title}“.` : `Keine Klasse oder Gruppe wählt mehr in „${contest.title}“.`)
   emit('changed')
+}
+
+/**
+ * A click on a column's box: ticks the Wahl for every class unless all are
+ * ticked, else clears it, as the grid stands, not as the click left the box.
+ * Afterwards the box shows the column as it is: a column only partly saved
+ * stays mixed, which Vue would not redraw, the bound value being unchanged.
+ */
+async function toggleColumn(event: Event, contest: Contest): Promise<void> {
+  const box = event.target as HTMLInputElement
+  await setAll(contest, column(contest) !== 'all')
+  box.checked = column(contest) === 'all'
+  box.indeterminate = column(contest) === 'some'
 }
 
 /** How a column stands: every class ticked, none, or some. */
@@ -393,7 +419,7 @@ function column(contest: Contest): 'all' | 'none' | 'some' {
   return ticked === props.configuration.voterGroups.length ? 'all' : 'some'
 }
 
-/** The boxes that tick a whole column wait while any class's Wahlen are being saved. */
+/** The boxes that tick a whole column wait while any class's Wahlen are being saved, so the column never overtakes a class's own save. */
 const votesPending = computed(() => [...pending].some((key) => key.startsWith('votes:')))
 
 async function picture(candidate: Candidate, action: () => Promise<unknown>, done: string): Promise<void> {
@@ -901,7 +927,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
                     :indeterminate="column(contest) === 'some'"
                     :disabled="votesPending"
                     :aria-label="`Alle Klassen und Gruppen wählen in ${contest.title}`"
-                    @change="setAll(contest, checked($event))"
+                    @change="toggleColumn($event, contest)"
                   >
                   Alle
                 </label>
@@ -951,7 +977,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
                     v-if="rules.structure"
                     type="checkbox"
                     :checked="votesIn(group, contest.id)"
-                    :disabled="pending.has(`votes:${group.id}`)"
+                    :disabled="columnSaving || pending.has(`votes:${group.id}`)"
                     :aria-label="`${group.name} wählt in ${contest.title}`"
                     @change="setVotes(group, contest, checked($event))"
                   >
