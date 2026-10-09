@@ -157,6 +157,68 @@ test('a co-admin invites and removes witnesses, but co-admins only the owner', D
   assert.deepEqual((await members(anna, id)).map((member) => member.role), ['owner', 'admin', 'admin'])
 })
 
+test('the lead goes to a co-admin who has signed in: the owner becomes a co-admin, can be removed like one, and the log names both', DB, async (t) => {
+  const s = await electionApp(t)
+  const anna = await signIn(s, ANNA)
+  const id = await createElection(anna)
+  const carlaMember = (await invite(anna, id, CARLA.email, 'admin')).json<MemberView>()
+  const carla = await signIn(s, CARLA)
+  const lead = (browser: Browser, memberId: string | undefined) => browser.request('POST', `/api/elections/${id}/lead`, { memberId })
+  const role = async (browser: Browser) => (await browser.request('GET', `/api/elections/${id}`)).json<{ role: string, permissions: string[] }>()
+
+  assert.equal((await lead(carla, carlaMember.id)).statusCode, 403)
+  assert.equal((await lead(anna, carlaMember.id)).statusCode, 204)
+  assert.deepEqual([(await role(anna)).role, (await role(carla)).role], ['admin', 'owner'])
+  assert.ok(!(await role(anna)).permissions.includes('finalize'))
+  const after = await members(carla, id)
+  assert.deepEqual(after.map((member) => [member.role, member.displayName, member.email]), [
+    ['owner', 'Carla Kollegin', CARLA.email],
+    ['admin', 'Anna Lehrerin', null],
+  ])
+  // The former owner hands nothing over any more; the new one could hand it back.
+  assert.deepEqual((await lead(anna, carlaMember.id)).json(), { error: 'forbidden' })
+
+  const annaMember = after.find((member) => member.displayName === 'Anna Lehrerin')
+  assert.equal((await carla.request('DELETE', `/api/elections/${id}/members/${annaMember?.id}`)).statusCode, 204)
+  assert.equal((await anna.request('GET', `/api/elections/${id}`)).statusCode, 404)
+
+  const { events, chain } = await auditLog(carla, id)
+  assert.deepEqual(chain, { valid: true, length: events.length, head: events.at(-1)?.hash })
+  assert.deepEqual(events.slice(-2).map((event) => [event.actor.name, event.action, event.metadata]), [
+    ['Anna Lehrerin', 'lead.transferred', { to: CARLA.email }],
+    ['Carla Kollegin', 'member.removed', { email: ANNA.email, role: 'admin' }],
+  ])
+})
+
+test('the lead goes to no witness, no pending co-admin, nobody of another election, and not once final; none leaves an event', DB, async (t) => {
+  const s = await electionApp(t)
+  const anna = await signIn(s, ANNA)
+  const bernd = await signIn(s, BERND)
+  const id = await createElection(anna)
+  const other = await createElection(bernd, 'Andere Wahl')
+  const witness = (await invite(anna, id, WANDA.email, 'witness')).json<MemberView>()
+  await signIn(s, WANDA)
+  const pending = (await invite(anna, id, CARLA.email, 'admin')).json<MemberView>()
+  const othersOwner = (await members(bernd, other))[0]
+  const owner = (await members(anna, id)).find((member) => member.role === 'owner')
+  const before = await auditActions(anna, id)
+  const lead = (memberId: string | undefined) => anna.request('POST', `/api/elections/${id}/lead`, { memberId })
+
+  for (const memberId of [witness.id, pending.id, owner?.id]) {
+    assert.deepEqual((await lead(memberId)).json(), { error: 'lead_needs_co_admin' })
+  }
+  assert.deepEqual([(await lead(othersOwner?.id)).statusCode, (await lead(othersOwner?.id)).json()], [404, { error: 'not_found' }])
+  assert.equal((await lead('not-an-id')).statusCode, 400)
+  assert.equal((await anna.request('POST', `/api/elections/${id}/lead`, { memberId: pending.id, extra: 1 })).statusCode, 400)
+  assert.deepEqual(await auditActions(anna, id), before)
+
+  // Signed in, she could take it, but not once the result is final.
+  await signIn(s, CARLA)
+  await forceElectionState(s.ownerUrl, id, 'final')
+  assert.deepEqual([(await lead(pending.id)).statusCode, (await lead(pending.id)).json()], [409, { error: 'election_final' }])
+  assert.deepEqual(await auditActions(anna, id), [...before, 'member.bound'])
+})
+
 test('refused member changes: a second invitation, the owner, an unknown member, a bad address; none leaves an event', DB, async (t) => {
   const s = await electionApp(t)
   const anna = await signIn(s, ANNA)

@@ -43,6 +43,7 @@ const SENTENCES: Readonly<Record<string, (metadata: Metadata, names: AuditNames)
   'member.invited': (metadata) => `${text(metadata, 'email')} als ${role(metadata)} eingeladen.`,
   'member.bound': (metadata) => `${text(metadata, 'email')} hat sich angemeldet (${role(metadata)}).`,
   'member.removed': (metadata) => `${text(metadata, 'email')} (${role(metadata)}) entfernt.`,
+  'lead.transferred': (metadata) => `Wahlleitung an ${text(metadata, 'to')} übergeben; die bisherige Wahlleitung ist jetzt Co-Admin.`,
   'contest.created': (metadata) => `Wahl „${text(metadata, 'title')}“ angelegt: ${ruleset(metadata)}.`,
   'contest.updated': (metadata) => `Wahl „${text(metadata, 'title')}“ geändert: ${ruleset(metadata)}.`,
   'contest.removed': (metadata) => `Wahl „${text(metadata, 'title')}“ entfernt, mit ${plural(num(metadata, 'candidates'), 'Kandidat:in', 'Kandidat:innen')}.`,

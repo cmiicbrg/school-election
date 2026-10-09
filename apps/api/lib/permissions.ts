@@ -2,10 +2,11 @@
 // out. Whether the action is possible in the election's current state is
 // the lifecycle's question (election-core), asked after this one.
 //
-//   owner    everything: the teacher who created the election (the
-//            Wahlleitung);
-//   admin    everything but inviting and removing co-admins, finalizing
-//            and deleting: a co-admin, who may invite and remove witnesses;
+//   owner    everything: the Wahlleitung, the teacher who created the
+//            election or the co-admin it was handed to;
+//   admin    everything but inviting and removing co-admins, handing over
+//            the lead, finalizing and deleting: a co-admin, who may invite
+//            and remove witnesses;
 //   witness  reading only, results only once their round has closed (as
 //            for everyone: no role sees a result while voting is open).
 //
@@ -15,7 +16,7 @@
 export const ELECTION_ROLES = ['owner', 'admin', 'witness'] as const
 export type ElectionRole = typeof ELECTION_ROLES[number]
 
-/** Co-admins and witnesses are invited; the owner is the creator. */
+/** Co-admins and witnesses are invited; the owner created the election or was handed the lead. */
 export const INVITED_ROLES = ['admin', 'witness'] as const
 export type InvitedRole = typeof INVITED_ROLES[number]
 
@@ -28,13 +29,14 @@ export const ELECTION_ACTIONS = [
   'run-rounds', // open and close rounds, activate the runoff, record a lot the officials drew
   'manage-witnesses', // invite and remove witnesses
   'manage-co-admins', // invite and remove co-admins
+  'transfer-lead', // hand the Wahlleitung to a co-admin, becoming one
   'finalize',
   'delete-election', // remove an election nobody used
 ] as const
 export type ElectionAction = typeof ELECTION_ACTIONS[number]
 
 const READ_ONLY: ReadonlySet<ElectionAction> = new Set(['view', 'view-results'])
-const OWNER_ONLY: ReadonlySet<ElectionAction> = new Set(['manage-co-admins', 'finalize', 'delete-election'])
+const OWNER_ONLY: ReadonlySet<ElectionAction> = new Set(['manage-co-admins', 'transfer-lead', 'finalize', 'delete-election'])
 
 export function isPermitted(role: ElectionRole, action: ElectionAction): boolean {
   switch (role) {

@@ -8,8 +8,8 @@ import { DB, withClient } from './helpers/db.ts'
 import { ANNA, auditActions, BERND, CARLA, createElection, electionApp, electionPath, forceElectionState, signIn, WANDA, type Browser } from './helpers/elections.ts'
 
 // Who may do what, read from the requirements rather than from the code:
-// the owner everything, a co-admin everything but co-admins, finalizing
-// and deleting, a witness reading only.
+// the owner everything, a co-admin everything but co-admins, handing over
+// the lead, finalizing and deleting, a witness reading only.
 const MATRIX: Record<ElectionAction, Record<ElectionRole, boolean>> = {
   'view': { owner: true, admin: true, witness: true },
   'view-results': { owner: true, admin: true, witness: true },
@@ -19,6 +19,7 @@ const MATRIX: Record<ElectionAction, Record<ElectionRole, boolean>> = {
   'run-rounds': { owner: true, admin: true, witness: false },
   'manage-witnesses': { owner: true, admin: true, witness: false },
   'manage-co-admins': { owner: true, admin: false, witness: false },
+  'transfer-lead': { owner: true, admin: false, witness: false },
   'finalize': { owner: true, admin: false, witness: false },
   'delete-election': { owner: true, admin: false, witness: false },
 }

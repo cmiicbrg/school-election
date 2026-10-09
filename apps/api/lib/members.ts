@@ -1,6 +1,7 @@
 // The members of an election: invitations by school e-mail address,
-// removal, and binding an invitation to the person who signs in with that
-// address. Every change appends its audit event in its own transaction.
+// removal, handing over the lead, and binding an invitation to the person
+// who signs in with that address. Every change appends its audit event in
+// its own transaction.
 
 import type pg from 'pg'
 import { canManageMembers, type ElectionState, type RoundState } from '@school-election/election-core'
@@ -15,7 +16,7 @@ export interface Member {
   role: ElectionRole
   /** Pending until the invited person signs in; the owner is always bound. */
   status: 'pending' | 'bound'
-  /** The address the member was invited by, as it was entered; null for the owner. */
+  /** The address the member was invited by, as it was entered; null for the one who created the election. */
   email: string | null
   /** The bound person's name; null while pending. */
   displayName: string | null
@@ -76,25 +77,52 @@ export async function inviteMember(client: pg.ClientBase, access: ElectionAccess
   return { id, role, status: 'pending', email, displayName: null }
 }
 
-/**
- * Removes an invitation or a member, inside changeElection. Access ends
- * with the removed person's next request. The owner cannot be removed.
- */
-export async function removeMember(client: pg.ClientBase, access: ElectionAccess, memberId: string): Promise<void> {
-  const { rows } = await client.query<{ role: ElectionRole, invited_email: string | null }>(
-    'select role, invited_email from election_member where id = $1 and election_id = $2',
+// A member as the log names them: by the address they were invited by, or,
+// for the one who created the election and has since handed over the lead,
+// by the address they signed in with, or their name without one.
+const LOGGED_NAME = 'coalesce(m.invited_email, u.email, u.display_name)'
+
+/** A member of the election, with the name the log gives them; 404 for another election's or none. */
+async function memberOf(client: pg.ClientBase, access: ElectionAccess, memberId: string): Promise<{ role: ElectionRole, bound: boolean, name: string }> {
+  const { rows } = await client.query<{ role: ElectionRole, bound: boolean, name: string }>(
+    `select m.role, m.user_id is not null as bound, ${LOGGED_NAME} as name
+       from election_member m left join app_user u on u.id = m.user_id
+      where m.id = $1 and m.election_id = $2`,
     [memberId, access.electionId],
   )
   const member = rows[0]
   if (!member) throw new Refusal(404, 'not_found')
-  if (member.role === 'owner' || member.invited_email === null) throw new Refusal(409, 'owner_not_removable')
+  return member
+}
+
+/**
+ * Removes an invitation or a member, inside changeElection. Access ends
+ * with the removed person's next request. The owner cannot be removed; a
+ * former owner can, like any co-admin.
+ */
+export async function removeMember(client: pg.ClientBase, access: ElectionAccess, memberId: string): Promise<void> {
+  const member = await memberOf(client, access, memberId)
+  if (member.role === 'owner') throw new Refusal(409, 'owner_not_removable')
   if (!mayManage(access, member.role)) throw new Refusal(403, 'forbidden')
   await client.query('delete from election_member where id = $1', [memberId])
   await appendAudit(client, access.electionId, {
     actor: access.actor,
     action: 'member.removed',
-    metadata: { email: member.invited_email, role: member.role },
+    metadata: { email: member.name, role: member.role },
   })
+}
+
+/**
+ * Hands the Wahlleitung to a co-admin who has signed in, inside
+ * changeElection: they become the owner, and the owner a co-admin
+ * (transfer_lead). Any other member, a pending co-admin included, is
+ * refused (409 lead_needs_co_admin).
+ */
+export async function transferLead(client: pg.ClientBase, access: ElectionAccess, memberId: string): Promise<void> {
+  const member = await memberOf(client, access, memberId)
+  if (member.role !== 'admin' || !member.bound) throw new Refusal(409, 'lead_needs_co_admin')
+  await client.query('select transfer_lead($1, $2)', [access.electionId, memberId])
+  await appendAudit(client, access.electionId, { actor: access.actor, action: 'lead.transferred', metadata: { to: member.name } })
 }
 
 /**

@@ -290,7 +290,7 @@ test('der Export: die Datei, ihre Prüfsumme auf der Seite, auch für die Zeugin
   expect(audit.chain.valid).toBe(true)
   const counts = new Map<string, number>()
   for (const event of audit.events) counts.set(event.action, (counts.get(event.action) ?? 0) + 1)
-  expect(Object.fromEntries([...counts].filter(([action]) => !/^(candidate|contest|voter-group|member|credential-batch|election\.(created|prepared|unprepared))/.test(action)).toSorted())).toEqual({
+  expect(Object.fromEntries([...counts].filter(([action]) => !/^(candidate|contest|voter-group|member|lead|credential-batch|election\.(created|prepared|unprepared))/.test(action)).toSorted())).toEqual({
     'election.finalized': 1,
     'export.generated': 2,
     'lot.recorded': 2,

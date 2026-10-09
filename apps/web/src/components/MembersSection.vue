@@ -4,10 +4,11 @@
 // person's next sign-in, which the page says after inviting; no e-mail
 // is sent, so the form names the app's address to pass on. The owner
 // invites and removes both roles, a co-admin witnesses only, until the
-// result is final. Removing a member asks first, in place, and a toast
-// confirms it.
+// result is final. The owner can hand the Wahlleitung to a co-admin who
+// has signed in, and becomes a co-admin. Removing a member and handing
+// over the lead ask first, in place, and a toast confirms each.
 
-import { computed, nextTick, ref, useId } from 'vue'
+import { computed, nextTick, ref, useId, watch } from 'vue'
 import { apiDelete, apiPost } from '../lib/api.ts'
 import { errorMessage } from '../lib/api-rules.ts'
 import { BASE_URL } from '../lib/base.ts'
@@ -22,6 +23,8 @@ const props = defineProps<{
   witnesses: boolean
   /** The caller may invite and remove co-admins now. */
   coAdmins: boolean
+  /** The caller may hand the Wahlleitung to a co-admin now. */
+  lead: boolean
   /** The result is final: members no longer change. */
   final: boolean
 }>()
@@ -34,16 +37,29 @@ const role = ref<'admin' | 'witness'>('witness')
 const busy = ref(false)
 const error = ref<string | null>(null)
 const hint = ref<string | null>(null)
-/** The member whose removal waits for its confirmation. */
-const confirming = ref<string | null>(null)
+/** A question that waits for its confirmation: removing a member, or handing them the lead. */
+interface Question { kind: 'remove' | 'lead', id: string }
+const confirming = ref<Question | null>(null)
+const asked = (member: Member, kind: Question['kind']): boolean => confirming.value?.kind === kind && confirming.value.id === member.id
+const keyOf = (question: Question): string => `${question.kind}:${question.id}`
 /** Where invited people sign in. */
 const address = `${BASE_URL}/`
+// Without co-admins to manage, after handing over the lead, the form
+// offers witnesses only, and invites one.
+watch(() => props.coAdmins, (coAdmins) => {
+  if (!coAdmins) role.value = 'witness'
+})
 /** Inviting a second co-admin: one is usually enough. */
 const anotherCoAdmin = computed(() => role.value === 'admin' && props.members.some((member) => member.role === 'admin'))
 
 function mayRemove(member: Member): boolean {
   if (member.role === 'admin') return props.coAdmins
   return member.role === 'witness' && props.witnesses
+}
+
+/** The lead goes to a co-admin who has signed in. */
+function mayLead(member: Member): boolean {
+  return props.lead && member.role === 'admin' && member.status === 'bound'
 }
 
 async function invite(): Promise<void> {
@@ -62,17 +78,18 @@ async function invite(): Promise<void> {
   }
 }
 
-async function ask(member: Member): Promise<void> {
-  confirming.value = member.id
+async function ask(kind: Question['kind'], member: Member): Promise<void> {
+  const question = { kind, id: member.id }
+  confirming.value = question
   await nextTick()
-  document.querySelector<HTMLButtonElement>(`[data-confirm="${CSS.escape(member.id)}"] .cancel`)?.focus()
+  document.querySelector<HTMLButtonElement>(`[data-confirm="${CSS.escape(keyOf(question))}"] .cancel`)?.focus()
 }
 async function cancel(): Promise<void> {
-  const id = confirming.value
+  const question = confirming.value
   confirming.value = null
-  if (id === null) return
+  if (question === null) return
   await nextTick()
-  document.querySelector<HTMLButtonElement>(`[data-remove="${CSS.escape(id)}"]`)?.focus()
+  document.querySelector<HTMLButtonElement>(`[data-ask="${CSS.escape(keyOf(question))}"]`)?.focus()
 }
 async function remove(member: Member): Promise<void> {
   confirming.value = null
@@ -82,6 +99,22 @@ async function remove(member: Member): Promise<void> {
   try {
     await apiDelete(`/api/elections/${props.electionId}/members/${member.id}`)
     notify(`${nameOf(member)} (${ROLE_LABELS[member.role]}) entfernt.`)
+    emit('changed')
+  } catch (err) {
+    error.value = errorMessage(err)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function handOver(member: Member): Promise<void> {
+  confirming.value = null
+  busy.value = true
+  error.value = null
+  hint.value = null
+  try {
+    await apiPost(`/api/elections/${props.electionId}/lead`, { memberId: member.id })
+    notify(`Wahlleitung an ${nameOf(member)} übergeben. Sie sind jetzt Co-Admin.`)
     emit('changed')
   } catch (err) {
     error.value = errorMessage(err)
@@ -118,21 +151,54 @@ function nameOf(member: Member): string {
           > · {{ member.email }}</span>
         </span>
         <button
-          v-if="mayRemove(member) && confirming !== member.id"
+          v-if="mayLead(member) && !asked(member, 'lead')"
+          type="button"
+          class="secondary"
+          :disabled="busy"
+          :aria-label="`Wahlleitung übergeben: ${nameOf(member)}`"
+          :data-ask="`lead:${member.id}`"
+          @click="ask('lead', member)"
+        >
+          Wahlleitung übergeben
+        </button>
+        <button
+          v-if="mayRemove(member) && !asked(member, 'remove')"
           type="button"
           class="danger"
           :disabled="busy"
           :aria-label="`Entfernen: ${nameOf(member)}`"
-          :data-remove="member.id"
-          @click="ask(member)"
+          :data-ask="`remove:${member.id}`"
+          @click="ask('remove', member)"
         >
           Entfernen
         </button>
         <fieldset
-          v-if="mayRemove(member) && confirming === member.id"
+          v-if="mayLead(member) && asked(member, 'lead')"
+          class="confirm"
+          :aria-label="`Übergabe bestätigen: ${nameOf(member)}`"
+          :data-confirm="`lead:${member.id}`"
+        >
+          <span>Wahlleitung an {{ nameOf(member) }} übergeben? Sie werden Co-Admin; das Ergebnis feststellen, den Wahltermin löschen und Co-Admins verwalten kann dann nur noch {{ nameOf(member) }}.</span>
+          <button
+            type="button"
+            :disabled="busy"
+            @click="handOver(member)"
+          >
+            Ja, übergeben
+          </button>
+          <button
+            type="button"
+            class="secondary cancel"
+            @click="cancel"
+          >
+            Abbrechen
+          </button>
+        </fieldset>
+        <fieldset
+          v-if="mayRemove(member) && asked(member, 'remove')"
           class="confirm"
           :aria-label="`Entfernen bestätigen: ${nameOf(member)}`"
-          :data-confirm="member.id"
+          :data-confirm="`remove:${member.id}`"
         >
           <span>{{ nameOf(member) }} ({{ ROLE_LABELS[member.role] }}) entfernen?</span>
           <button

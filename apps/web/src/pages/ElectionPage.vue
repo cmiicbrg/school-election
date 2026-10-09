@@ -129,6 +129,7 @@ function reload(): void {
       :members="members"
       :witnesses="rules.witnesses"
       :co-admins="rules.coAdmins"
+      :lead="rules.lead"
       :final="election.state === 'final'"
       @changed="reload"
     />

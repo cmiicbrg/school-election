@@ -18,7 +18,7 @@ import {
 } from '@school-election/election-core'
 import type { Role } from './labels.ts'
 
-export type Permission = 'view' | 'view-results' | 'configure' | 'prepare' | 'issue-keys' | 'run-rounds' | 'manage-witnesses' | 'manage-co-admins' | 'finalize' | 'delete-election'
+export type Permission = 'view' | 'view-results' | 'configure' | 'prepare' | 'issue-keys' | 'run-rounds' | 'manage-witnesses' | 'manage-co-admins' | 'transfer-lead' | 'finalize' | 'delete-election'
 
 export interface SetupRules {
   /** Contests, voter groups and their mapping, each contest's ruleset. */
@@ -29,6 +29,8 @@ export interface SetupRules {
   witnesses: boolean
   /** Inviting and removing co-admins. */
   coAdmins: boolean
+  /** Handing the Wahlleitung to a co-admin. */
+  lead: boolean
   prepare: boolean
   unprepare: boolean
   /** Issuing a batch for the round, or topping one up. */
@@ -44,6 +46,7 @@ export function setupRules(lifecycle: Lifecycle, permissions: readonly Permissio
     candidates: may('configure') && canEditCandidates(lifecycle).ok,
     witnesses: may('manage-witnesses') && canManageMembers(lifecycle).ok,
     coAdmins: may('manage-co-admins') && canManageMembers(lifecycle).ok,
+    lead: may('transfer-lead') && canManageMembers(lifecycle).ok,
     prepare: may('prepare') && transition(lifecycle, 'prepare').ok,
     unprepare: may('prepare') && transition(lifecycle, 'unprepare').ok,
     issue: { regular: may('issue-keys') && canIssueBatch(lifecycle, 'regular').ok, runoff: may('issue-keys') && canIssueBatch(lifecycle, 'runoff').ok },
