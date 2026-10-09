@@ -94,10 +94,7 @@ const staleKeys = computed(() => (stale.value ?? []).reduce((sum, batch) => sum 
 </script>
 
 <template>
-  <section aria-labelledby="prepare-heading">
-    <h2 id="prepare-heading">
-      Vorbereiten
-    </h2>
+  <div>
     <p class="muted">
       Vorbereiten legt den Aufbau fest: welche Klassen und Gruppen in welchen Wahlen wählen. Danach können Stimmkarten erzeugt werden; Namen von Kandidat:innen bleiben bis zum Beginn der Stimmabgabe änderbar.
     </p>
@@ -266,5 +263,5 @@ const staleKeys = computed(() => (stale.value ?? []).reduce((sum, batch) => sum 
         Der Wahltermin ist vorbereitet.
       </output>
     </div>
-  </section>
+  </div>
 </template>

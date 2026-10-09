@@ -1,9 +1,10 @@
 <script setup lang="ts">
-// Ablauf: the election day on one section. What is now, the turnout
+// Wahltag: the election day on one section. What is now, the turnout
 // while a round accepts ballots (read again every five seconds, counts
 // only, never a total), the result in words once the regular round has
 // closed, the lots the officials drew, and the steps in their order:
-// Probelauf, 1. Wahlgang öffnen, beenden und auszählen, Stichwahl
+// Probelauf (a block of its own, which can be marked done or skipped and
+// collapses then, never while one runs), 1. Wahlgang öffnen, beenden und auszählen, Stichwahl
 // aktivieren, beenden und auszählen, Ergebnis feststellen, Export. A step
 // that makes cards final (opening, activating the runoff) lists every
 // class with its valid cards, and one without needs a second, explicit
@@ -34,9 +35,11 @@ const props = defineProps<{
   election: ElectionDetail
   configuration: Configuration
   batches: BatchSummary[]
+  /** The Probelauf is marked done or skipped (lib/steps.ts): its block is collapsed. */
+  probelaufDone: boolean
 }>()
 
-const emit = defineEmits<{ changed: [] }>()
+const emit = defineEmits<{ changed: [], probelauf: [done: boolean] }>()
 
 const EVERY_MS = 5000
 
@@ -372,10 +375,7 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
 </script>
 
 <template>
-  <section aria-labelledby="run-heading">
-    <h2 id="run-heading">
-      Ablauf
-    </h2>
+  <div>
     <p
       v-if="election.lifecycle.election !== 'final'"
       class="muted"
@@ -406,30 +406,88 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
       </ul>
     </div>
 
-    <template v-if="rules.showTestResult">
-      <div class="actions">
+    <div
+      v-if="rules.startTest || rules.endTest || rules.showTestResult"
+      id="probelauf"
+    >
+      <div class="block-head">
+        <h3
+          id="probelauf-heading"
+          tabindex="-1"
+        >
+          Probelauf
+        </h3>
         <button
+          v-if="election.lifecycle.regular !== 'testing'"
           type="button"
           class="secondary"
-          :disabled="busy"
-          @click="readTestResult"
+          :aria-expanded="!probelaufDone"
+          aria-controls="probelauf-body"
+          :aria-label="probelaufDone ? 'Probelauf aufklappen' : 'Probelauf als erledigt einklappen'"
+          @click="emit('probelauf', !probelaufDone)"
         >
-          Zwischenstand
+          {{ probelaufDone ? 'Aufklappen' : 'Erledigt, einklappen' }}
         </button>
       </div>
-      <ul
-        v-if="testResult"
-        class="plain"
-        aria-label="Zwischenstand"
+      <p
+        v-if="probelaufDone"
+        class="muted"
       >
-        <li
-          v-for="snapshot in testResult.contests"
-          :key="snapshot.contestId"
+        Erledigt oder übersprungen.
+      </p>
+      <div
+        v-else
+        id="probelauf-body"
+      >
+        <p class="muted">
+          Der Probelauf nimmt Stimmen mit den echten Stimmkarten an. Sie zählen nicht, und beim Beenden wird alles verworfen; er kann mehrmals laufen.
+        </p>
+        <div
+          v-if="confirming === null && !finalizing"
+          class="actions"
         >
-          {{ contestTitle(snapshot.contestId) }}: {{ countsLine(snapshot.result.statistics) }} {{ firstPlacesLine(rulesetOf(snapshot.contestId), snapshot.result.statistics, names) }}
-        </li>
-      </ul>
-    </template>
+          <button
+            v-if="rules.startTest"
+            type="button"
+            class="secondary"
+            :disabled="busy"
+            @click="startTest"
+          >
+            Probelauf starten
+          </button>
+          <button
+            v-if="rules.endTest"
+            type="button"
+            class="secondary"
+            :disabled="busy"
+            @click="endTest"
+          >
+            Probelauf beenden
+          </button>
+          <button
+            v-if="rules.showTestResult"
+            type="button"
+            class="secondary"
+            :disabled="busy"
+            @click="readTestResult"
+          >
+            Zwischenstand
+          </button>
+        </div>
+        <ul
+          v-if="rules.showTestResult && testResult"
+          class="plain"
+          aria-label="Zwischenstand"
+        >
+          <li
+            v-for="snapshot in testResult.contests"
+            :key="snapshot.contestId"
+          >
+            {{ contestTitle(snapshot.contestId) }}: {{ countsLine(snapshot.result.statistics) }} {{ firstPlacesLine(rulesetOf(snapshot.contestId), snapshot.result.statistics, names) }}
+          </li>
+        </ul>
+      </div>
+    </div>
 
     <template v-if="result && rules.showResult">
       <h3>Ergebnis</h3>
@@ -700,24 +758,6 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
       class="actions"
     >
       <button
-        v-if="rules.startTest"
-        type="button"
-        class="secondary"
-        :disabled="busy"
-        @click="startTest"
-      >
-        Probelauf starten
-      </button>
-      <button
-        v-if="rules.endTest"
-        type="button"
-        class="secondary"
-        :disabled="busy"
-        @click="endTest"
-      >
-        Probelauf beenden
-      </button>
-      <button
         v-if="rules.open"
         type="button"
         :disabled="busy"
@@ -773,10 +813,18 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
     >
       Export gespeichert als {{ exported.name }}. SHA-256: <code>{{ exported.sha256 }}</code>. Jeder Export enthält das Protokoll bis zu diesem Zeitpunkt und hat deshalb seine eigene Prüfsumme; sie steht auch im Protokoll.
     </p>
-  </section>
+  </div>
 </template>
 
 <style scoped>
+.block-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .dialog-lines {
   margin: 8px 0;
 }

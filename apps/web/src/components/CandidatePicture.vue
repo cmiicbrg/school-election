@@ -7,7 +7,8 @@
 // shows `src` (the picture's URL) and `error` (a failed upload) as the
 // page passes them. Its status says what the page's upload or removal
 // came to, once the page is done with it, never before; removing asks
-// first.
+// first. The page shows it only while candidates can change, and the
+// picture alone otherwise.
 
 import { computed, nextTick, ref, useId, watch } from 'vue'
 import { PictureError, preparePicture, type PreparedPicture } from '../lib/picture.ts'
@@ -18,8 +19,6 @@ const props = defineProps<{
   name: string
   /** The stored picture's URL, or null without one. */
   src?: string | null
-  /** No changes, e.g. once voting has started. */
-  disabled?: boolean
   /** The page is uploading or removing the picture. */
   busy?: boolean
   /**
@@ -55,10 +54,6 @@ const preview = ref<string | null>(null)
 watch(() => props.src, () => {
   preview.value = null
 })
-// A question about removing outlives no change of the rules.
-watch(() => props.disabled, (disabled) => {
-  if (disabled === true) askingRemove.value = false
-})
 watch(() => [props.busy, props.error] as const, ([busy, error], [wasBusy]) => {
   if ((wasBusy === true && busy !== true) || error) preview.value = null
   if (wasBusy !== true || busy === true || doing.value === null) return
@@ -71,7 +66,7 @@ watch(() => [props.busy, props.error] as const, ([busy, error], [wasBusy]) => {
 
 const shown = computed(() => preview.value ?? props.src ?? null)
 const message = computed(() => problem.value ?? props.error ?? null)
-const locked = computed(() => props.disabled === true || props.busy === true || preparing.value)
+const locked = computed(() => props.busy === true || preparing.value)
 
 function fail(reason: PictureProblem): void {
   problem.value = PICTURE_MESSAGES[reason]

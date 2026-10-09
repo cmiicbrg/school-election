@@ -104,10 +104,7 @@ function groupName(batch: BatchSummary): string {
 </script>
 
 <template>
-  <section aria-labelledby="sheets-heading">
-    <h2 id="sheets-heading">
-      Stimmkarten
-    </h2>
+  <div>
     <p class="muted">
       Jede Klasse oder Gruppe bekommt ihren eigenen Stapel Stimmkarten, sechs je A4-Seite. Die Druckseite zeigt immer dieselben Codes und kann bis zum Beginn ihres Wahlgangs noch einmal gedruckt werden; danach nicht mehr. Für eine mögliche Stichwahl können Stimmkarten schon vorab erzeugt werden; sie gelten erst, wenn die Stichwahl beginnt.
     </p>
@@ -281,7 +278,7 @@ function groupName(batch: BatchSummary): string {
         </div>
       </div>
     </div>
-  </section>
+  </div>
 </template>
 
 <style scoped>

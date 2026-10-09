@@ -1,4 +1,4 @@
-// The German words for an outcome as it stands, for the Ablauf section's
+// The German words for an outcome as it stands, for the Wahltag section's
 // short result: what the count decided, who holds which position and on
 // what basis, what a lot is for, and the counts of a round. Free of the
 // DOM; the full derivation with every step is the result page's. Ids
