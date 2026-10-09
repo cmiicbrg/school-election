@@ -182,9 +182,15 @@ test('die Klassen und was sie wählen', async () => {
     await form.getByRole('button', { name: 'Klasse oder Gruppe hinzufügen' }).click()
     await expect(page.getByRole('article', { name, exact: true })).toBeVisible()
   }
-  // Preparing is refused while a class votes nowhere; what is missing is listed until it is supplied.
-  const missing = page.getByRole('region', { name: 'Vorbereiten' }).getByRole('list', { name: 'Was noch fehlt' })
+  // The checklist says what is still open, neutrally; preparing is refused while a class votes
+  // nowhere, and then the page says so, until it is supplied.
+  const preparing = page.getByRole('region', { name: 'Vorbereiten' })
+  const missing = preparing.getByRole('list', { name: 'Nötig zum Vorbereiten' })
+  await expect(missing).toContainText('Eine Wahl ist angelegt: erledigt')
+  await expect(missing).toContainText('Jede Klasse oder Gruppe wählt in einer Wahl: offen')
+  await expect(preparing.getByRole('alert')).toHaveCount(0)
   await refused(page, 409, () => page.getByRole('button', { name: 'Vorbereiten', exact: true }).click())
+  await expect(preparing.getByRole('alert')).toHaveText('Vorbereiten geht noch nicht: Was oben rot steht, fehlt noch.')
   await expect(missing).toContainText('Die Klasse oder Gruppe „1A“ wählt in keiner Wahl.')
   await assignContest(page, '1A', SCHOOL)
   await expect(toast(`„1A“ wählt jetzt in „${SCHOOL}“.`)).toBeVisible()
@@ -194,7 +200,8 @@ test('die Klassen und was sie wählen', async () => {
   // While the draft is editable, only the forms show, not the read-only summaries beside them.
   await expect(page.getByRole('article', { name: '1A', exact: true }).getByText(/^Wählt in:/)).toHaveCount(0)
   await expect(contest(SCHOOL).getByRole('heading', { level: 4 })).toHaveCount(0)
-  await expect(missing).toHaveCount(0)
+  await expect(missing).not.toContainText('offen')
+  await expect(preparing.getByRole('alert')).toHaveCount(0)
   await shot(page, '05-klassen')
 
   const { body: configuration } = await apiGet<{ voterGroups: { name: string, contestIds: string[] }[] }>(page, `/api/elections/${electionId()}/configuration`)

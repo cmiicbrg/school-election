@@ -1,8 +1,10 @@
 // Vorbereiten: die Zusammenfassung, der Schritt, was danach noch geht
-// (Namen), und der Weg zurück zum Entwurf.
+// (Namen), und der Weg zurück zum Entwurf; und eine Seite, die beim
+// Neuladen die Verbindung verliert, behält den letzten Stand.
 
 import type { Page } from '@playwright/test'
 import { expect, test } from '../support/test.ts'
+import { refused } from '../support/console.ts'
 import { electionId } from '../support/journey.ts'
 import { ANNA } from '../support/personas.ts'
 import { shot } from '../support/screenshot.ts'
@@ -26,8 +28,9 @@ test('die Zusammenfassung zeigt, wer wo wählt, und weist auf die fehlende zweit
   await expect(prepare.getByRole('table').first()).toContainText('1A')
   await expect(prepare.getByRole('table').first()).toContainText('Klassensprecher/in 1A, Schulsprecher/in')
   await expect(prepare.getByRole('table').nth(1)).toContainText('Schulsprecher/in')
-  await expect(prepare.getByRole('list', { name: 'Hinweise' })).toContainText('Als Zeug:in hat sich erst eine Person angemeldet')
-  await expect(prepare.getByRole('list', { name: 'Was noch fehlt' })).toHaveCount(0)
+  await expect(prepare.getByRole('list', { name: 'Empfohlen' })).toContainText('Zwei Zeug:innen haben sich angemeldet: offen')
+  await expect(prepare.getByRole('list', { name: 'Empfohlen' })).toContainText('Als Zeug:in hat sich erst eine Person angemeldet')
+  await expect(prepare.getByRole('list', { name: 'Nötig zum Vorbereiten' })).not.toContainText('offen')
   await shot(page, '08-vorbereiten')
 })
 
@@ -62,9 +65,16 @@ test('Vorbereiten legt den Aufbau fest; Namen bleiben änderbar', async () => {
   await shot(page, '09-vorbereitet')
 })
 
-test('zurück zum Entwurf und wieder vorbereiten', async () => {
-  await page.getByRole('button', { name: 'Zurück zum Entwurf' }).click()
+test('zurück zum Entwurf und wieder vorbereiten; ein Neuladen, das scheitert, lässt den letzten Stand stehen und versucht es wieder', async () => {
+  // The reload after the change fails once, as with a dropped connection: the page keeps
+  // what it showed, says so, and tries again by itself.
+  await page.route('**/api/elections/*/members', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"unavailable"}' }), { times: 1 })
+  await refused(page, 503, () => page.getByRole('button', { name: 'Zurück zum Entwurf' }).click())
+  const offline = page.getByRole('status').filter({ hasText: 'Verbindung unterbrochen – neuer Versuch …' })
+  await expect(offline).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: 'Schulsprecherwahl 2026/27' })).toBeVisible()
   await expect(page.getByText(/^Entwurf · Ihre Rolle/)).toBeVisible()
+  await expect(offline).toHaveCount(0)
   await expect(page.getByRole('status').filter({ hasText: 'Zurück zum Entwurf: Aufbau und Zuordnung lassen sich wieder ändern.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Wahl hinzufügen' })).toBeVisible()
   await page.getByRole('button', { name: 'Vorbereiten', exact: true }).click()
