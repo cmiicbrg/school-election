@@ -48,8 +48,9 @@ const membersSummary = computed(() => (members.value ?? []).map((member) => `${n
 /** What the setup holds, for its collapsed section: each Wahl with its candidates, and the classes. */
 const setupSummary = computed(() => [
   ...(configuration.value?.contests ?? []).map((contest) => {
+    const counted = `${contest.title} (${plural(contest.candidates.length, 'Kandidat:in', 'Kandidat:innen')})`
     const names = contest.candidates.map((candidate) => `${candidate.givenName} ${candidate.surname}`).join(', ')
-    return `${contest.title} (${plural(contest.candidates.length, 'Kandidat:in', 'Kandidat:innen')})${names === '' ? '' : `: ${names}`}`
+    return names === '' ? counted : `${counted}: ${names}`
   }),
   `Klassen und Gruppen: ${(configuration.value?.voterGroups ?? []).map((group) => group.name).join(', ') || 'keine'}`,
 ])
@@ -58,7 +59,8 @@ const cardsSummary = computed(() => (['regular', 'runoff'] as const).flatMap((ki
   const perClass = (configuration.value?.voterGroups ?? [])
     .map((group) => ({ name: group.name, keys: (batches.value ?? []).filter((batch) => batch.voterGroupId === group.id && batch.roundKind === kind && batch.state === 'issued').reduce((sum, batch) => sum + batch.keys, 0) }))
     .filter((entry) => entry.keys > 0)
-  return perClass.length === 0 ? [] : [`${ROUND_LABELS[kind]}: ${perClass.map((entry) => `${entry.name} ${entry.keys}`).join(', ')} Stimmkarten`]
+  const listed = perClass.map((entry) => `${entry.name} ${entry.keys}`).join(', ')
+  return perClass.length === 0 ? [] : [`${ROUND_LABELS[kind]}: ${listed} Stimmkarten`]
 }))
 
 /** Who leads the termin, for the members who do not. */
