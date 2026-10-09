@@ -56,25 +56,27 @@ function voidKey(): string {
 }
 
 const run = () => anna.getByRole('region', { name: 'Wahltag' })
+const probe = () => anna.getByRole('region', { name: 'Probelauf' })
 const contests = () => page.getByRole('list', { name: 'Wahlen' }).getByRole('listitem')
 const row = (label: string) => page.getByLabel(label, { exact: true })
 
 test('die Lehrkraft startet den Probelauf; der Code aus dem QR-Code verlässt die Adresse, bevor die Seite lädt', async () => {
   await expect(run().getByTestId('state')).toHaveText('Vorbereitet. Sobald die Stimmkarten gedruckt sind, kann der 1. Wahlgang geöffnet werden.')
-  await run().getByRole('button', { name: 'Probelauf starten' }).click()
-  await expect(run().getByRole('status')).toHaveText('Probelauf gestartet: Stimmen zählen nicht, und nichts bleibt.')
+  await probe().getByRole('button', { name: 'Probelauf starten' }).click()
+  await expect(probe().getByRole('status')).toHaveText('Probelauf gestartet: Stimmen zählen nicht, und nichts bleibt.')
   await expect(run().getByTestId('state')).toHaveText('Der Probelauf läuft: Stimmen zählen nicht, und nichts bleibt.')
   await expect(anna.getByText(/^Probelauf · Ihre Rolle: Wahlleitung/)).toBeVisible()
   // The Probelauf is the step of the moment: starting it finished the cards, although nobody marked them done in this browser.
   const steps = anna.getByRole('navigation', { name: 'Schritte' })
   await expect(steps.locator('[aria-current="step"]')).toContainText('Probelauf')
   await expect(steps.getByRole('listitem').filter({ hasText: 'Stimmkarten' })).toContainText('(erledigt)')
-  // While it runs the page leads with the day, and a banner says so.
-  await expect(anna.getByRole('region').first()).toHaveAccessibleName('Wahltag')
+  // While it runs the page leads with the day, the Probelauf first, and a banner says so.
+  await expect(anna.getByRole('region').first()).toHaveAccessibleName('Probelauf')
+  await expect(anna.getByRole('region').nth(1)).toHaveAccessibleName('Wahltag')
   await expect(anna.getByText('Probelauf läuft.', { exact: true })).toBeVisible()
   await anna.getByRole('link', { name: 'Zum Probelauf' }).click()
-  await expect(run().getByRole('heading', { name: 'Probelauf' })).toBeFocused()
-  await expect(run().getByTestId('turnout')).toContainText('1. Wahlgang: 0 von 25 Stimmkarten verwendet')
+  await expect(probe().getByRole('heading', { name: 'Probelauf' })).toBeFocused()
+  await expect(probe().getByTestId('turnout')).toContainText('0 von 25 Stimmkarten des 1. Wahlgangs verwendet')
   await shot(anna, '24-probelauf')
   await page.goto(at(`/v#${firstKey()}`))
   await expect(page.getByRole('heading', { name: 'Schulsprecherwahl 2026/27' })).toBeVisible()
@@ -151,9 +153,9 @@ test('der Klassensprecher-Stimmzettel mit einer leeren Zeile: ungültig, nur mit
   expect(requested.filter((url) => url.includes(firstKey()))).toEqual([])
 
   // The teacher's page: one card used, and the rehearsal's count so far, the invalid vote counted as such.
-  await expect(run().getByTestId('turnout')).toContainText('1. Wahlgang: 1 von 25 Stimmkarten verwendet')
-  await run().getByRole('button', { name: 'Zwischenstand' }).click()
-  const interim = run().getByRole('list', { name: 'Zwischenstand' })
+  await expect(probe().getByTestId('turnout')).toContainText('1 von 25 Stimmkarten des 1. Wahlgangs verwendet')
+  await probe().getByRole('button', { name: 'Zwischenstand' }).click()
+  const interim = probe().getByRole('list', { name: 'Zwischenstand' })
   await expect(interim).toContainText(`${CLASS_1A}: 1 Stimme, davon 1 ungültig.`)
   await expect(interim).toContainText(`${SCHOOL}: 1 Stimme. Erste Stellen: Paula Berger 1, Quirin Huber-Mayer 0, Renate Wagner 0.`)
 })
@@ -279,18 +281,18 @@ test('ein zweiter Code läuft über ein Neuladen der Seite weiter; nach dem Ende
   expect(order).toEqual(['ballot', 'session'])
 
   // The test ends on the teacher's page: the first key's two ballots, one of them invalid, and the fifth's one are gone, their entitlements unused again.
-  await run().getByRole('button', { name: 'Probelauf beenden' }).click()
-  await expect(run().getByRole('status')).toHaveText('Probelauf beendet: 3 Stimmzettel entfernt, 2 Codes wieder frei.')
+  await probe().getByRole('button', { name: 'Probelauf beenden' }).click()
+  await expect(probe().getByRole('status')).toHaveText('Probelauf beendet: 3 Stimmzettel entfernt, 2 Codes wieder frei.')
   await expect(run().getByTestId('state')).toHaveText('Vorbereitet. Sobald die Stimmkarten gedruckt sind, kann der 1. Wahlgang geöffnet werden.')
   // The cards stay done after it, and the Probelauf is the step again, until it is marked done.
   await expect(anna.getByRole('navigation', { name: 'Schritte' }).getByRole('listitem').filter({ hasText: 'Stimmkarten' })).toContainText('(erledigt)')
   await expect(anna.getByRole('navigation', { name: 'Schritte' }).locator('[aria-current="step"]')).toContainText('Probelauf')
 
   // Enough testing: the Probelauf is marked done and collapses.
-  await run().getByRole('button', { name: 'Probelauf als erledigt einklappen' }).click()
-  await expect(run().getByRole('button', { name: 'Probelauf aufklappen' })).toHaveAttribute('aria-expanded', 'false')
-  await expect(run()).toContainText('Erledigt oder übersprungen.')
-  await expect(run().getByRole('button', { name: 'Probelauf starten' })).toHaveCount(0)
+  await probe().getByRole('button', { name: 'Probelauf als erledigt einklappen' }).click()
+  await expect(probe().getByRole('button', { name: 'Probelauf aufklappen' })).toHaveAttribute('aria-expanded', 'false')
+  await expect(probe()).toContainText('Erledigt oder übersprungen.')
+  await expect(probe().getByRole('button', { name: 'Probelauf starten' })).toHaveCount(0)
   await expect(anna.getByRole('navigation', { name: 'Schritte' }).getByRole('listitem').filter({ hasText: 'Probelauf' })).toContainText('(erledigt)')
   await refused(reloaded, 409, async () => {
     await reloaded.reload()

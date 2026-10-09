@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // One election, in its steps: Einrichten, Mitglieder, Vorbereiten,
-// Stimmkarten and the Wahltag with its Probelauf, each a card, and the
-// result on its own page. Beside them the steps' list says which is done
+// Stimmkarten, the Probelauf, the Wahltag and "Ergebnis feststellen", each
+// a card, the result in words between the last two, and in full on its
+// own page. Beside them the steps' list says which is done
 // and which is now, with a line each on where it stands; on a phone it is
 // a strip under the title that opens the list. A step marked done
 // collapses to one line that says what it holds (lib/steps.ts). Until a
@@ -14,10 +15,10 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import DeleteElection from '../components/DeleteElection.vue'
+import ElectionDay from '../components/ElectionDay.vue'
 import LineIcon from '../components/LineIcon.vue'
 import MembersSection from '../components/MembersSection.vue'
 import PrepareSection from '../components/PrepareSection.vue'
-import RunSection from '../components/RunSection.vue'
 import SetupSection from '../components/SetupSection.vue'
 import SheetsSection from '../components/SheetsSection.vue'
 import StepNav from '../components/StepNav.vue'
@@ -447,23 +448,15 @@ onUnmounted(() => {
               @changed="reload"
             />
           </StepSection>
-          <StepSection
+          <ElectionDay
             v-else
-            id="wahltag"
-            title="Wahltag"
-            :number="6"
-            :locked="draft"
-            :collapsed="null"
-          >
-            <RunSection
-              :election="election"
-              :configuration="configuration"
-              :batches="batches"
-              :probelauf-done="isCollapsed('probelauf')"
-              @changed="reload"
-              @probelauf="(done) => mark('probelauf', done)"
-            />
-          </StepSection>
+            :election="election"
+            :configuration="configuration"
+            :batches="batches"
+            :probelauf-done="isCollapsed('probelauf')"
+            @changed="reload"
+            @probelauf="(done) => mark('probelauf', done)"
+          />
         </template>
         <DeleteElection
           v-if="rules.remove"
@@ -601,11 +594,23 @@ h1 {
 
 .sections {
   flex: 999 1 560px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 20px;
   min-width: 0;
 }
 
+/* Every card takes the whole width, the day's cards too (components/ElectionDay.vue renders them here); before a run, the Probelauf and the Wahltag stand side by side. */
+.sections > :deep(*) {
+  grid-column: 1 / -1;
+}
+
+.sections > :deep(.paired) {
+  grid-column: auto;
+}
+
 /* Margins, not a gap: collapsed cards that follow each other join. */
-.sections > * + * {
+.sections > :deep(* + *) {
   margin-top: 20px;
 }
 
@@ -688,6 +693,10 @@ h1 {
 @container termin (width < 760px) {
   .side {
     display: none;
+  }
+
+  .sections > :deep(.paired) {
+    grid-column: 1 / -1;
   }
 
   .strip {
