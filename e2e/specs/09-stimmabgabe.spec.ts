@@ -65,6 +65,11 @@ test('die Lehrkraft startet den Probelauf; der Code aus dem QR-Code verlässt di
   await expect(run().getByRole('status')).toHaveText('Probelauf gestartet: Stimmen zählen nicht, und nichts bleibt.')
   await expect(run().getByTestId('state')).toHaveText('Der Probelauf läuft: Stimmen zählen nicht, und nichts bleibt.')
   await expect(anna.getByText(/^Probelauf · Ihre Rolle: Wahlleitung/)).toBeVisible()
+  // While it runs the page leads with the day, and a banner says so.
+  await expect(anna.getByRole('region').first()).toHaveAccessibleName('Wahltag')
+  await expect(anna.getByText('Probelauf läuft.', { exact: true })).toBeVisible()
+  await anna.getByRole('link', { name: 'Zum Probelauf' }).click()
+  await expect(run().getByRole('heading', { name: 'Probelauf' })).toBeFocused()
   await expect(run().getByTestId('turnout')).toContainText('1. Wahlgang: 0 von 25 Stimmkarten verwendet')
   await shot(anna, '24-probelauf')
   await page.goto(at(`/v#${firstKey()}`))

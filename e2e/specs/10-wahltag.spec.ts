@@ -80,6 +80,7 @@ test('die Wahlleitung öffnet die Wahl: der Dialog, dann läuft sie, und der Auf
   await expect(anna.getByText(/^1\. Wahlgang läuft · Ihre Rolle/)).toBeVisible()
   // Everything before the day is done now: the cards and the Probelauf with the opening, and the day is the step.
   await expect(anna.getByRole('navigation', { name: 'Schritte' }).locator('[aria-current="step"]')).toContainText('Wahltag')
+  await expect(anna.getByRole('region').first()).toHaveAccessibleName('Wahltag')
   await expect(run(anna).getByRole('heading', { name: 'Probelauf' })).toHaveCount(0)
   await expect(anna.getByRole('button', { name: 'Wahltermin löschen' })).toHaveCount(0)
   // Its step leads to the day's section, where it was.
