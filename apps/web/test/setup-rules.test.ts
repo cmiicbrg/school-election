@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { NEW_ELECTION, type Lifecycle } from '@school-election/election-core'
-import { ERROR_MESSAGES, errorMessage, loginUrl, ApiError } from '../src/lib/api-rules.ts'
+import { ERROR_MESSAGES, errorMessage, isTransient, loginUrl, ApiError, retryDelay } from '../src/lib/api-rules.ts'
 import { lockedText, MEMBER_STATUS_LABELS, problemText, ROLE_LABELS, ROUND_LABELS, RULESET_LABELS, STATE_LABELS, stateLabel, warningText } from '../src/lib/labels.ts'
 import { isPresetId, PRESETS } from '../src/lib/presets.ts'
 import { mayReadKeys, setupRules, type Permission } from '../src/lib/setup-rules.ts'
@@ -113,4 +113,12 @@ test('the presets are the API\'s four, each with a label, and sign-in goes to En
   assert.equal(isPresetId('ballot'), false)
   assert.equal(loginUrl('/wahlen/1'), '/api/auth/login?returnTo=%2Fwahlen%2F1')
   assert.equal(loginUrl('https://evil.example/'), '/api/auth/login?returnTo=%2F')
+})
+
+test('a lost connection or a server error is tried again, ever less often; a refusal is not', () => {
+  assert.equal(isTransient(new TypeError('Failed to fetch')), true)
+  assert.equal(isTransient(new ApiError(503, 'unavailable')), true)
+  assert.equal(isTransient(new ApiError(404, 'not_found')), false)
+  assert.equal(isTransient(new ApiError(403, 'forbidden')), false)
+  assert.deepEqual([0, 1, 2, 3, 4, 9].map(retryDelay), [2_000, 4_000, 8_000, 16_000, 30_000, 30_000])
 })

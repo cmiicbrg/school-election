@@ -7,7 +7,7 @@
 // from the API, and again after every change a section reports; what each
 // section may offer comes from the caller's permissions and the lifecycle.
 
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import MembersSection from '../components/MembersSection.vue'
 import PrepareSection from '../components/PrepareSection.vue'
@@ -17,7 +17,7 @@ import SheetsSection from '../components/SheetsSection.vue'
 import StepNav from '../components/StepNav.vue'
 import StepSection from '../components/StepSection.vue'
 import { apiGet } from '../lib/api.ts'
-import { errorMessage } from '../lib/api-rules.ts'
+import { errorMessage, isTransient, retryDelay } from '../lib/api-rules.ts'
 import { ROLE_LABELS, ROUND_LABELS, stateLabel } from '../lib/labels.ts'
 import { usePageTitle } from '../lib/page-title.ts'
 import { setupRules } from '../lib/setup-rules.ts'
@@ -73,8 +73,24 @@ const lead = computed(() => {
 // id changed or another change reloaded meanwhile, changes nothing.
 let loads = 0
 
+// A load that fails for the connection or the server is tried again after
+// a growing pause, and what the page showed stays meanwhile, marked as not
+// current: an election day's page does not go blank for a dropped
+// connection. A refusal ends the page as before.
+const offline = ref(false)
+let attempts = 0
+let retry: ReturnType<typeof setTimeout> | undefined
+
+function stopRetrying(): void {
+  clearTimeout(retry)
+  retry = undefined
+  attempts = 0
+  offline.value = false
+}
+
 async function load(): Promise<void> {
   const current = ++loads
+  clearTimeout(retry)
   const base = `/api/elections/${props.id}`
   try {
     const [detail, config, memberList, prep, batchList] = await Promise.all([
@@ -91,8 +107,16 @@ async function load(): Promise<void> {
     preparation.value = prep
     batches.value = batchList.batches
     error.value = null
+    stopRetrying()
   } catch (err) {
-    if (current === loads) error.value = errorMessage(err)
+    if (current !== loads) return
+    if (isTransient(err)) {
+      offline.value = true
+      retry = setTimeout(() => void load(), retryDelay(attempts++))
+    } else {
+      stopRetrying()
+      error.value = errorMessage(err)
+    }
   }
 }
 
@@ -103,6 +127,7 @@ function clear(): void {
   preparation.value = undefined
   batches.value = undefined
   error.value = null
+  stopRetrying()
 }
 
 onMounted(() => {
@@ -118,6 +143,13 @@ watch(() => props.id, () => {
 function reload(): void {
   void load()
 }
+
+// Leaving the page ends its loads: one still on its way changes nothing
+// and schedules no retry when it fails.
+onUnmounted(() => {
+  loads++
+  clearTimeout(retry)
+})
 </script>
 
 <template>
@@ -130,6 +162,12 @@ function reload(): void {
   </p>
   <template v-else-if="election && configuration && members && preparation && batches && rules && states">
     <h1>{{ election.title }}</h1>
+    <output
+      v-if="offline"
+      class="message warning"
+    >
+      Verbindung unterbrochen – neuer Versuch … Was hier steht, ist der letzte Stand.
+    </output>
     <p class="muted">
       {{ stateLabel(election.lifecycle) }} · Ihre Rolle: {{ ROLE_LABELS[election.role] }}<template v-if="lead && election.role !== 'owner'">
         · {{ ROLE_LABELS.owner }}: {{ lead }}
@@ -265,7 +303,7 @@ function reload(): void {
     v-else
     class="muted"
   >
-    Wird geladen …
+    {{ offline ? 'Verbindung unterbrochen – neuer Versuch …' : 'Wird geladen …' }}
   </p>
 </template>
 

@@ -1,6 +1,8 @@
 <script setup lang="ts">
-// Vorbereiten: what will be printed and for whom, what still blocks it,
-// what a formal election usually has, and the step itself. Preparing
+// Vorbereiten: what will be printed and for whom, a checklist of what
+// preparing needs and what a formal election usually has (lib/checklist.ts),
+// and the step itself. The checklist is neutral, open or done, and turns
+// red only where a refused "Vorbereiten" found something missing. Preparing
 // again after a return to draft may make sheets invalid: the API says
 // which, and the page asks before it goes on.
 
@@ -8,7 +10,8 @@ import { computed, ref, watch } from 'vue'
 import { useDialogFocus } from '../lib/dialog-focus.ts'
 import { apiPost } from '../lib/api.ts'
 import { ApiError, errorMessage } from '../lib/api-rules.ts'
-import { problemText, RULESET_LABELS, warningText, type Problem } from '../lib/labels.ts'
+import { recommendedItems, requiredItems } from '../lib/checklist.ts'
+import { RULESET_LABELS, type Problem } from '../lib/labels.ts'
 import type { SetupRules } from '../lib/setup-rules.ts'
 import { notify } from '../lib/toast.ts'
 import type { Configuration, Preparation, StaleBatch } from '../lib/types.ts'
@@ -33,13 +36,20 @@ const names = computed(() => ({
   group: (id: string) => props.configuration.voterGroups.find((group) => group.id === id)?.name ?? '?',
 }))
 
-const shownProblems = computed(() => problems.value.length > 0 ? problems.value : props.preparation.problems)
+/** Preparing was refused for what is missing: the open items say so in red, while the same is missing. */
+const refused = computed(() => problems.value.length > 0)
+const required = computed(() => requiredItems(refused.value ? problems.value : props.preparation.problems, names.value))
+const recommended = computed(() => recommendedItems(props.preparation.warnings))
 
-// The confirmation names what preparing would void now, and the refusal
-// what was missing then: a change of the configuration makes both stale,
-// so they go away with one (the page reads what is missing again).
+// The confirmation names what preparing would void now: a change of the
+// configuration makes it stale, so it goes away with one.
 watch(() => props.configuration, () => {
   stale.value = null
+})
+// The refusal holds while the same is missing, through a reload for
+// something else and another try, and goes away once what is missing
+// changes (the page reads it again after every change).
+watch(() => JSON.stringify(props.preparation.problems), () => {
   problems.value = []
 })
 
@@ -56,10 +66,10 @@ useDialogFocus(stale, voidHeading, prepareButton)
 async function prepare(confirmed?: readonly StaleBatch[]): Promise<void> {
   busy.value = true
   error.value = null
-  problems.value = []
   try {
     await apiPost(`/api/elections/${props.electionId}/prepare`, confirmed ? { confirmVoid: confirmed.map((batch) => batch.id) } : undefined)
     stale.value = null
+    problems.value = []
     notify('Der Wahltermin ist vorbereitet: Jetzt können Stimmkarten erzeugt werden.')
     emit('changed')
   } catch (err) {
@@ -161,30 +171,73 @@ const staleKeys = computed(() => (stale.value ?? []).reduce((sum, batch) => sum 
       Noch keine Wahlen.
     </p>
 
-    <ul
-      v-if="shownProblems.length > 0"
-      class="plain"
-      aria-label="Was noch fehlt"
-    >
-      <li
-        v-for="(problem, index) in shownProblems"
-        :key="index"
+    <template v-if="!prepared">
+      <h3>Nötig zum Vorbereiten</h3>
+      <ul
+        class="checklist"
+        aria-label="Nötig zum Vorbereiten"
+      >
+        <li
+          v-for="item in required"
+          :key="item.text"
+          :class="{ done: item.done, missing: refused && !item.done }"
+        >
+          <span
+            class="mark"
+            aria-hidden="true"
+          >{{ item.done ? '✓' : '○' }}</span>
+          <span>
+            {{ item.text }}<span class="visually-hidden">: {{ item.done ? 'erledigt' : 'offen' }}</span>
+            <ul
+              v-if="!item.done && item.missing.length > 0"
+              class="details"
+            >
+              <li
+                v-for="line in item.missing"
+                :key="line"
+              >
+                {{ line }}
+              </li>
+            </ul>
+          </span>
+        </li>
+      </ul>
+      <p
+        v-if="refused"
         class="message error"
+        role="alert"
       >
-        {{ problemText(problem, names) }}
-      </li>
-    </ul>
+        Vorbereiten geht noch nicht: Was oben rot steht, fehlt noch.
+      </p>
+    </template>
+    <h3>Empfohlen</h3>
     <ul
-      v-if="preparation.warnings.length > 0"
-      class="plain"
-      aria-label="Hinweise"
+      class="checklist"
+      aria-label="Empfohlen"
     >
       <li
-        v-for="(warning, index) in preparation.warnings"
-        :key="index"
-        class="message warning"
+        v-for="item in recommended"
+        :key="item.text"
+        :class="{ done: item.done }"
       >
-        {{ warningText(warning) }}
+        <span
+          class="mark"
+          aria-hidden="true"
+        >{{ item.done ? '✓' : '○' }}</span>
+        <span>
+          {{ item.text }}<span class="visually-hidden">: {{ item.done ? 'erledigt' : 'offen' }}</span>
+          <ul
+            v-if="!item.done && item.missing.length > 0"
+            class="details"
+          >
+            <li
+              v-for="line in item.missing"
+              :key="line"
+            >
+              {{ line }}
+            </li>
+          </ul>
+        </span>
       </li>
     </ul>
 
@@ -265,3 +318,43 @@ const staleKeys = computed(() => (stale.value ?? []).reduce((sum, batch) => sum 
     </div>
   </div>
 </template>
+
+<style scoped>
+.checklist {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.checklist > li {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.mark {
+  flex: none;
+  width: 1.2em;
+  color: var(--muted);
+  text-align: center;
+}
+
+.done > .mark {
+  color: var(--ok);
+}
+
+.missing {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.missing > .mark {
+  color: var(--danger);
+}
+
+.details {
+  margin: 2px 0 0;
+  padding-left: 1.1em;
+  font-weight: 400;
+}
+</style>

@@ -31,6 +31,7 @@ test('die Protokollkette stimmt und zählt genau die Schritte der Journey', asyn
     'election.created': 1,
     'election.prepared': 3,
     'election.unprepared': 2,
+    'election.updated': 1,
     'lead.transferred': 2,
     'member.bound': 2,
     'member.invited': 2,

@@ -80,6 +80,20 @@ export const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   request_failed: 'Das hat nicht geklappt. Bitte versuchen Sie es noch einmal.',
 }
 
+/**
+ * Whether a failed request may succeed when sent again unchanged: no answer
+ * at all (the connection), or a server or proxy error. A refusal (4xx)
+ * stays one.
+ */
+export function isTransient(error: unknown): boolean {
+  return !(error instanceof ApiError) || error.status >= 500
+}
+
+/** How long to wait before the `attempt`th retry (from 0): 2, 4, 8, 16 seconds, then every 30. */
+export function retryDelay(attempt: number): number {
+  return Math.min(30_000, 2_000 * 2 ** attempt)
+}
+
 /** The sentence for a refusal: its code's, or the general one. */
 export function errorMessage(error: unknown): string {
   const code = error instanceof ApiError ? error.code : 'request_failed'
