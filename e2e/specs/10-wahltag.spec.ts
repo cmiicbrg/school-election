@@ -123,8 +123,13 @@ test('die Wahl schließen: der Dialog, die Versiegelung, das Ergebnis in Worten;
   await expect(dialog('1. Wahlgang beenden und auszählen?')).toContainText('Die Stimmzettel werden versiegelt und ausgezählt. Ein beendeter Wahlgang öffnet nicht wieder.')
   await expect(dialog('1. Wahlgang beenden und auszählen?')).toContainText('21 von 25 Stimmkarten wurden nicht verwendet.')
   await shot(anna, '27-wahl-schliessen')
-  await dialog('1. Wahlgang beenden und auszählen?').getByRole('button', { name: 'Ja, beenden und auszählen' }).click()
+  // The result's first read fails, as with a dropped connection: the page says so in the result's place, and the next read, five seconds on, takes it back.
+  await anna.route('**/api/elections/*/result', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"unavailable"}' }), { times: 1 })
+  await refused(anna, 503, () => dialog('1. Wahlgang beenden und auszählen?').getByRole('button', { name: 'Ja, beenden und auszählen' }).click())
   await expect(run(anna).getByRole('status')).toHaveText('1. Wahlgang beendet: 8 Stimmzettel versiegelt und ausgezählt.')
+  await expect(results(anna).getByRole('alert')).toBeVisible()
+  await expect(results(anna).getByRole('alert')).toHaveCount(0)
+  await expect(contestResult(anna, CLASS_1A)).toBeVisible()
   await expect(run(anna).getByTestId('state')).toHaveText('Der 1. Wahlgang ist beendet und ausgezählt.')
   await expect(anna.getByText(/^1\. Wahlgang ausgezählt · Ihre Rolle/)).toBeVisible()
 

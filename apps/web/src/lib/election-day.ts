@@ -68,6 +68,17 @@ const UNDECIDED: Readonly<Record<Exclude<Outcome['kind'], 'final'>, string>> = {
 const count = (n: number, one: string, many: string): string => (n === 1 ? `1 ${one}` : `${n} ${many}`)
 const can = (names: string[]): string => (names.length === 1 ? 'kann' : 'können')
 
+// The step buttons are hidden while their dialog is open, so the focus goes
+// back to the one that comes back when the dialog is cancelled.
+async function refocusStep(step: string): Promise<void> {
+  await nextTick()
+  document.querySelector<HTMLElement>(`[data-step="${step}"]`)?.focus()
+}
+
+function lotsOf(contest: ContestResult): LotRequest[] {
+  return contest.outcome.kind === 'lot-required' ? [...contest.outcome.lots] : []
+}
+
 /** Each class of `groups` with its valid cards of the round, and the ones without. */
 function cardLines(groups: { name: string, keys: number }[], round: string): { lines: DayDialog['lines'], missing: string[] } {
   return {
@@ -159,12 +170,20 @@ export function useElectionDay(source: () => DaySource, changed: () => void) {
     }
   }
 
+  /** A read that went through takes back what an earlier one of its card said went wrong. */
+  function clearError(card: DayCard): void {
+    if (error.value?.card === card) error.value = null
+  }
+
   /** The result as it stands; a read of the tick's own is quiet about a failure, the next tick reads again. */
   async function readResult(quiet = false): Promise<void> {
     const current = ++resultReads
     try {
       const answer = await apiGet<ElectionResult>(`${base.value}/result`)
-      if (current === resultReads) result.value = answer
+      if (current === resultReads) {
+        result.value = answer
+        clearError('ergebnis')
+      }
     } catch (err) {
       if (current === resultReads && !quiet) error.value = { text: errorMessage(err), card: 'ergebnis' }
     }
@@ -174,7 +193,10 @@ export function useElectionDay(source: () => DaySource, changed: () => void) {
     const current = ++testReads
     try {
       const answer = await apiGet<RoundResults>(`${base.value}/rounds/regular/test-result`)
-      if (current === testReads) testResult.value = answer
+      if (current === testReads) {
+        testResult.value = answer
+        clearError('probelauf')
+      }
     } catch (err) {
       if (current === testReads) error.value = { text: errorMessage(err), card: 'probelauf' }
     }
@@ -311,12 +333,6 @@ export function useElectionDay(source: () => DaySource, changed: () => void) {
     .filter((contest) => contest.outcome.kind !== 'final')
     .map((contest) => `${contestTitle(contest.contestId)}: ${contest.outcome.kind === 'final' ? '' : UNDECIDED[contest.outcome.kind]}`))
 
-  // The step buttons are hidden while their dialog is open, so the focus goes
-  // back to the one that comes back when the dialog is cancelled.
-  async function refocusStep(step: string): Promise<void> {
-    await nextTick()
-    document.querySelector<HTMLElement>(`[data-step="${step}"]`)?.focus()
-  }
   watch(confirming, (now, before) => {
     if (now === null && before !== null) void refocusStep(before)
   })
@@ -378,10 +394,6 @@ export function useElectionDay(source: () => DaySource, changed: () => void) {
     } finally {
       busy.value = false
     }
-  }
-
-  function lotsOf(contest: ContestResult): LotRequest[] {
-    return contest.outcome.kind === 'lot-required' ? [...contest.outcome.lots] : []
   }
 
   /** A plain link to the print page, base path included: the router does not add it here. */
