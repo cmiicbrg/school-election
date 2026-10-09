@@ -192,6 +192,11 @@ test('die Klassen und was sie wählen', async () => {
   await refused(page, 409, () => page.getByRole('button', { name: 'Vorbereiten', exact: true }).click())
   await expect(preparing.getByRole('alert')).toHaveText('Vorbereiten geht noch nicht: Was oben rot steht, fehlt noch.')
   await expect(missing).toContainText('Die Klasse oder Gruppe „1A“ wählt in keiner Wahl.')
+  // A change that leaves the same missing keeps it red; one that supplies something clears it.
+  await page.getByRole('region', { name: 'Einrichten' }).getByLabel('Beschreibung').fill('Wahl am 5. Oktober im Festsaal, ab 8 Uhr')
+  await page.getByRole('region', { name: 'Einrichten' }).getByLabel('Beschreibung').press('Tab')
+  await expect(toast('Titel und Beschreibung gespeichert.')).toBeVisible()
+  await expect(preparing.getByRole('alert')).toBeVisible()
   await assignContest(page, '1A', SCHOOL)
   await expect(toast(`„1A“ wählt jetzt in „${SCHOOL}“.`)).toBeVisible()
   await assignContest(page, '1A', CLASS_1A)

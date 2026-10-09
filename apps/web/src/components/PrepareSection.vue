@@ -36,16 +36,20 @@ const names = computed(() => ({
   group: (id: string) => props.configuration.voterGroups.find((group) => group.id === id)?.name ?? '?',
 }))
 
-/** Preparing was refused for what is missing: the open items say so in red, until the configuration changes. */
+/** Preparing was refused for what is missing: the open items say so in red, while the same is missing. */
 const refused = computed(() => problems.value.length > 0)
 const required = computed(() => requiredItems(refused.value ? problems.value : props.preparation.problems, names.value))
 const recommended = computed(() => recommendedItems(props.preparation.warnings))
 
-// The confirmation names what preparing would void now, and the refusal
-// what was missing then: a change of the configuration makes both stale,
-// so they go away with one (the page reads what is missing again).
+// The confirmation names what preparing would void now: a change of the
+// configuration makes it stale, so it goes away with one.
 watch(() => props.configuration, () => {
   stale.value = null
+})
+// The refusal holds while the same is missing, through a reload for
+// something else and another try, and goes away once what is missing
+// changes (the page reads it again after every change).
+watch(() => JSON.stringify(props.preparation.problems), () => {
   problems.value = []
 })
 
@@ -62,10 +66,10 @@ useDialogFocus(stale, voidHeading, prepareButton)
 async function prepare(confirmed?: readonly StaleBatch[]): Promise<void> {
   busy.value = true
   error.value = null
-  problems.value = []
   try {
     await apiPost(`/api/elections/${props.electionId}/prepare`, confirmed ? { confirmVoid: confirmed.map((batch) => batch.id) } : undefined)
     stale.value = null
+    problems.value = []
     notify('Der Wahltermin ist vorbereitet: Jetzt können Stimmkarten erzeugt werden.')
     emit('changed')
   } catch (err) {
