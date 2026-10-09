@@ -55,6 +55,8 @@ const ids = { title: useId(), description: useId(), pictureHint: useId(), contes
 const pending = reactive(new Set<string>())
 /** Why a form's last change was refused, by key, until its next attempt. */
 const errors = reactive<Record<string, string>>({})
+/** A whole column is being saved: every box waits, so no class's own save can overtake the column's, and no class comes or goes meanwhile. */
+const columnSaving = ref(false)
 /** The forms saved since their last edit. */
 const saved = reactive(new Set<string>())
 /** The removal waiting for its confirmation, by key; a change of what may change closes it. */
@@ -278,7 +280,7 @@ const typedNames = (text: string): string[] => text.split(/\r?\n/).map((line) =>
  */
 async function addGroups(): Promise<void> {
   const names = typedNames(newGroup.value)
-  if (names.length === 0 || pending.has('new-group')) return
+  if (names.length === 0 || pending.has('new-group') || columnSaving.value) return
   pending.add('new-group')
   delete errors['new-group']
   const added: string[] = []
@@ -303,7 +305,7 @@ async function addGroups(): Promise<void> {
   }
 }
 
-/** Enter adds what the field names, except while an input method composes; Shift+Enter starts another line. */
+/** Enter adds what the field names, except while an input method composes; Shift+Enter starts another line. The field is read-only while it adds, so nothing typed meanwhile is lost when it empties. */
 function enterAdds(event: KeyboardEvent): void {
   if (event.isComposing || event.shiftKey) return
   event.preventDefault()
@@ -314,7 +316,7 @@ function enterAdds(event: KeyboardEvent): void {
 const ONE_FOR_ALL = 'Alle Wahlberechtigten'
 
 async function addOneForAll(): Promise<void> {
-  if (pending.has('new-group')) return
+  if (pending.has('new-group') || columnSaving.value) return
   pending.add('new-group')
   delete errors['new-group']
   let created = false
@@ -324,7 +326,10 @@ async function addOneForAll(): Promise<void> {
     await apiPut(`${base.value}/voter-groups/${group.id}/contests`, { contestIds: props.configuration.contests.map((contest) => contest.id) })
     notify(`„${ONE_FOR_ALL}“ angelegt; sie wählt in allen Wahlen.`)
   } catch (err) {
-    errors['new-group'] = errorMessage(err)
+    // Created but not ticked: the button is gone with the first group, so the message says what is left to do.
+    errors['new-group'] = created
+      ? `„${ONE_FOR_ALL}“ ist angelegt, wählt aber noch in keiner Wahl: ${errorMessage(err)} Die Häkchen „Alle“ in der Tabelle holen das nach.`
+      : errorMessage(err)
   } finally {
     pending.delete('new-group')
     if (created) emit('changed')
@@ -373,9 +378,6 @@ async function setVotes(group: VoterGroup, contest: Contest, checked: boolean): 
   notify(checked ? `„${group.name}“ wählt jetzt in „${contest.title}“.` : `„${group.name}“ wählt nicht mehr in „${contest.title}“.`)
   emit('changed')
 }
-
-/** A whole column is being saved: every box waits, so no class's own save can overtake the column's. */
-const columnSaving = ref(false)
 
 /**
  * Every class votes in `contest`, or none: the classes whose box differs,
@@ -999,6 +1001,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
                     v-if="confirming !== `group:${group.id}`"
                     type="button"
                     class="ghost danger small"
+                    :disabled="columnSaving"
                     :aria-label="`Entfernen: ${group.name}`"
                     :data-remove="`group:${group.id}`"
                     @click="ask(`group:${group.id}`)"
@@ -1022,7 +1025,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
                     <button
                       type="button"
                       class="danger"
-                      :disabled="pending.has(`group:${group.id}`)"
+                      :disabled="columnSaving || pending.has(`group:${group.id}`)"
                       @click="confirmed(() => removeGroup(group))"
                     >
                       Ja, entfernen
@@ -1081,6 +1084,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
             :id="ids.groupName"
             v-model="newGroup"
             :rows="Math.min(Math.max(newGroup.split('\n').length, 1), 8)"
+            :readonly="pending.has('new-group')"
             required
             autocomplete="off"
             :aria-describedby="ids.groupHint"
@@ -1096,7 +1100,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
         <button
           type="submit"
           class="secondary"
-          :disabled="pending.has('new-group')"
+          :disabled="columnSaving || pending.has('new-group')"
         >
           <LineIcon name="plus" />Klasse oder Gruppe hinzufügen
         </button>
