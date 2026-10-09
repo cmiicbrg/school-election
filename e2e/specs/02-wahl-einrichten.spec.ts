@@ -5,7 +5,7 @@
 import type { Page } from '@playwright/test'
 import { expect, test } from '../support/test.ts'
 import { apiGet } from '../support/api.ts'
-import { urlOf } from '../support/base.ts'
+import { at, urlOf } from '../support/base.ts'
 import { assignContest } from '../support/classes.ts'
 import { refused } from '../support/console.ts'
 import { electionId, remember } from '../support/journey.ts'
@@ -211,4 +211,21 @@ test('die Klassen und was sie wählen', async () => {
 
   const { body: configuration } = await apiGet<{ voterGroups: { name: string, contestIds: string[] }[] }>(page, `/api/elections/${electionId()}/configuration`)
   expect(configuration.voterGroups.map((group) => [group.name, group.contestIds.length])).toEqual([['1A', 2], ['2B', 1]])
+})
+
+test('ein Übungstermin, den niemand gebraucht hat, lässt sich löschen, nach einer Rückfrage', async () => {
+  await page.goto(at('/wahlen/neu'))
+  await page.getByLabel('Titel des Wahltermins').fill('Übungstermin')
+  await page.getByRole('radio', { name: 'Schulsprecherwahl', exact: true }).check()
+  await page.getByRole('button', { name: 'Wahltermin anlegen' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Übungstermin' })).toBeVisible()
+  await page.getByRole('button', { name: 'Wahltermin löschen' }).click()
+  const asked = page.getByRole('group', { name: 'Löschen bestätigen: Wahltermin' })
+  await expect(asked).toContainText('Wahltermin „Übungstermin“ endgültig löschen?')
+  await expect(asked.getByRole('button', { name: 'Abbrechen' })).toBeFocused()
+  await asked.getByRole('button', { name: 'Ja, löschen' }).click()
+  await expect(page).toHaveURL(urlOf('/'))
+  await expect(page.getByRole('status').filter({ hasText: 'Wahltermin „Übungstermin“ gelöscht.' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Übungstermin' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: TITLE })).toBeVisible()
 })
