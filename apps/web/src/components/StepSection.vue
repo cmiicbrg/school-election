@@ -53,7 +53,7 @@ const emit = defineEmits<{ toggle: [] }>()
       /></span>
       <div class="titles">
         <p
-          v-if="props.number !== undefined && !props.collapsed && !props.locked"
+          v-if="props.number !== undefined && !props.collapsed"
           class="overline"
         >
           Schritt {{ props.number }}<template v-if="props.running">
@@ -219,6 +219,10 @@ const emit = defineEmits<{ toggle: [] }>()
 .level-2.locked > .step-head h2 {
   color: var(--muted);
   font-size: 1.05rem;
+}
+
+.level-2.locked .overline {
+  color: var(--muted);
 }
 
 .level-2.locked > .body {
