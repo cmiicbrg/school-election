@@ -27,7 +27,7 @@
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
     "e2e:install": "playwright install chromium",
-    "e2e:screenshots": "SCREENSHOT_DIR=docs/anleitung/bilder playwright test"
+    "e2e:screenshots": "SCREENSHOT_DIR=docs/anleitung/bilder/full-size playwright test"
   },
   "engines": {
     "node": ">=26"
