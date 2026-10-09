@@ -6,6 +6,8 @@
   --ink: #1b1b1b;
   --muted: #5a5f66;
   --line: #d6d9de;
+  /* A field's border: 3:1 against the page and against the field (WCAG 1.4.11). */
+  --field-line: #868b94;
   --paper: #fff;
   --field: #f6f7f9;
   --accent: #1f5fa8;
@@ -119,7 +121,7 @@ select {
   max-width: 32rem;
   box-sizing: border-box;
   padding: 7px 9px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--field-line);
   border-radius: var(--radius);
   background: var(--field);
 }
@@ -245,6 +247,11 @@ table {
   margin: 8px 0;
 }
 
+/* A table wider than a phone scrolls in its box instead of the page. */
+.table-scroll {
+  overflow-x: auto;
+}
+
 th,
 td {
   text-align: left;
@@ -256,6 +263,12 @@ td {
 @media (width <= 600px) {
   html {
     font-size: 16px;
+  }
+
+  /* A target a finger hits. */
+  button,
+  a.button {
+    min-height: 44px;
   }
 
   th,

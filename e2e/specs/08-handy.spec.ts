@@ -24,6 +24,9 @@ test('Anmeldung, Meine Wahlen, die Wahl und die Druckseite am Handy', async ({ b
   for (const name of ['Einrichten', 'Mitglieder', 'Vorbereiten', 'Stimmkarten']) {
     await expect(page.getByRole('region', { name })).toBeVisible()
   }
+  // Nothing is wider than the phone: a table scrolls in its box, and buttons are a finger's size.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+  expect((await page.getByRole('button', { name: 'Aufklappen' }).first().boundingBox())?.height).toBeGreaterThanOrEqual(44)
   await shot(page, '16-handy-wahl')
   await page.goto(at(`/elections/${electionId()}/batches/${batchId('1A regular')}/print`))
   await expect(page.getByTestId('card')).toHaveCount(25)

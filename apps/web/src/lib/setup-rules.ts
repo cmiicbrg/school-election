@@ -7,6 +7,7 @@
 
 import {
   canEditCandidates,
+  canDelete,
   canEditStructure,
   canIssueBatch,
   canManageMembers,
@@ -31,6 +32,8 @@ export interface SetupRules {
   coAdmins: boolean
   /** Handing the Wahlleitung to a co-admin. */
   lead: boolean
+  /** Deleting the termin with everything of it, while nobody used it. */
+  remove: boolean
   prepare: boolean
   unprepare: boolean
   /** Issuing a batch for the round, or topping one up. */
@@ -47,6 +50,7 @@ export function setupRules(lifecycle: Lifecycle, permissions: readonly Permissio
     witnesses: may('manage-witnesses') && canManageMembers(lifecycle).ok,
     coAdmins: may('manage-co-admins') && canManageMembers(lifecycle).ok,
     lead: may('transfer-lead') && canManageMembers(lifecycle).ok,
+    remove: may('delete-election') && canDelete(lifecycle).ok,
     prepare: may('prepare') && transition(lifecycle, 'prepare').ok,
     unprepare: may('prepare') && transition(lifecycle, 'unprepare').ok,
     issue: { regular: may('issue-keys') && canIssueBatch(lifecycle, 'regular').ok, runoff: may('issue-keys') && canIssueBatch(lifecycle, 'runoff').ok },

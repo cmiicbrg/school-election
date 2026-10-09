@@ -7,8 +7,9 @@
 // from the API, and again after every change a section reports; what each
 // section may offer comes from the caller's permissions and the lifecycle.
 
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { RouterLink, useRouter } from 'vue-router'
+import DeleteElection from '../components/DeleteElection.vue'
 import MembersSection from '../components/MembersSection.vue'
 import PrepareSection from '../components/PrepareSection.vue'
 import RunSection from '../components/RunSection.vue'
@@ -142,6 +143,17 @@ watch(() => props.id, () => {
 
 function reload(): void {
   void load()
+}
+
+// A deleted termin: the page lets go of it first, so the leave guards of
+// its sections go with them and nothing typed there can hold the page on a
+// termin that is gone, then it goes to the list.
+const router = useRouter()
+async function deleted(): Promise<void> {
+  loads++
+  clear()
+  await nextTick()
+  await router.push('/')
 }
 
 // Leaving the page ends its loads: one still on its way changes nothing
@@ -298,6 +310,12 @@ onUnmounted(() => {
         @probelauf="(done) => mark('probelauf', done)"
       />
     </StepSection>
+    <DeleteElection
+      v-if="rules.remove"
+      :election-id="election.id"
+      :title="election.title"
+      @deleted="deleted"
+    />
   </template>
   <p
     v-else
