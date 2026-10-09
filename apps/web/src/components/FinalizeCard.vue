@@ -1,8 +1,11 @@
 <script setup lang="ts">
 // Schritt 7, "Ergebnis feststellen": the export of the termin, and for the
 // Wahlleitung the step that makes the result final, with a reason, after a
-// dialog that names what stays undecided. Once it is final, the export
-// stays, with the digest of the file last saved.
+// dialog that names what stays undecided. A termin may end as it stands (a
+// lot not drawn, a runoff not held), so the step stays offered while a
+// Wahl is undecided; the card then names what is still open, and the step
+// is the quieter button, so that it does not read as the next one. Once it
+// is final, the export stays, with the digest of the file last saved.
 
 import { computed, ref, toRef, useId } from 'vue'
 import LineIcon from './LineIcon.vue'
@@ -47,6 +50,21 @@ async function finalize(): Promise<void> {
         <LineIcon name="check" />
         <span>{{ notice }}</span>
       </output>
+
+      <div
+        v-if="day.rules.finalize && !day.finalizing && day.undecided.length > 0"
+        class="message warning open"
+      >
+        <p>Noch nicht entschieden; so festgestellt, bleibt es dabei:</p>
+        <ul aria-label="Noch offen">
+          <li
+            v-for="line in day.undecided"
+            :key="line"
+          >
+            {{ line }}
+          </li>
+        </ul>
+      </div>
 
       <div
         v-if="day.finalizing"
@@ -163,6 +181,16 @@ async function finalize(): Promise<void> {
 
 .dialog {
   margin: 0;
+}
+
+.open p {
+  margin: 0;
+}
+
+.open ul {
+  margin: 4px 0 0;
+  padding-left: 1.2em;
+  font-weight: 600;
 }
 
 .dialog h3 {

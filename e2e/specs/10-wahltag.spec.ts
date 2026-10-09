@@ -142,6 +142,9 @@ test('die Wahl schließen: der Dialog, die Versiegelung, das Ergebnis in Worten;
   await expect(school).toContainText('Losentscheid erforderlich.')
   await expect(school.getByTestId('lot-runoff-entry')).toContainText('Quirin Huber-Mayer und Renate Wagner sind gleichauf; das Los entscheidet, wer von ihnen in die Stichwahl kommt (ein Platz). Bereits in der Stichwahl: Paula Berger.')
   await expect(run(anna).getByRole('button', { name: 'Stichwahl aktivieren' })).toHaveCount(0)
+  // Establishing the result stays possible, as a termin may end as it stands, but the card says what is still open first.
+  await expect(finalizing(anna).getByRole('list', { name: 'Noch offen' })).toHaveText(`${SCHOOL}: der Losentscheid fehlt`)
+  await expect(finalizing(anna).getByRole('button', { name: 'Ergebnis endgültig feststellen' })).toHaveClass(/secondary/)
   await shot(anna, '28-ergebnis-los')
 })
 
@@ -265,6 +268,8 @@ test('ein Co-Admin schließt nicht ab; die Wahlleitung schließt mit Begründung
   await expect(finalizing(carla).getByRole('button', { name: 'Ergebnis endgültig feststellen' })).toHaveCount(0)
   await carla.context().close()
 
+  // Every Wahl is decided now: the card names nothing as open.
+  await expect(finalizing(anna).getByRole('list', { name: 'Noch offen' })).toHaveCount(0)
   await finalizing(anna).getByRole('button', { name: 'Ergebnis endgültig feststellen' }).click()
   const final = dialog('Ergebnis endgültig feststellen?')
   await expect(final.getByRole('heading', { name: 'Ergebnis endgültig feststellen?' })).toBeFocused()
