@@ -1,6 +1,7 @@
-// Screenshots for the teacher's guide, taken at the steps the guide shows
-// and named in order. Only when SCREENSHOT_DIR is set (npm run
-// e2e:screenshots); a normal run writes none.
+// Full-page screenshots of the journeys' steps, named in order, for a quick
+// look at the app without clicking through it. Only when SCREENSHOT_DIR is
+// set (npm run e2e:screenshots, into a folder git ignores); a normal run
+// writes none.
 
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'

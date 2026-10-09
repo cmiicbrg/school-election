@@ -23,3 +23,8 @@ tmp/
 # secret files.
 /deploy/.env
 /deploy/secrets/
+
+# Full-page screenshots of the journeys (npm run e2e:screenshots): a quick
+# look at every step without clicking through the app, kept local because
+# each run rewrites them all.
+docs/anleitung/bilder/full-size/
