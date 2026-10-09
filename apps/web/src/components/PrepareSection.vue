@@ -110,26 +110,31 @@ const staleKeys = computed(() => (stale.value ?? []).reduce((sum, batch) => sum 
     </p>
 
     <h3>Wer wählt wo</h3>
-    <table v-if="preparation.summary.voterGroups.length > 0">
-      <thead>
-        <tr>
-          <th scope="col">
-            Klasse / Gruppe
-          </th><th scope="col">
-            Wahlen
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="group in preparation.summary.voterGroups"
-          :key="group.id"
-        >
-          <td>{{ group.name }}</td>
-          <td>{{ group.contests.map((contest) => contest.title).join(', ') || '–' }}</td>
-        </tr>
-      </tbody>
-    </table>
+    <div
+      v-if="preparation.summary.voterGroups.length > 0"
+      class="table-scroll"
+    >
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">
+              Klasse / Gruppe
+            </th><th scope="col">
+              Wahlen
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="group in preparation.summary.voterGroups"
+            :key="group.id"
+          >
+            <td>{{ group.name }}</td>
+            <td>{{ group.contests.map((contest) => contest.title).join(', ') || '–' }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     <p
       v-else
       class="muted"
@@ -138,32 +143,37 @@ const staleKeys = computed(() => (stale.value ?? []).reduce((sum, batch) => sum 
     </p>
 
     <h3>Wahlen</h3>
-    <table v-if="preparation.summary.contests.length > 0">
-      <thead>
-        <tr>
-          <th scope="col">
-            Wahl
-          </th><th scope="col">
-            Regeln
-          </th><th scope="col">
-            Kandidat:innen
-          </th><th scope="col">
-            Reihungen
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="contest in preparation.summary.contests"
-          :key="contest.id"
-        >
-          <td>{{ contest.title }}</td>
-          <td>{{ RULESET_LABELS[contest.rulesetId] }}</td>
-          <td>{{ contest.candidates }}</td>
-          <td>{{ contest.activeSlots }}</td>
-        </tr>
-      </tbody>
-    </table>
+    <div
+      v-if="preparation.summary.contests.length > 0"
+      class="table-scroll"
+    >
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">
+              Wahl
+            </th><th scope="col">
+              Regeln
+            </th><th scope="col">
+              Kandidat:innen
+            </th><th scope="col">
+              Reihungen
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="contest in preparation.summary.contests"
+            :key="contest.id"
+          >
+            <td>{{ contest.title }}</td>
+            <td>{{ RULESET_LABELS[contest.rulesetId] }}</td>
+            <td>{{ contest.candidates }}</td>
+            <td>{{ contest.activeSlots }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     <p
       v-else
       class="muted"

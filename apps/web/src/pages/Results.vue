@@ -174,46 +174,48 @@ function ballotsText(snapshot: Snapshot): string {
           :aria-label="`${ROUND_LABELS[round.kind]}: ${contestOf(contest.contestId)?.title ?? ''}`"
         >
           <h3>{{ ROUND_LABELS[round.kind] }}</h3>
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">
-                  Kandidat:in
-                </th>
-                <th scope="col">
-                  Erste Stellen
-                </th>
-                <th
-                  v-for="slot in statisticsTable(round.rulesetId, round.snapshot.result.statistics, names).slots"
-                  :key="slot"
-                  scope="col"
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">
+                    Kandidat:in
+                  </th>
+                  <th scope="col">
+                    Erste Stellen
+                  </th>
+                  <th
+                    v-for="slot in statisticsTable(round.rulesetId, round.snapshot.result.statistics, names).slots"
+                    :key="slot"
+                    scope="col"
+                  >
+                    {{ slot }}
+                  </th>
+                  <th scope="col">
+                    Punkte
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="row in statisticsTable(round.rulesetId, round.snapshot.result.statistics, names).rows"
+                  :key="row.candidateId"
                 >
-                  {{ slot }}
-                </th>
-                <th scope="col">
-                  Punkte
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="row in statisticsTable(round.rulesetId, round.snapshot.result.statistics, names).rows"
-                :key="row.candidateId"
-              >
-                <th scope="row">
-                  {{ row.name }}
-                </th>
-                <td>{{ row.firstPlaces }}</td>
-                <td
-                  v-for="(count, index) in row.rankCounts"
-                  :key="index"
-                >
-                  {{ count }}
-                </td>
-                <td>{{ row.points }}</td>
-              </tr>
-            </tbody>
-          </table>
+                  <th scope="row">
+                    {{ row.name }}
+                  </th>
+                  <td>{{ row.firstPlaces }}</td>
+                  <td
+                    v-for="(count, index) in row.rankCounts"
+                    :key="index"
+                  >
+                    {{ count }}
+                  </td>
+                  <td>{{ row.points }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
           <p class="muted">
             {{ ballotsText(round.snapshot) }} · {{ versions(round.snapshot) }}
           </p>

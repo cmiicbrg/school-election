@@ -121,40 +121,45 @@ function groupName(batch: BatchSummary): string {
       class="card-box"
     >
       <h3>{{ group.name }}</h3>
-      <table v-if="group.batches.length > 0">
-        <thead>
-          <tr>
-            <th scope="col">
-              Wahlgang
-            </th><th scope="col">
-              Stimmkarten
-            </th><th scope="col">
-              Stand
-            </th><th scope="col">
-              <span class="visually-hidden">Aktionen</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="batch in group.batches"
-            :key="batch.id"
-            :data-testid="`batch-${batch.roundKind}-${batch.state}`"
-          >
-            <td>{{ ROUND_LABELS[batch.roundKind] }}</td>
-            <td>{{ batch.keys }}</td>
-            <td>{{ BATCH_STATE_LABELS[batch.state] }}</td>
-            <td>
-              <a
-                v-if="readable(batch)"
-                :href="printPath(batch)"
-                target="_blank"
-                rel="noopener"
-              >{{ prints(batch) ? 'Drucken' : 'Codes anzeigen' }}</a>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div
+        v-if="group.batches.length > 0"
+        class="table-scroll"
+      >
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">
+                Wahlgang
+              </th><th scope="col">
+                Stimmkarten
+              </th><th scope="col">
+                Stand
+              </th><th scope="col">
+                <span class="visually-hidden">Aktionen</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="batch in group.batches"
+              :key="batch.id"
+              :data-testid="`batch-${batch.roundKind}-${batch.state}`"
+            >
+              <td>{{ ROUND_LABELS[batch.roundKind] }}</td>
+              <td>{{ batch.keys }}</td>
+              <td>{{ BATCH_STATE_LABELS[batch.state] }}</td>
+              <td>
+                <a
+                  v-if="readable(batch)"
+                  :href="printPath(batch)"
+                  target="_blank"
+                  rel="noopener"
+                >{{ prints(batch) ? 'Drucken' : 'Codes anzeigen' }}</a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       <p
         v-else
         class="muted"
