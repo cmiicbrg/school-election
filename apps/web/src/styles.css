@@ -90,16 +90,20 @@ body {
   color: var(--accent-ink);
 }
 
+/* The account moves under the brand when it does not fit beside it, and
+   a name too long for a line of its own wraps. */
 .shell-header nav {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .shell-header .who {
+  min-width: 0;
   color: var(--ink2);
   font-size: 0.85rem;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .shell-header .sign-out {
@@ -390,8 +394,8 @@ button:disabled {
   vertical-align: middle;
 }
 
-/* The termin's labels: small, over their field. */
-.termin label {
+/* The termin's labels: small, over their field; a checkbox's label is its text and keeps its size. */
+.termin label:not(.check) {
   margin: 0 0 6px;
   color: var(--ink2);
   font-size: 0.8rem;
