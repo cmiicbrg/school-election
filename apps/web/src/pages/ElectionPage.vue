@@ -144,7 +144,12 @@ function reload(): void {
   void load()
 }
 
-onUnmounted(() => clearTimeout(retry))
+// Leaving the page ends its loads: one still on its way changes nothing
+// and schedules no retry when it fails.
+onUnmounted(() => {
+  loads++
+  clearTimeout(retry)
+})
 </script>
 
 <template>
