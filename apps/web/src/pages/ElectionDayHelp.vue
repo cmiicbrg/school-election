@@ -11,7 +11,7 @@ usePageTitle(() => 'Ablauf am Wahltag')
 <template>
   <h1>Ablauf am Wahltag</h1>
   <p class="muted">
-    Was die Wahlleitung vor, während und nach dem Wahltermin tut, und was bei Zwischenfällen zu tun ist. Jeder Schritt steht auf der Seite des Wahltermins im Abschnitt „Ablauf“.
+    Was die Wahlleitung vor, während und nach dem Wahltermin tut, und was bei Zwischenfällen zu tun ist. Jeder Schritt steht auf der Seite des Wahltermins im Abschnitt „Wahltag“.
   </p>
 
   <h2>Vor dem Wahltag</h2>

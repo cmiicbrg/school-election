@@ -378,10 +378,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
 </script>
 
 <template>
-  <section aria-labelledby="setup-heading">
-    <h2 id="setup-heading">
-      Einrichten
-    </h2>
+  <div>
     <p
       v-if="locked"
       class="message warning"
@@ -544,14 +541,28 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
           :aria-label="fullName(candidate)"
         >
           <CandidatePicture
+            v-if="rules.candidates"
             :name="fullName(candidate)"
             :src="candidate.picture === null ? null : withBase(candidate.picture)"
-            :disabled="!rules.candidates"
             :busy="pending.has(`picture:${candidate.id}`)"
             :error="errors[`picture:${candidate.id}`] ?? null"
             @select="(prepared) => setPicture(candidate, prepared)"
             @remove="removePicture(candidate)"
           />
+          <div
+            v-else
+            class="portrait"
+          >
+            <img
+              v-if="candidate.picture !== null"
+              :src="withBase(candidate.picture)"
+              :alt="`Bild von ${fullName(candidate)}`"
+            >
+            <span
+              v-else
+              class="muted"
+            >Kein Bild</span>
+          </div>
           <form
             v-if="rules.candidates && candidateDrafts[candidate.id]"
             class="row"
@@ -874,7 +885,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
     >
       {{ errors['new-group'] }}
     </p>
-  </section>
+  </div>
 </template>
 
 <style scoped>
@@ -904,6 +915,26 @@ fieldset:not(.confirm) {
 .check {
   font-weight: 400;
   margin: 4px 0;
+}
+
+/* A picture that no longer changes: the square the picture zone shows,
+   without the zone. */
+.portrait {
+  display: grid;
+  place-items: center;
+  width: 7.5rem;
+  height: 7.5rem;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--field);
+  font-size: 0.875rem;
+}
+
+.portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 25%;
 }
 
 .candidates > li > .full {

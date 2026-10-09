@@ -1,9 +1,10 @@
 <script setup lang="ts">
-// Ablauf: the election day on one section. What is now, the turnout
+// Wahltag: the election day on one section. What is now, the turnout
 // while a round accepts ballots (read again every five seconds, counts
 // only, never a total), the result in words once the regular round has
 // closed, the lots the officials drew, and the steps in their order:
-// Probelauf, 1. Wahlgang öffnen, beenden und auszählen, Stichwahl
+// Probelauf (a block of its own, which can be marked done or skipped and
+// collapses then, never while one runs), 1. Wahlgang öffnen, beenden und auszählen, Stichwahl
 // aktivieren, beenden und auszählen, Ergebnis feststellen, Export. A step
 // that makes cards final (opening, activating the runoff) lists every
 // class with its valid cards, and one without needs a second, explicit
@@ -18,6 +19,7 @@ import { computed, nextTick, onUnmounted, ref, useId, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { LotRequest, Outcome, RoundKind, RulesetId } from '@school-election/election-core'
 import LotForm from './LotForm.vue'
+import StepSection from './StepSection.vue'
 import { apiDownload, apiGet, apiPost } from '../lib/api.ts'
 import { BASE_URL, withBase } from '../lib/base.ts'
 import { errorMessage } from '../lib/api-rules.ts'
@@ -34,9 +36,11 @@ const props = defineProps<{
   election: ElectionDetail
   configuration: Configuration
   batches: BatchSummary[]
+  /** The Probelauf is marked done or skipped (lib/steps.ts): its block is collapsed. */
+  probelaufDone: boolean
 }>()
 
-const emit = defineEmits<{ changed: [] }>()
+const emit = defineEmits<{ changed: [], probelauf: [done: boolean] }>()
 
 const EVERY_MS = 5000
 
@@ -372,10 +376,7 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
 </script>
 
 <template>
-  <section aria-labelledby="run-heading">
-    <h2 id="run-heading">
-      Ablauf
-    </h2>
+  <div>
     <p
       v-if="election.lifecycle.election !== 'final'"
       class="muted"
@@ -406,9 +407,44 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
       </ul>
     </div>
 
-    <template v-if="rules.showTestResult">
-      <div class="actions">
+    <StepSection
+      v-if="rules.startTest || rules.endTest || rules.showTestResult"
+      id="probelauf"
+      title="Probelauf"
+      :level="3"
+      :collapsed="election.lifecycle.regular === 'testing' ? null : probelaufDone"
+      @toggle="emit('probelauf', !probelaufDone)"
+    >
+      <template #summary>
+        <p>Erledigt oder übersprungen.</p>
+      </template>
+      <p class="muted">
+        Der Probelauf nimmt Stimmen mit den echten Stimmkarten an. Sie zählen nicht, und beim Beenden wird alles verworfen; er kann mehrmals laufen.
+      </p>
+      <div
+        v-if="confirming === null && !finalizing"
+        class="actions"
+      >
         <button
+          v-if="rules.startTest"
+          type="button"
+          class="secondary"
+          :disabled="busy"
+          @click="startTest"
+        >
+          Probelauf starten
+        </button>
+        <button
+          v-if="rules.endTest"
+          type="button"
+          class="secondary"
+          :disabled="busy"
+          @click="endTest"
+        >
+          Probelauf beenden
+        </button>
+        <button
+          v-if="rules.showTestResult"
           type="button"
           class="secondary"
           :disabled="busy"
@@ -418,7 +454,7 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
         </button>
       </div>
       <ul
-        v-if="testResult"
+        v-if="rules.showTestResult && testResult"
         class="plain"
         aria-label="Zwischenstand"
       >
@@ -429,7 +465,7 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
           {{ contestTitle(snapshot.contestId) }}: {{ countsLine(snapshot.result.statistics) }} {{ firstPlacesLine(rulesetOf(snapshot.contestId), snapshot.result.statistics, names) }}
         </li>
       </ul>
-    </template>
+    </StepSection>
 
     <template v-if="result && rules.showResult">
       <h3>Ergebnis</h3>
@@ -700,24 +736,6 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
       class="actions"
     >
       <button
-        v-if="rules.startTest"
-        type="button"
-        class="secondary"
-        :disabled="busy"
-        @click="startTest"
-      >
-        Probelauf starten
-      </button>
-      <button
-        v-if="rules.endTest"
-        type="button"
-        class="secondary"
-        :disabled="busy"
-        @click="endTest"
-      >
-        Probelauf beenden
-      </button>
-      <button
         v-if="rules.open"
         type="button"
         :disabled="busy"
@@ -773,7 +791,7 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
     >
       Export gespeichert als {{ exported.name }}. SHA-256: <code>{{ exported.sha256 }}</code>. Jeder Export enthält das Protokoll bis zu diesem Zeitpunkt und hat deshalb seine eigene Prüfsumme; sie steht auch im Protokoll.
     </p>
-  </section>
+  </div>
 </template>
 
 <style scoped>

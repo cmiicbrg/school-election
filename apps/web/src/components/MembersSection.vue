@@ -129,10 +129,7 @@ function nameOf(member: Member): string {
 </script>
 
 <template>
-  <section aria-labelledby="members-heading">
-    <h2 id="members-heading">
-      Mitglieder
-    </h2>
+  <div>
     <ul
       class="plain"
       aria-label="Mitglieder"
@@ -297,5 +294,5 @@ function nameOf(member: Member): string {
     >
       {{ error }}
     </p>
-  </section>
+  </div>
 </template>

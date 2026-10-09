@@ -128,6 +128,21 @@ test('einen Stapel ersetzen: die alten Codes gelten nicht mehr, bleiben aber zum
   await codes.close()
 })
 
+test('gedruckt: die Stimmkarten als erledigt einklappen; die Seite merkt es sich, und der Probelauf ist jetzt dran', async () => {
+  const current = page.getByRole('navigation', { name: 'Schritte' }).locator('[aria-current="step"]')
+  await expect(current).toContainText('Stimmkarten')
+  await sheets().getByRole('button', { name: 'Stimmkarten als erledigt einklappen' }).click()
+  await expect(sheets().getByRole('button', { name: 'Stimmkarten aufklappen' })).toHaveAttribute('aria-expanded', 'false')
+  await expect(sheets()).toContainText('✓ erledigt')
+  await expect(sheets()).toContainText('1. Wahlgang: 1A 25, 2B 20 Stimmkarten')
+  await expect(sheets()).toContainText('Stichwahl: 1A 10 Stimmkarten')
+  await expect(sheets().getByRole('button', { name: 'Stimmkarten erzeugen' })).toHaveCount(0)
+  await expect(current).toContainText('Probelauf')
+  await page.reload()
+  await expect(sheets()).toContainText('1. Wahlgang: 1A 25, 2B 20 Stimmkarten')
+  await expect(current).toContainText('Probelauf')
+})
+
 function journeyBatches(): Record<string, string> {
   return journey().batches ?? {}
 }

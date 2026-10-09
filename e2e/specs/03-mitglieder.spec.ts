@@ -50,8 +50,11 @@ test('die Zeugin meldet sich an, sieht die Wahl ohne Bedienelemente, und steht b
   await expect(wanda.getByRole('region', { name: 'Einrichten' })).toBeVisible()
   await expect(wanda.getByRole('button', { name: 'Kandidat:in hinzufügen' })).toHaveCount(0)
   await expect(wanda.getByRole('button', { name: 'Einladen' })).toHaveCount(0)
-  await expect(wanda.getByRole('button', { name: 'Vorbereiten' })).toHaveCount(0)
+  await expect(wanda.getByRole('button', { name: 'Vorbereiten', exact: true })).toHaveCount(0)
   await expect(wanda.getByRole('button', { name: 'Stimmkarten erzeugen' })).toHaveCount(0)
+  // Pictures without the zone to drop a new one.
+  await expect(wanda.getByRole('img', { name: 'Bild von Paula Berger' })).toBeVisible()
+  await expect(wanda.getByText('Foto hierher ziehen')).toHaveCount(0)
   await expect(list(wanda)).toContainText('Wanda Zeugin')
   await shot(wanda, '07-zeugin-sicht')
   await wanda.context().close()

@@ -55,7 +55,7 @@ function voidKey(): string {
   return key
 }
 
-const run = () => anna.getByRole('region', { name: 'Ablauf' })
+const run = () => anna.getByRole('region', { name: 'Wahltag' })
 const contests = () => page.getByRole('list', { name: 'Wahlen' }).getByRole('listitem')
 const row = (label: string) => page.getByLabel(label, { exact: true })
 
@@ -273,6 +273,13 @@ test('ein zweiter Code läuft über ein Neuladen der Seite weiter; nach dem Ende
   await run().getByRole('button', { name: 'Probelauf beenden' }).click()
   await expect(run().getByRole('status')).toHaveText('Probelauf beendet: 3 Stimmzettel entfernt, 2 Codes wieder frei.')
   await expect(run().getByTestId('state')).toHaveText('Vorbereitet. Sobald die Stimmkarten gedruckt sind, kann der 1. Wahlgang geöffnet werden.')
+
+  // Enough testing: the Probelauf is marked done and collapses.
+  await run().getByRole('button', { name: 'Probelauf als erledigt einklappen' }).click()
+  await expect(run().getByRole('button', { name: 'Probelauf aufklappen' })).toHaveAttribute('aria-expanded', 'false')
+  await expect(run()).toContainText('Erledigt oder übersprungen.')
+  await expect(run().getByRole('button', { name: 'Probelauf starten' })).toHaveCount(0)
+  await expect(anna.getByRole('navigation', { name: 'Schritte' }).getByRole('listitem').filter({ hasText: 'Probelauf' })).toContainText('(erledigt)')
   await refused(reloaded, 409, async () => {
     await reloaded.reload()
   })

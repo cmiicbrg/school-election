@@ -1,4 +1,4 @@
-// What the Ablauf section may offer right now: the role's permissions,
+// What the Wahltag section may offer right now: the role's permissions,
 // which the API returns with the election, and the lifecycle's guards
 // from election-core, asked with the lifecycle the API returns, as
 // setup-rules.ts does for the setup sections. A witness has none of the
