@@ -1,9 +1,12 @@
 {
-  // The tests of the web app's pure modules, which node:test runs. They
-  // import from src/ as Node does, with the .ts extension; ../tsconfig.json
-  // checks src/ for the browser as well.
+  // The tests of the web app's modules, which node:test runs. They import
+  // from src/ as Node does, with the .ts extension; ../tsconfig.json checks
+  // src/ for the browser as well. The DOM's types are the browser's, which a
+  // module of the page names (the day's state reaches the page's document
+  // and the API client); its test runs it against stubs of them.
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
+    "lib": ["ES2025", "DOM", "DOM.Iterable"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "rewriteRelativeImportExtensions": true,

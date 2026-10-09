@@ -15,7 +15,7 @@
 // the teacher's steps and the lots recorded without a reload. What a step
 // came to, and why one was refused, shows in the card of that step.
 
-import { computed, nextTick, onUnmounted, ref, watch, type UnwrapNestedRefs } from 'vue'
+import { computed, nextTick, onScopeDispose, ref, watch, type UnwrapNestedRefs } from 'vue'
 import type { LotRequest, Outcome, RoundKind, RulesetId } from '@school-election/election-core'
 import { apiDownload, apiGet, apiPost } from './api.ts'
 import { errorMessage } from './api-rules.ts'
@@ -233,7 +233,8 @@ export function useElectionDay(source: () => DaySource, changed: () => void) {
   }
 
   watch(() => election.value.lifecycle, refresh, { immediate: true, deep: true })
-  onUnmounted(stopPolling)
+  // A component's scope ends when it unmounts.
+  onScopeDispose(stopPolling)
 
   /** One step: the request, what to say afterwards in the step's card, and the page told to read the election again. */
   async function act<T>(card: DayCard, request: () => Promise<T>, then?: (answer: T) => string): Promise<boolean> {
