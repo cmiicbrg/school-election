@@ -87,8 +87,17 @@ test('ein zusätzlicher Stapel fragt zuerst und nennt, was die Klasse schon hat;
 })
 
 test('alle Stapel eines Wahlgangs in einem Dokument, Klasse für Klasse; Stichwahl-Karten tragen ihr Band', async () => {
+  // A batch replaced between the list and its keys keeps them for comparing: the page prints none of it and asks for a reload.
+  await page.context().route(`**/api/elections/*/batches/${journeyBatch('2B regular')}`, async (route) => {
+    const response = await route.fetch()
+    const body = await response.json() as { batch: Record<string, unknown> }
+    await route.fulfill({ response, json: { ...body, batch: { ...body.batch, state: 'void' } } })
+  }, { times: 1 })
   const [all] = await Promise.all([page.context().waitForEvent('page'), sheets().getByRole('link', { name: 'Alle Stapel drucken: 1. Wahlgang' }).click()])
   await all.waitForLoadState()
+  await expect(all.getByRole('alert')).toHaveText('Die Stimmkarten haben sich gerade geändert. Bitte die Seite neu laden.')
+  await expect(all.getByTestId('card')).toHaveCount(0)
+  await all.reload()
   // 1A's 25 cards on 5 sheets, 2B's 20 on 4 and its 5 on 1: each stack starts a sheet of its own.
   await expect(all.getByTestId('card')).toHaveCount(50)
   await expect(all.getByTestId('page')).toHaveCount(10)

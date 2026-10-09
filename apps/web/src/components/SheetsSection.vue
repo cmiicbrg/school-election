@@ -38,6 +38,8 @@ const BATCH_STATE_LABELS = { issued: 'gültig', void: 'ungültig' } as const
 /** A Wahlgang as an object of "für": "für den 1. Wahlgang". */
 const FOR_ROUND: Readonly<Record<RoundKind, string>> = { regular: 'den 1. Wahlgang', runoff: 'die Stichwahl' }
 const KINDS: readonly RoundKind[] = ['regular', 'runoff']
+/** The most cards a batch holds, as the API takes them. */
+const MAX_BATCH = 1000
 
 const busy = ref(false)
 /** Why the last change was refused, in the card of its class, or in the exceptions' panel for a replacement. */
@@ -67,7 +69,7 @@ watch([() => props.batches, () => props.rules.issue.runoff], () => {
   for (const group of props.configuration.voterGroups) {
     const regular = validKeys(group.id, 'regular')
     if (counts[group.id] === undefined && regular > 0 && validKeys(group.id, 'runoff') === 0) {
-      counts[group.id] = regular
+      counts[group.id] = Math.min(regular, MAX_BATCH)
       proposed.add(group.id)
     }
   }
@@ -331,7 +333,7 @@ function groupName(batch: BatchSummary): string {
               v-model.number="counts[group.id]"
               type="number"
               min="1"
-              max="1000"
+              :max="MAX_BATCH"
               :aria-describedby="proposed.has(group.id) ? `count-hint-${group.id}` : undefined"
               @input="proposed.delete(group.id)"
             >

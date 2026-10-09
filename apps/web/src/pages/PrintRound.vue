@@ -37,6 +37,7 @@ interface Configuration {
 }
 
 interface BatchKeys {
+  batch: { state: 'issued' | 'void' }
   keys: { key: string }[]
 }
 
@@ -88,6 +89,11 @@ async function load(): Promise<void> {
       .filter((batch) => batch.roundKind === round && batch.state === 'issued')
       .toSorted((a, b) => (order.get(a.voterGroupId) ?? 0) - (order.get(b.voterGroupId) ?? 0))
     const keys = await Promise.all(valid.map((batch) => apiGet<BatchKeys>(`${base}/batches/${encodeURIComponent(batch.id)}`)))
+    // A batch replaced or voided between the list and its keys keeps them for comparing: none of them is printed.
+    if (keys.some((answer) => answer.batch.state !== 'issued')) {
+      error.value = 'Die Stimmkarten haben sich gerade geändert. Bitte die Seite neu laden.'
+      return
+    }
     stacks.value = valid.map((batch, index) => ({
       batchId: batch.id,
       groupName: configuration.voterGroups.find((group) => group.id === batch.voterGroupId)?.name ?? '',
