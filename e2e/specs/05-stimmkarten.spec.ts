@@ -133,6 +133,7 @@ test('gedruckt: die Stimmkarten als erledigt einklappen; die Seite merkt es sich
   await expect(current).toContainText('Stimmkarten')
   await sheets().getByRole('button', { name: 'Stimmkarten als erledigt einklappen' }).click()
   await expect(sheets().getByRole('button', { name: 'Stimmkarten aufklappen' })).toHaveAttribute('aria-expanded', 'false')
+  await expect(sheets()).toContainText('✓ erledigt')
   await expect(sheets()).toContainText('1. Wahlgang: 1A 25, 2B 20 Stimmkarten')
   await expect(sheets()).toContainText('Stichwahl: 1A 10 Stimmkarten')
   await expect(sheets().getByRole('button', { name: 'Stimmkarten erzeugen' })).toHaveCount(0)

@@ -162,7 +162,7 @@ function reload(): void {
       @toggle="toggle('einrichten')"
     >
       <template #summary>
-        <ul class="summary">
+        <ul class="lines">
           <li
             v-for="line in setupSummary"
             :key="line"
@@ -222,7 +222,7 @@ function reload(): void {
       @toggle="toggle('stimmkarten')"
     >
       <template #summary>
-        <ul class="summary">
+        <ul class="lines">
           <li
             v-for="line in cardsSummary"
             :key="line"
@@ -268,8 +268,7 @@ function reload(): void {
 </template>
 
 <style scoped>
-.summary {
-  margin: 0;
+.lines {
   padding-left: 1.2em;
 }
 

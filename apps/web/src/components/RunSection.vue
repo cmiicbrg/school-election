@@ -19,6 +19,7 @@ import { computed, nextTick, onUnmounted, ref, useId, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { LotRequest, Outcome, RoundKind, RulesetId } from '@school-election/election-core'
 import LotForm from './LotForm.vue'
+import StepSection from './StepSection.vue'
 import { apiDownload, apiGet, apiPost } from '../lib/api.ts'
 import { BASE_URL, withBase } from '../lib/base.ts'
 import { errorMessage } from '../lib/api-rules.ts'
@@ -406,88 +407,65 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
       </ul>
     </div>
 
-    <div
+    <StepSection
       v-if="rules.startTest || rules.endTest || rules.showTestResult"
       id="probelauf"
+      title="Probelauf"
+      :level="3"
+      :collapsed="election.lifecycle.regular === 'testing' ? null : probelaufDone"
+      @toggle="emit('probelauf', !probelaufDone)"
     >
-      <div class="block-head">
-        <h3
-          id="probelauf-heading"
-          tabindex="-1"
-        >
-          Probelauf
-        </h3>
-        <button
-          v-if="election.lifecycle.regular !== 'testing'"
-          type="button"
-          class="secondary"
-          :aria-expanded="!probelaufDone"
-          aria-controls="probelauf-body"
-          :aria-label="probelaufDone ? 'Probelauf aufklappen' : 'Probelauf als erledigt einklappen'"
-          @click="emit('probelauf', !probelaufDone)"
-        >
-          {{ probelaufDone ? 'Aufklappen' : 'Erledigt, einklappen' }}
-        </button>
-      </div>
-      <p
-        v-if="probelaufDone"
-        class="muted"
-      >
-        Erledigt oder übersprungen.
+      <template #summary>
+        <p>Erledigt oder übersprungen.</p>
+      </template>
+      <p class="muted">
+        Der Probelauf nimmt Stimmen mit den echten Stimmkarten an. Sie zählen nicht, und beim Beenden wird alles verworfen; er kann mehrmals laufen.
       </p>
       <div
-        v-else
-        id="probelauf-body"
+        v-if="confirming === null && !finalizing"
+        class="actions"
       >
-        <p class="muted">
-          Der Probelauf nimmt Stimmen mit den echten Stimmkarten an. Sie zählen nicht, und beim Beenden wird alles verworfen; er kann mehrmals laufen.
-        </p>
-        <div
-          v-if="confirming === null && !finalizing"
-          class="actions"
+        <button
+          v-if="rules.startTest"
+          type="button"
+          class="secondary"
+          :disabled="busy"
+          @click="startTest"
         >
-          <button
-            v-if="rules.startTest"
-            type="button"
-            class="secondary"
-            :disabled="busy"
-            @click="startTest"
-          >
-            Probelauf starten
-          </button>
-          <button
-            v-if="rules.endTest"
-            type="button"
-            class="secondary"
-            :disabled="busy"
-            @click="endTest"
-          >
-            Probelauf beenden
-          </button>
-          <button
-            v-if="rules.showTestResult"
-            type="button"
-            class="secondary"
-            :disabled="busy"
-            @click="readTestResult"
-          >
-            Zwischenstand
-          </button>
-        </div>
-        <ul
-          v-if="rules.showTestResult && testResult"
-          class="plain"
-          aria-label="Zwischenstand"
+          Probelauf starten
+        </button>
+        <button
+          v-if="rules.endTest"
+          type="button"
+          class="secondary"
+          :disabled="busy"
+          @click="endTest"
         >
-          <li
-            v-for="snapshot in testResult.contests"
-            :key="snapshot.contestId"
-          >
-            {{ contestTitle(snapshot.contestId) }}: {{ countsLine(snapshot.result.statistics) }} {{ firstPlacesLine(rulesetOf(snapshot.contestId), snapshot.result.statistics, names) }}
-          </li>
-        </ul>
+          Probelauf beenden
+        </button>
+        <button
+          v-if="rules.showTestResult"
+          type="button"
+          class="secondary"
+          :disabled="busy"
+          @click="readTestResult"
+        >
+          Zwischenstand
+        </button>
       </div>
-    </div>
+      <ul
+        v-if="rules.showTestResult && testResult"
+        class="plain"
+        aria-label="Zwischenstand"
+      >
+        <li
+          v-for="snapshot in testResult.contests"
+          :key="snapshot.contestId"
+        >
+          {{ contestTitle(snapshot.contestId) }}: {{ countsLine(snapshot.result.statistics) }} {{ firstPlacesLine(rulesetOf(snapshot.contestId), snapshot.result.statistics, names) }}
+        </li>
+      </ul>
+    </StepSection>
 
     <template v-if="result && rules.showResult">
       <h3>Ergebnis</h3>
@@ -817,14 +795,6 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
 </template>
 
 <style scoped>
-.block-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
 .dialog-lines {
   margin: 8px 0;
 }
