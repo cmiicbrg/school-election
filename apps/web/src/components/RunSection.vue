@@ -21,7 +21,7 @@ import type { LotRequest, Outcome, RoundKind, RulesetId } from '@school-election
 import LotForm from './LotForm.vue'
 import StepSection from './StepSection.vue'
 import { apiDownload, apiGet, apiPost } from '../lib/api.ts'
-import { BASE_URL, withBase } from '../lib/base.ts'
+import { withBase } from '../lib/base.ts'
 import { errorMessage } from '../lib/api-rules.ts'
 import { useDialogFocus } from '../lib/dialog-focus.ts'
 import { fileNameOf } from '../lib/download.ts'
@@ -29,7 +29,6 @@ import { ROUND_LABELS } from '../lib/labels.ts'
 import { countsLine, dateTime, firstPlacesLine, listed, lotText, outcomeLine, positionLines, recordedLotLine, type Names } from '../lib/outcome-text.ts'
 import { notify } from '../lib/toast.ts'
 import { accepting, runoffState, runRules } from '../lib/run-rules.ts'
-import { voterAddress } from '../lib/sheet.ts'
 import type { BatchSummary, Configuration, ContestResult, ElectionDetail, ElectionFinalized, ElectionResult, RoundResults, RunoffActivated, TestEnded, Turnout } from '../lib/types.ts'
 
 const props = defineProps<{
@@ -71,7 +70,6 @@ const names = computed<Names>(() => {
 })
 const contestTitle = (id: string): string => props.configuration.contests.find((contest) => contest.id === id)?.title ?? ''
 const rulesetOf = (id: string): RulesetId => props.configuration.contests.find((contest) => contest.id === id)?.rulesetId ?? 'single-choice-v1'
-const address = computed(() => voterAddress(BASE_URL))
 
 const stateLine = computed(() => {
   const { lifecycle } = props.election
@@ -377,12 +375,6 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
 
 <template>
   <div>
-    <p
-      v-if="election.lifecycle.election !== 'final'"
-      class="muted"
-    >
-      Stimmabgabe unter <strong>{{ address }}</strong>; die Stimmkarten tragen diese Adresse als QR-Code.
-    </p>
     <p data-testid="state">
       <strong>{{ stateLine }}</strong>
     </p>
@@ -411,7 +403,9 @@ const printPath = (batch: BatchSummary): string => withBase(`/elections/${props.
       v-if="rules.startTest || rules.endTest || rules.showTestResult"
       id="probelauf"
       title="Probelauf"
+      :number="5"
       :level="3"
+      :running="election.lifecycle.regular === 'testing'"
       :collapsed="election.lifecycle.regular === 'testing' ? null : probelaufDone"
       @toggle="emit('probelauf', !probelaufDone)"
     >
