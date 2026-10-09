@@ -12,6 +12,15 @@ const PATHS = {
   'clock': ['M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z', 'M12 7v5l3 2'],
   'chart': ['M4 20V10', 'M10 20V4', 'M16 20v-7', 'M22 20H2'],
   'flask': ['M9 3h6', 'M10 3v6L4 20h16L14 9V3'],
+  'trash': ['M4 7h16', 'M10 11v6', 'M14 11v6', 'M6 7l1 13h10l1-13', 'M9 7V4h6v3'],
+  'image': ['M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z', 'M9 8a2 2 0 1 0 0 4a2 2 0 1 0 0-4z', 'M21 16l-5-5-9 8'],
+  'plus': ['M12 5v14', 'M5 12h14'],
+  'copy': ['M11 9h7a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z', 'M5 15V5a1 1 0 0 1 1-1h9'],
+  'alert': ['M12 3l10 18H2z', 'M12 10v4', 'M12 17.5v.5'],
+  'user-plus': ['M9 4a4 4 0 1 0 0 8a4 4 0 1 0 0-8z', 'M2 21c0-4 3-6 7-6s7 2 7 6', 'M19 8v6', 'M16 11h6'],
+  'info': ['M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z', 'M12 11v6', 'M12 7.5v.5'],
+  'print': ['M7 9V3h10v6', 'M5 9h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2z', 'M7 14h10v7H7z'],
+  'refresh': ['M4 4v6h6', 'M20 20v-6h-6', 'M5.5 15a7 7 0 0 0 12.5 2', 'M18.5 9A7 7 0 0 0 6 7'],
 } as const satisfies Readonly<Record<string, readonly string[]>>
 
 export type IconName = keyof typeof PATHS

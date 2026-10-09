@@ -53,7 +53,9 @@ export function finished(step: Step, lifecycle: Lifecycle): boolean {
     case 'mitglieder':
     case 'vorbereiten':
       return lifecycle.election !== 'draft'
+    // A Probelauf runs on the printed cards: starting one finishes them, as opening the 1. Wahlgang does.
     case 'stimmkarten':
+      return lifecycle.regular === 'testing' || lifecycle.election === 'active' || lifecycle.election === 'final'
     case 'probelauf':
       return lifecycle.election === 'active' || lifecycle.election === 'final'
     case 'wahltag':
@@ -64,6 +66,16 @@ export function finished(step: Step, lifecycle: Lifecycle): boolean {
 }
 
 const testing = (step: Step, lifecycle: Lifecycle): boolean => step === 'probelauf' && lifecycle.regular === 'testing'
+
+/**
+ * Whether the page marks the cards done now: a Probelauf runs, which
+ * finishes them, and nothing marks them yet. The mark keeps them done in
+ * this browser after the Probelauf ends; cards opened again on purpose
+ * keep that.
+ */
+export function marksCards(lifecycle: Lifecycle, marks: Marks): boolean {
+  return lifecycle.regular === 'testing' && marks.stimmkarten === undefined
+}
 
 /** Whether a step's section is collapsed: by its mark, or finished without one. A running Probelauf never is. */
 export function collapsed(step: Markable, lifecycle: Lifecycle, marks: Marks): boolean {

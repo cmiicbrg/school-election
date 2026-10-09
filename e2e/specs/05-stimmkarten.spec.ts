@@ -26,7 +26,7 @@ test.afterAll(async () => {
 })
 
 const sheets = () => page.getByRole('region', { name: 'Stimmkarten' })
-const classBox = (name: string) => sheets().locator('.card-box').filter({ has: page.getByRole('heading', { name, exact: true }) })
+const classBox = (name: string) => sheets().getByRole('article', { name, exact: true })
 
 async function issue(name: string, count: number, button: string): Promise<string> {
   await classBox(name).getByLabel('Anzahl Wählende').fill(String(count))

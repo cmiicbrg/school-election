@@ -6,19 +6,26 @@
 // invites and removes both roles, a co-admin witnesses only, until the
 // result is final. The owner can hand the Wahlleitung to a co-admin who
 // has signed in, and becomes a co-admin. Removing a member and handing
-// over the lead ask first, in place, and a toast confirms each.
+// over the lead ask first, in place, and a toast confirms each. Each
+// member is a row with their initials, their role as a badge, and
+// "(Sie)" beside the caller.
 
 import { computed, nextTick, ref, useId, watch } from 'vue'
+import LineIcon from './LineIcon.vue'
 import { apiDelete, apiPost } from '../lib/api.ts'
 import { errorMessage } from '../lib/api-rules.ts'
 import { BASE_URL } from '../lib/base.ts'
-import { MEMBER_STATUS_LABELS, ROLE_DESCRIPTIONS, ROLE_LABELS } from '../lib/labels.ts'
+import { MEMBER_STATUS_LABELS, ROLE_DESCRIPTIONS, ROLE_LABELS, type Role } from '../lib/labels.ts'
+import { initials, ownMember } from '../lib/people.ts'
+import { session } from '../lib/session.ts'
 import { notify } from '../lib/toast.ts'
 import type { Member } from '../lib/types.ts'
 
 const props = defineProps<{
   electionId: string
   members: Member[]
+  /** The caller's role in the termin. */
+  callerRole: Role
   /** The caller may invite and remove witnesses now. */
   witnesses: boolean
   /** The caller may invite and remove co-admins now. */
@@ -49,6 +56,17 @@ const address = `${BASE_URL}/`
 watch(() => props.coAdmins, (coAdmins) => {
   if (!coAdmins) role.value = 'witness'
 })
+/** The caller's own row, marked "(Sie)". */
+const own = computed(() => (session.value ? ownMember(props.members, props.callerRole, session.value.displayName) : undefined))
+
+/** Under a member's name: whether they have signed in, and the address they were invited by. */
+function details(member: Member): string {
+  return [
+    member.role === 'owner' ? '' : MEMBER_STATUS_LABELS[member.status],
+    member.displayName ? (member.email ?? '') : '',
+  ].filter((part) => part !== '').join(' · ')
+}
+
 /** Inviting a second co-admin: one is usually enough. */
 const anotherCoAdmin = computed(() => role.value === 'admin' && props.members.some((member) => member.role === 'admin'))
 
@@ -129,46 +147,58 @@ function nameOf(member: Member): string {
 </script>
 
 <template>
-  <div>
+  <div class="members">
     <ul
-      class="plain"
+      class="people"
       aria-label="Mitglieder"
     >
       <li
         v-for="member in members"
         :key="member.id"
-        class="row"
       >
-        <span>
-          <strong>{{ nameOf(member) }}</strong>
-          <span class="muted"> · {{ ROLE_LABELS[member.role] }}<template v-if="member.role !== 'owner'"> · {{ MEMBER_STATUS_LABELS[member.status] }}</template></span>
-          <span
-            v-if="member.displayName && member.email"
+        <span
+          class="initials"
+          :class="{ lead: member.role === 'owner' }"
+          aria-hidden="true"
+        >{{ initials(nameOf(member)) }}</span>
+        <span class="person">
+          <span class="name">{{ nameOf(member) }}<span
+            v-if="own?.id === member.id"
             class="muted"
-          > · {{ member.email }}</span>
+          > (Sie)</span></span>
+          <span
+            v-if="details(member)"
+            class="details muted"
+          >{{ details(member) }}</span>
         </span>
-        <button
-          v-if="mayLead(member) && !asked(member, 'lead')"
-          type="button"
-          class="secondary"
-          :disabled="busy"
-          :aria-label="`Wahlleitung übergeben: ${nameOf(member)}`"
-          :data-ask="`lead:${member.id}`"
-          @click="ask('lead', member)"
+        <span :class="['badge', { info: member.role === 'owner' }]">{{ ROLE_LABELS[member.role] }}</span>
+        <span
+          v-if="(mayLead(member) && !asked(member, 'lead')) || (mayRemove(member) && !asked(member, 'remove'))"
+          class="row-actions"
         >
-          Wahlleitung übergeben
-        </button>
-        <button
-          v-if="mayRemove(member) && !asked(member, 'remove')"
-          type="button"
-          class="danger"
-          :disabled="busy"
-          :aria-label="`Entfernen: ${nameOf(member)}`"
-          :data-ask="`remove:${member.id}`"
-          @click="ask('remove', member)"
-        >
-          Entfernen
-        </button>
+          <button
+            v-if="mayLead(member) && !asked(member, 'lead')"
+            type="button"
+            class="secondary small"
+            :disabled="busy"
+            :aria-label="`Wahlleitung übergeben: ${nameOf(member)}`"
+            :data-ask="`lead:${member.id}`"
+            @click="ask('lead', member)"
+          >
+            Wahlleitung übergeben
+          </button>
+          <button
+            v-if="mayRemove(member) && !asked(member, 'remove')"
+            type="button"
+            class="ghost danger small"
+            :disabled="busy"
+            :aria-label="`Entfernen: ${nameOf(member)}`"
+            :data-ask="`remove:${member.id}`"
+            @click="ask('remove', member)"
+          >
+            <LineIcon name="trash" />Entfernen
+          </button>
+        </span>
         <fieldset
           v-if="mayLead(member) && asked(member, 'lead')"
           class="confirm"
@@ -224,19 +254,15 @@ function nameOf(member: Member): string {
     </p>
     <form
       v-else-if="witnesses"
-      class="card-box"
+      class="invite"
       :aria-labelledby="ids.form"
       @submit.prevent="invite"
     >
       <h3 :id="ids.form">
         Einladen
       </h3>
-      <p class="muted">
-        Mitglieder können bis zur Feststellung des Ergebnisses eingeladen und entfernt werden.
-        Es wird keine E-Mail verschickt: Teilen Sie der eingeladenen Person die Adresse <code>{{ address }}</code> selbst mit.
-      </p>
-      <div class="row">
-        <div>
+      <div class="invite-row">
+        <div class="email">
           <label :for="ids.email">Schul-E-Mail-Adresse</label>
           <input
             :id="ids.email"
@@ -246,7 +272,7 @@ function nameOf(member: Member): string {
             autocomplete="off"
           >
         </div>
-        <div>
+        <div class="role">
           <label :for="ids.role">Rolle</label>
           <select
             :id="ids.role"
@@ -268,17 +294,24 @@ function nameOf(member: Member): string {
           type="submit"
           :disabled="busy"
         >
-          Einladen
+          <LineIcon name="user-plus" />Einladen
         </button>
       </div>
       <p
         :id="ids.roleText"
-        class="muted"
+        class="role-text"
       >
         {{ ROLE_DESCRIPTIONS[role] }}
         <template v-if="anotherCoAdmin">
           Meist genügt eine Person als Co-Admin; dieser Wahltermin hat schon eine.
         </template>
+      </p>
+      <p class="note">
+        <LineIcon name="info" />
+        <span>
+          Mitglieder können bis zur Feststellung des Ergebnisses eingeladen und entfernt werden.
+          Es wird keine E-Mail verschickt: Teilen Sie der eingeladenen Person die Adresse <code>{{ address }}</code> selbst mit.
+        </span>
       </p>
     </form>
     <output
@@ -296,3 +329,116 @@ function nameOf(member: Member): string {
     </p>
   </div>
 </template>
+
+<style scoped>
+.members {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.members > p,
+.members > output {
+  margin: 0;
+}
+
+.people {
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  list-style: none;
+}
+
+.people > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 12px 16px;
+}
+
+.people > li + li {
+  border-top: 1px solid var(--line);
+}
+
+.people .initials {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  background: var(--chip);
+  font-size: 0.75rem;
+}
+
+.people .initials.lead {
+  background: var(--info-bg);
+  color: var(--accent);
+}
+
+.person {
+  flex: 1 1 200px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.name .muted {
+  font-weight: 400;
+}
+
+.details {
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.people .confirm {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+.invite {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.invite h3 {
+  margin: 0;
+}
+
+.invite-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.email {
+  flex: 2 1 260px;
+}
+
+.role {
+  flex: 1 1 160px;
+}
+
+.role-text {
+  margin: 0;
+  color: var(--ink2);
+  font-size: 0.85rem;
+}
+
+code {
+  overflow-wrap: anywhere;
+}
+</style>

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { NEW_ELECTION, type Lifecycle } from '@school-election/election-core'
-import { collapsed, parseMarks, sectionOrder, stepStates, stepStatus, STEPS, type Markable, type StepFacts, type StepState } from '../src/lib/steps.ts'
+import { collapsed, marksCards, parseMarks, sectionOrder, stepStates, stepStatus, STEPS, type Markable, type StepFacts, type StepState } from '../src/lib/steps.ts'
 
 const PREPARED: Lifecycle = { election: 'prepared', regular: 'planned', runoff: null }
 const TESTING: Lifecycle = { election: 'prepared', regular: 'testing', runoff: null }
@@ -24,6 +24,17 @@ test('a mark finishes a step early, opening a finished one only shows it, and a 
   assert.equal(row(stepStates(PREPARED, { stimmkarten: true, probelauf: true })), 'dddddco')
   assert.equal(row(stepStates(OPEN, { einrichten: false })), 'dddddco')
   assert.equal(row(stepStates(TESTING, { stimmkarten: true, probelauf: true })), 'ddddcoo')
+})
+
+test('a running Probelauf finishes the cards and is the current step; the page marks the cards done then, unless they were opened again', () => {
+  assert.equal(row(stepStates(TESTING, {})), 'ddddcoo')
+  assert.equal(collapsed('stimmkarten', TESTING, {}), true)
+  assert.equal(marksCards(TESTING, {}), true)
+  assert.equal(marksCards(TESTING, { stimmkarten: true }), false)
+  assert.equal(marksCards(TESTING, { stimmkarten: false }), false)
+  assert.equal(marksCards(PREPARED, {}), false)
+  // Once it has ended, the mark keeps them done.
+  assert.equal(row(stepStates(PREPARED, { stimmkarten: true })), 'ddddcoo')
 })
 
 test('a section is collapsed by its mark, without one when its step is finished, and never while a Probelauf runs', () => {

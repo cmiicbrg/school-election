@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// A step of the termin's page as a card: "Schritt N" over its heading, a
-// button that marks the step done by collapsing it, and its content. A
+// A step of the termin's page as a card: "Schritt N" over its heading,
+// what the step is for under it, a button that marks the step done by
+// collapsing it, and its content. A
 // collapsed step is a compact row with a check, its heading and what it
 // holds, and the button that opens it again; collapsed steps that follow
 // each other join into one card. A step that cannot start yet is drawn
@@ -15,6 +16,8 @@ const props = withDefaults(defineProps<{
   title: string
   /** The step's number, shown over the heading. */
   number?: number
+  /** What the step is for, under its heading while it is open. */
+  intro?: string
   /** Whether the step is marked done; null for a step nobody marks now. */
   collapsed: boolean | null
   /** 2 for a section of the page, 3 for a block within one. */
@@ -23,7 +26,7 @@ const props = withDefaults(defineProps<{
   locked?: boolean
   /** Something runs in this step now (a Probelauf): drawn in the colour of a test. */
   running?: boolean
-}>(), { level: 2, number: undefined, locked: false, running: false })
+}>(), { level: 2, number: undefined, intro: undefined, locked: false, running: false })
 
 const emit = defineEmits<{ toggle: [] }>()
 </script>
@@ -67,6 +70,12 @@ const emit = defineEmits<{ toggle: [] }>()
         >
           {{ title }}
         </component>
+        <p
+          v-if="props.intro && !props.collapsed"
+          class="intro"
+        >
+          {{ props.intro }}
+        </p>
         <span
           v-if="props.collapsed"
           class="visually-hidden"
@@ -118,7 +127,7 @@ const emit = defineEmits<{ toggle: [] }>()
   margin: 0 0 2px;
   color: var(--accent);
   font-size: 0.75rem;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -128,6 +137,12 @@ const emit = defineEmits<{ toggle: [] }>()
   margin: 0;
   padding: 0;
   border: 0;
+}
+
+.intro {
+  max-width: 70ch;
+  margin: 6px 0 0;
+  color: var(--ink2);
 }
 
 .toggle {
@@ -150,7 +165,7 @@ const emit = defineEmits<{ toggle: [] }>()
 
 .mark.lock {
   border-radius: 10px;
-  background: var(--soft);
+  background: var(--chip);
   color: var(--muted);
 }
 
@@ -173,7 +188,7 @@ const emit = defineEmits<{ toggle: [] }>()
 }
 
 .level-2 > .step-head {
-  padding: 18px 24px;
+  padding: 20px 24px;
 }
 
 .level-2 > .step-head h2 {
@@ -185,7 +200,7 @@ const emit = defineEmits<{ toggle: [] }>()
 }
 
 .level-2 > .body {
-  padding: 20px 24px 24px;
+  padding: 24px;
 }
 
 /* Collapsed: a compact row; rows that follow each other are one card. */
@@ -221,7 +236,8 @@ const emit = defineEmits<{ toggle: [] }>()
   font-size: 1.05rem;
 }
 
-.level-2.locked .overline {
+.level-2.locked .overline,
+.level-2.locked .intro {
   color: var(--muted);
 }
 
