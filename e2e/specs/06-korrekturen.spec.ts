@@ -25,6 +25,7 @@ test.afterAll(async () => {
 })
 
 test('die 2B wählt nun auch die Klassensprecher:in: ihre Stimmkarten passen nicht mehr', async () => {
+  await page.getByRole('button', { name: 'Vorbereiten aufklappen' }).click()
   await page.getByRole('button', { name: 'Zurück zum Entwurf' }).click()
   await expect(page.getByText(/^Entwurf · Ihre Rolle/)).toBeVisible()
   await assignContest(page, '2B', 'Klassensprecher/in 1A')

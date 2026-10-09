@@ -51,7 +51,7 @@ test.afterAll(async () => {
   await anna.context().close()
 })
 
-const run = (page: Page) => page.getByRole('region', { name: 'Ablauf' })
+const run = (page: Page) => page.getByRole('region', { name: 'Wahltag' })
 const dialog = (name: string) => run(anna).getByRole('alertdialog', { name })
 const contestResult = (page: Page, title: string) => run(page).getByRole('article', { name: title, exact: true })
 /** A value an earlier spec or step must have left; the specs build on each other. */
@@ -78,7 +78,13 @@ test('die Wahlleitung öffnet die Wahl: der Dialog, dann läuft sie, und der Auf
   await expect(run(anna).getByRole('status')).toHaveText('Der 1. Wahlgang ist geöffnet.')
   await expect(run(anna).getByTestId('state')).toHaveText('Der 1. Wahlgang läuft.')
   await expect(anna.getByText(/^1\. Wahlgang läuft · Ihre Rolle/)).toBeVisible()
+  // Everything before the day is done now: the cards and the Probelauf with the opening, and the day is the step.
+  await expect(anna.getByRole('navigation', { name: 'Schritte' }).locator('[aria-current="step"]')).toContainText('Wahltag')
+  await expect(run(anna).getByRole('heading', { name: 'Probelauf' })).toHaveCount(0)
+  await anna.getByRole('button', { name: 'Einrichten aufklappen' }).click()
   await expect(anna.getByText('Die Stimmabgabe hat begonnen: Kandidat:innen und die Stimmkarten des 1. Wahlgangs sind festgelegt.')).toBeVisible()
+  // Opened only to look: the setup stays done, and the day stays the step.
+  await expect(anna.getByRole('navigation', { name: 'Schritte' }).locator('[aria-current="step"]')).toContainText('Wahltag')
   await expect(run(anna).getByTestId('turnout')).toContainText('1. Wahlgang: 0 von 25 Stimmkarten verwendet')
 })
 
@@ -233,6 +239,8 @@ test('drei Stichwahl-Stimmkarten wählen; die Stichwahl schließen: Renate Wagne
   // The witness sees the same without a reload, and the runoff batch's codes with their use.
   await expect(contestResult(wanda, SCHOOL)).toContainText('Gewählt.')
   await expect(contestResult(wanda, SCHOOL).getByRole('form')).toHaveCount(0)
+  // The cards are done once the Wahlgang opened; opened again, they show their codes.
+  await wanda.getByRole('region', { name: 'Stimmkarten' }).getByRole('button', { name: 'Stimmkarten aufklappen' }).click()
   const link = wanda.getByRole('region', { name: 'Stimmkarten' }).getByTestId('batch-runoff-issued').getByRole('link', { name: 'Codes anzeigen' })
   const [codes] = await Promise.all([wanda.context().waitForEvent('page'), link.click()])
   await codes.waitForLoadState()
