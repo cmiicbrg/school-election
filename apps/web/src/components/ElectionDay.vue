@@ -32,6 +32,7 @@ const testing = computed(() => props.election.lifecycle.regular === 'testing')
 const probelauf = computed(() => day.rules.startTest || day.rules.endTest || day.rules.showTestResult)
 /** Before a run: the Probelauf, unless marked done, and the opening side by side. */
 const paired = computed(() => probelauf.value && !testing.value && !props.probelaufDone && props.election.lifecycle.regular === 'planned')
+/** Why the result could not be read: shown in its place, also when no result was read before, since a final termin reads it only once. */
 const errorInResult = computed(() => day.errorIn('ergebnis'))
 </script>
 
@@ -51,7 +52,7 @@ const errorInResult = computed(() => day.errorIn('ergebnis'))
     :locked="election.state === 'draft'"
   />
   <section
-    v-if="day.result && day.rules.showResult"
+    v-if="day.rules.showResult && (day.result || errorInResult)"
     id="ergebnis"
     class="results"
     aria-labelledby="ergebnis-heading"
@@ -75,7 +76,7 @@ const errorInResult = computed(() => day.errorIn('ergebnis'))
       {{ errorInResult }}
     </p>
     <ContestResultCard
-      v-for="contest in day.result.contests"
+      v-for="contest in day.result?.contests ?? []"
       :key="contest.contestId"
       :day="day"
       :contest="contest"

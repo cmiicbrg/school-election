@@ -324,7 +324,7 @@ test('der Export: die Datei, ihre Prüfsumme auf der Seite, auch für die Zeugin
   expect(audit.events.at(-1)?.action).toBe('export.generated')
 })
 
-test('am Handy: der Wahltag, das Ergebnis und das Feststellen sind nicht breiter als der Bildschirm', async ({ browser }) => {
+test('am Handy: der Wahltag, das Ergebnis und das Feststellen sind nicht breiter als der Bildschirm; ein Ergebnis, das nicht kommt, meldet sich', async ({ browser }) => {
   const context = await browser.newContext({ ...devices['Pixel 7'] })
   const page = await context.newPage()
   await openAs(page, ANNA, `/wahlen/${electionId()}`)
@@ -332,5 +332,12 @@ test('am Handy: der Wahltag, das Ergebnis und das Feststellen sind nicht breiter
   await expect(finalizing(page).getByRole('button', { name: 'Export herunterladen' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
   await shot(page, '34b-handy-ergebnis')
+  // A final termin reads its result once: when that fails, the page says so in the result's place.
+  await page.route('**/api/elections/*/result', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"unavailable"}' }), { times: 1 })
+  await refused(page, 503, async () => {
+    await page.reload()
+  })
+  await expect(results(page).getByRole('alert')).toBeVisible()
+  await expect(results(page).getByRole('article')).toHaveCount(0)
   await context.close()
 })
