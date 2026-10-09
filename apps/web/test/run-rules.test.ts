@@ -5,8 +5,8 @@ import { accepting, runoffState, runRules, turnoutOf, type RunRules } from '../s
 import { ERROR_MESSAGES } from '../src/lib/api-rules.ts'
 import type { Permission } from '../src/lib/setup-rules.ts'
 
-const OWNER: Permission[] = ['view', 'view-results', 'configure', 'prepare', 'issue-keys', 'run-rounds', 'enter-lot', 'manage-members', 'finalize', 'delete-election']
-const ADMIN: Permission[] = OWNER.filter((permission) => permission !== 'manage-members' && permission !== 'finalize' && permission !== 'delete-election')
+const OWNER: Permission[] = ['view', 'view-results', 'configure', 'prepare', 'issue-keys', 'run-rounds', 'manage-witnesses', 'manage-co-admins', 'finalize', 'delete-election']
+const ADMIN: Permission[] = OWNER.filter((permission) => permission !== 'manage-co-admins' && permission !== 'finalize' && permission !== 'delete-election')
 const WITNESS: Permission[] = ['view', 'view-results']
 
 const DRAFT: Lifecycle = NEW_ELECTION

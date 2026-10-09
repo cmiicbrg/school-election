@@ -1,26 +1,34 @@
 <script setup lang="ts">
 // Mitglieder: co-admins and witnesses, pending or bound, invited by their
 // school e-mail address. An invitation takes effect at the invited
-// person's next sign-in, which the page says after inviting. Removing a
-// member asks first, in place, and a toast confirms it.
+// person's next sign-in, which the page says after inviting; no e-mail
+// is sent, so the form names the app's address to pass on. The owner
+// invites and removes both roles, a co-admin witnesses only, until the
+// result is final. Removing a member asks first, in place, and a toast
+// confirms it.
 
-import { nextTick, ref, useId } from 'vue'
+import { computed, nextTick, ref, useId } from 'vue'
 import { apiDelete, apiPost } from '../lib/api.ts'
 import { errorMessage } from '../lib/api-rules.ts'
-import { MEMBER_STATUS_LABELS, ROLE_LABELS } from '../lib/labels.ts'
+import { BASE_URL } from '../lib/base.ts'
+import { MEMBER_STATUS_LABELS, ROLE_DESCRIPTIONS, ROLE_LABELS } from '../lib/labels.ts'
 import { notify } from '../lib/toast.ts'
 import type { Member } from '../lib/types.ts'
 
 const props = defineProps<{
   electionId: string
   members: Member[]
-  /** The caller may invite and remove. */
-  manage: boolean
+  /** The caller may invite and remove witnesses now. */
+  witnesses: boolean
+  /** The caller may invite and remove co-admins now. */
+  coAdmins: boolean
+  /** The result is final: members no longer change. */
+  final: boolean
 }>()
 
 const emit = defineEmits<{ changed: [] }>()
 
-const ids = { email: useId(), role: useId() }
+const ids = { form: useId(), email: useId(), role: useId(), roleText: useId() }
 const email = ref('')
 const role = ref<'admin' | 'witness'>('witness')
 const busy = ref(false)
@@ -28,6 +36,15 @@ const error = ref<string | null>(null)
 const hint = ref<string | null>(null)
 /** The member whose removal waits for its confirmation. */
 const confirming = ref<string | null>(null)
+/** Where invited people sign in. */
+const address = `${BASE_URL}/`
+/** Inviting a second co-admin: one is usually enough. */
+const anotherCoAdmin = computed(() => role.value === 'admin' && props.members.some((member) => member.role === 'admin'))
+
+function mayRemove(member: Member): boolean {
+  if (member.role === 'admin') return props.coAdmins
+  return member.role === 'witness' && props.witnesses
+}
 
 async function invite(): Promise<void> {
   busy.value = true
@@ -101,7 +118,7 @@ function nameOf(member: Member): string {
           > · {{ member.email }}</span>
         </span>
         <button
-          v-if="manage && member.role !== 'owner' && confirming !== member.id"
+          v-if="mayRemove(member) && confirming !== member.id"
           type="button"
           class="danger"
           :disabled="busy"
@@ -112,7 +129,7 @@ function nameOf(member: Member): string {
           Entfernen
         </button>
         <fieldset
-          v-if="manage && confirming === member.id"
+          v-if="mayRemove(member) && confirming === member.id"
           class="confirm"
           :aria-label="`Entfernen bestätigen: ${nameOf(member)}`"
           :data-confirm="member.id"
@@ -136,12 +153,25 @@ function nameOf(member: Member): string {
         </fieldset>
       </li>
     </ul>
+    <p
+      v-if="final"
+      class="muted"
+    >
+      Das Ergebnis ist festgestellt; Mitglieder ändern sich nicht mehr.
+    </p>
     <form
-      v-if="manage"
+      v-else-if="witnesses"
       class="card-box"
+      :aria-labelledby="ids.form"
       @submit.prevent="invite"
     >
-      <h3>Einladen</h3>
+      <h3 :id="ids.form">
+        Einladen
+      </h3>
+      <p class="muted">
+        Mitglieder können bis zur Feststellung des Ergebnisses eingeladen und entfernt werden.
+        Es wird keine E-Mail verschickt: Teilen Sie der eingeladenen Person die Adresse <code>{{ address }}</code> selbst mit.
+      </p>
       <div class="row">
         <div>
           <label :for="ids.email">Schul-E-Mail-Adresse</label>
@@ -158,12 +188,16 @@ function nameOf(member: Member): string {
           <select
             :id="ids.role"
             v-model="role"
+            :aria-describedby="ids.roleText"
           >
             <option value="witness">
-              Zeug:in
+              {{ ROLE_LABELS.witness }}
             </option>
-            <option value="admin">
-              Co-Admin
+            <option
+              v-if="coAdmins"
+              value="admin"
+            >
+              {{ ROLE_LABELS.admin }}
             </option>
           </select>
         </div>
@@ -174,6 +208,15 @@ function nameOf(member: Member): string {
           Einladen
         </button>
       </div>
+      <p
+        :id="ids.roleText"
+        class="muted"
+      >
+        {{ ROLE_DESCRIPTIONS[role] }}
+        <template v-if="anotherCoAdmin">
+          Meist genügt eine Person als Co-Admin; dieser Wahltermin hat schon eine.
+        </template>
+      </p>
     </form>
     <output
       v-if="hint"

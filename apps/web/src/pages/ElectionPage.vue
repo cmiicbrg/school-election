@@ -29,6 +29,11 @@ const batches = ref<BatchSummary[]>()
 const error = ref<string | null>(null)
 
 const rules = computed(() => election.value ? setupRules(election.value.lifecycle, election.value.permissions) : undefined)
+/** Who leads the termin, for the members who do not. */
+const lead = computed(() => {
+  const owner = members.value?.find((member) => member.role === 'owner')
+  return owner?.displayName ?? owner?.email ?? null
+})
 
 // Each load is numbered: a load that is no longer the newest, because the
 // id changed or another change reloaded meanwhile, changes nothing.
@@ -92,7 +97,9 @@ function reload(): void {
   <template v-else-if="election && configuration && members && preparation && batches && rules">
     <h1>{{ election.title }}</h1>
     <p class="muted">
-      {{ stateLabel(election.lifecycle) }} · Ihre Rolle: {{ ROLE_LABELS[election.role] }}
+      {{ stateLabel(election.lifecycle) }} · Ihre Rolle: {{ ROLE_LABELS[election.role] }}<template v-if="lead && election.role !== 'owner'">
+        · {{ ROLE_LABELS.owner }}: {{ lead }}
+      </template>
     </p>
     <nav
       aria-label="Seiten des Wahltermins"
@@ -120,7 +127,9 @@ function reload(): void {
     <MembersSection
       :election-id="election.id"
       :members="members"
-      :manage="rules.members"
+      :witnesses="rules.witnesses"
+      :co-admins="rules.coAdmins"
+      :final="election.state === 'final'"
       @changed="reload"
     />
     <PrepareSection

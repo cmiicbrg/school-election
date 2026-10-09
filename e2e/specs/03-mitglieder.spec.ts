@@ -1,6 +1,7 @@
 // Mitglieder: Co-Admin und Zeugin einladen; die Einladung gilt ab deren
 // nächster Anmeldung, und eine Zeugin sieht dieselben Seiten ohne
-// Bedienelemente.
+// Bedienelemente. Ein Co-Admin lädt Zeug:innen ein und entfernt sie, aber
+// keine Co-Admins.
 
 import type { Page } from '@playwright/test'
 import { expect, test } from '../support/test.ts'
@@ -33,13 +34,19 @@ test('die Wahlleitung lädt einen Co-Admin und eine Zeugin ein', async () => {
     await expect(members(anna).getByRole('status')).toContainText('gilt ab der nächsten Anmeldung')
     await expect(list(anna)).toContainText(`${person.email} · ${role === 'admin' ? 'Co-Admin' : 'Zeug:in'} · eingeladen, noch nicht angemeldet`)
   }
+  const form = members(anna).getByRole('form', { name: 'Einladen' })
+  await expect(form).toContainText('Es wird keine E-Mail verschickt')
+  await expect(form.getByRole('combobox', { name: 'Rolle' })).toHaveAccessibleDescription('Sieht alles, ändert nichts; die Stimmkarten erst, wenn ihr Wahlgang beendet ist.')
+  await form.getByLabel('Rolle').selectOption('admin')
+  await expect(form).toContainText('Meist genügt eine Person als Co-Admin; dieser Wahltermin hat schon eine.')
+  await form.getByLabel('Rolle').selectOption('witness')
   await shot(anna, '06-mitglieder-eingeladen')
 })
 
 test('die Zeugin meldet sich an, sieht die Wahl ohne Bedienelemente, und steht bei der Wahlleitung als angemeldet', async ({ browser }) => {
   const wanda = await (await browser.newContext()).newPage()
   await openAs(wanda, WANDA, `/wahlen/${electionId()}`)
-  await expect(wanda.getByText(/Ihre Rolle: Zeug:in/)).toBeVisible()
+  await expect(wanda.getByText(/Ihre Rolle: Zeug:in · Wahlleitung: Anna Lehrerin$/)).toBeVisible()
   await expect(wanda.getByRole('region', { name: 'Einrichten' })).toBeVisible()
   await expect(wanda.getByRole('button', { name: 'Kandidat:in hinzufügen' })).toHaveCount(0)
   await expect(wanda.getByRole('button', { name: 'Einladen' })).toHaveCount(0)
@@ -65,11 +72,15 @@ test('Entfernen fragt zuerst; abgebrochen bleibt, wer eingeladen ist', async () 
   await expect(list(anna)).toContainText('Wanda Zeugin · Zeug:in · angemeldet')
 })
 
-test('der Co-Admin meldet sich an und darf einrichten, aber keine Mitglieder verwalten', async ({ browser }) => {
+test('der Co-Admin meldet sich an, darf einrichten und Zeug:innen einladen, aber keine Co-Admins', async ({ browser }) => {
   const carla = await (await browser.newContext()).newPage()
   await openAs(carla, CARLA, `/wahlen/${electionId()}`)
-  await expect(carla.getByText(/Ihre Rolle: Co-Admin/)).toBeVisible()
+  await expect(carla.getByText(/Ihre Rolle: Co-Admin · Wahlleitung: Anna Lehrerin$/)).toBeVisible()
   await expect(carla.getByRole('button', { name: 'Kandidat:in hinzufügen' }).first()).toBeVisible()
-  await expect(carla.getByRole('button', { name: 'Einladen' })).toHaveCount(0)
+  const form = members(carla).getByRole('form', { name: 'Einladen' })
+  await expect(form.getByRole('button', { name: 'Einladen' })).toBeVisible()
+  await expect(form.getByRole('combobox', { name: 'Rolle' }).getByRole('option')).toHaveText(['Zeug:in'])
+  await expect(list(carla).getByRole('button', { name: 'Entfernen: Wanda Zeugin' })).toBeVisible()
+  await expect(list(carla).getByRole('button', { name: /^Entfernen: (Anna Lehrerin|Carla Kollegin)$/ })).toHaveCount(0)
   await carla.context().close()
 })
