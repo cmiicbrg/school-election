@@ -21,6 +21,9 @@ const PATHS = {
   'info': ['M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z', 'M12 11v6', 'M12 7.5v.5'],
   'print': ['M7 9V3h10v6', 'M5 9h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2z', 'M7 14h10v7H7z'],
   'refresh': ['M4 4v6h6', 'M20 20v-6h-6', 'M5.5 15a7 7 0 0 0 12.5 2', 'M18.5 9A7 7 0 0 0 6 7'],
+  'download': ['M12 4v12', 'M6 10l6 6 6-6', 'M4 20h16'],
+  'play': ['M7 4l13 8-13 8z'],
+  'stop': ['M7 6h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z'],
 } as const satisfies Readonly<Record<string, readonly string[]>>
 
 export type IconName = keyof typeof PATHS

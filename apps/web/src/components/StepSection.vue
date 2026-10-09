@@ -8,6 +8,7 @@
 // dashed, with a lock. Collapsed, the section stays mounted and is only
 // hidden, so nothing typed or on its way in it is lost.
 
+import { useSlots } from 'vue'
 import LineIcon from './LineIcon.vue'
 
 const props = withDefaults(defineProps<{
@@ -16,7 +17,7 @@ const props = withDefaults(defineProps<{
   title: string
   /** The step's number, shown over the heading. */
   number?: number
-  /** What the step is for, under its heading while it is open. */
+  /** What the step is for, under its heading while it is open; the slot `intro` instead says it with markup. */
   intro?: string
   /** Whether the step is marked done; null for a step nobody marks now. */
   collapsed: boolean | null
@@ -29,6 +30,7 @@ const props = withDefaults(defineProps<{
 }>(), { level: 2, number: undefined, intro: undefined, locked: false, running: false })
 
 const emit = defineEmits<{ toggle: [] }>()
+const slots = useSlots()
 </script>
 
 <template>
@@ -76,6 +78,12 @@ const emit = defineEmits<{ toggle: [] }>()
         >
           {{ props.intro }}
         </p>
+        <div
+          v-else-if="slots.intro && !props.collapsed"
+          class="intro"
+        >
+          <slot name="intro" />
+        </div>
         <span
           v-if="props.collapsed"
           class="visually-hidden"
@@ -143,6 +151,10 @@ const emit = defineEmits<{ toggle: [] }>()
   max-width: 70ch;
   margin: 6px 0 0;
   color: var(--ink2);
+}
+
+.intro :deep(p) {
+  margin: 0;
 }
 
 .toggle {

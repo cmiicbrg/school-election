@@ -31,10 +31,46 @@ export function listed(names: readonly string[]): string {
   return `${names.slice(0, -1).join(', ')} und ${names.at(-1) ?? ''}`
 }
 
-export function positionLine(rulesetId: RulesetId, position: Position, names: Names): string {
+/** A position in its parts: the function's label, who holds it (null while vacant or waiting for the lot), on what basis, and whether nobody will. */
+export interface PositionParts {
+  label: string
+  candidateId: string | null
+  name: string | null
+  basis: string
+  vacant: boolean
+}
+
+export function positionParts(rulesetId: RulesetId, position: Position, names: Names): PositionParts {
   const label = functionLabel(rulesetId, position.function)
-  if (position.candidateId === null) return `${label}: ${BASIS[position.basis === 'lot-pending' ? 'lot-pending' : 'vacant']}`
-  return `${label}: ${names.candidate(position.candidateId)} (${BASIS[position.basis]})`
+  if (position.candidateId === null) {
+    const pending = position.basis === 'lot-pending'
+    return { label, candidateId: null, name: null, basis: BASIS[pending ? 'lot-pending' : 'vacant'], vacant: !pending }
+  }
+  return { label, candidateId: position.candidateId, name: names.candidate(position.candidateId), basis: BASIS[position.basis], vacant: false }
+}
+
+export function positionLine(rulesetId: RulesetId, position: Position, names: Names): string {
+  const parts = positionParts(rulesetId, position, names)
+  return parts.name === null ? `${parts.label}: ${parts.basis}` : `${parts.label}: ${parts.name} (${parts.basis})`
+}
+
+/** The positions an outcome has, in parts: as positionLines, for a page that lays them out. */
+export function positionsOf(rulesetId: RulesetId, outcome: Outcome, names: Names): PositionParts[] {
+  if (outcome.kind !== 'final' && outcome.kind !== 'lot-required') return []
+  return outcome.positions.map((position) => positionParts(rulesetId, position, names))
+}
+
+/**
+ * Labels of positions in one phrase: "1., 2. und 3. Stellvertretung im SGA"
+ * where they differ only in their number, else listed as they are.
+ */
+export function joinedLabels(labels: readonly string[]): string {
+  const parts = labels.map((label) => /^(\d+\.) (.+)$/.exec(label))
+  const rest = parts[0]?.[2]
+  if (labels.length > 1 && parts.every((part) => part !== null && part[2] === rest)) {
+    return `${listed(parts.map((part) => part?.[1] ?? ''))} ${rest ?? ''}`
+  }
+  return listed(labels)
 }
 
 /** The positions an outcome has: every one of a final outcome, and the ones a lot-required outcome has decided so far. */
@@ -99,6 +135,14 @@ export function firstPlacesLine(rulesetId: RulesetId, statistics: ContestStatist
   const sorted = statistics.candidates.toSorted((a, b) => b.firstPlaces - a.firstPlaces)
   const figures = sorted.map((candidate) => `${names.candidate(candidate.candidateId)} ${candidate.firstPlaces}`).join(', ')
   return `${label}: ${figures}.`
+}
+
+/** The first places of a ranked contest, or the votes of a single choice, highest first, in figures for bars; no rows without a valid ballot. */
+export function firstPlaceFigures(rulesetId: RulesetId, statistics: ContestStatistics): { label: string, rows: { candidateId: string, figure: number }[] } {
+  const label = rulesetId === 'single-choice-v1' ? 'Stimmen' : 'Erste Stellen'
+  if (statistics.validBallots === 0) return { label, rows: [] }
+  const rows = statistics.candidates.toSorted((a, b) => b.firstPlaces - a.firstPlaces).map((candidate) => ({ candidateId: candidate.candidateId, figure: candidate.firstPlaces }))
+  return { label, rows }
 }
 
 /** A recorded lot, as the section lists it. */

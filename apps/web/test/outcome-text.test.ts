@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { ContestStatistics, Outcome } from '@school-election/election-core'
 import { fileNameOf } from '../src/lib/download.ts'
-import { committeeText, countsLine, dateTime, firstPlacesLine, functionLabel, listed, lotText, outcomeLine, positionLines, recordedLotLine } from '../src/lib/outcome-text.ts'
+import { committeeText, countsLine, dateTime, firstPlaceFigures, firstPlacesLine, functionLabel, joinedLabels, listed, lotText, outcomeLine, positionLines, positionsOf, recordedLotLine } from '../src/lib/outcome-text.ts'
 
 const NAMES = { candidate: (id: string) => ({ p: 'Paula Berger', q: 'Quirin Huber-Mayer', r: 'Renate Wagner' })[id] ?? id }
 
@@ -28,6 +28,29 @@ test('the positions of a final outcome, each with its basis in words; a pending 
   assert.deepEqual(positionLines('single-choice-v1', { kind: 'final', positions: [{ function: 'choice', candidateId: 'p', basis: 'votes' }], trace: [] }, NAMES), ['Stimme: Paula Berger (die meisten Stimmen)'])
   assert.deepEqual(positionLines('at-school-speaker-v1', { kind: 'runoff-required', runoffCandidates: ['p', 'r'], trace: [] }, NAMES), [])
   assert.equal(functionLabel('at-school-speaker-v1', 'something-new'), 'something-new')
+})
+
+test('the positions in parts, for a page that lays them out, read as the same sentences; vacant ones in one phrase', () => {
+  const outcome: Outcome = {
+    kind: 'lot-required',
+    lots: [],
+    positions: [
+      { function: 'school-speaker', candidateId: 'r', basis: 'runoff' },
+      { function: 'school-speaker-deputy-1', candidateId: null, basis: 'lot-pending' },
+      { function: 'sga-deputy-1', candidateId: null, basis: 'vacant' },
+    ],
+    trace: [],
+  }
+  assert.deepEqual(positionsOf('at-school-speaker-v1', outcome, NAMES), [
+    { label: 'Schulsprecher/in', candidateId: 'r', name: 'Renate Wagner', basis: 'Stichwahl', vacant: false },
+    { label: '1. Stellvertretung Schulsprecher/in', candidateId: null, name: null, basis: 'wartet auf das Los', vacant: false },
+    { label: '1. Stellvertretung im SGA', candidateId: null, name: null, basis: 'unbesetzt', vacant: true },
+  ])
+  assert.deepEqual(positionsOf('at-school-speaker-v1', { kind: 'runoff-required', runoffCandidates: ['p', 'r'], trace: [] }, NAMES), [])
+  assert.equal(joinedLabels(['1. Stellvertretung im SGA', '2. Stellvertretung im SGA', '3. Stellvertretung im SGA']), '1., 2. und 3. Stellvertretung im SGA')
+  assert.equal(joinedLabels(['Stellvertreter/in']), 'Stellvertreter/in')
+  assert.equal(joinedLabels(['2. Stellvertretung Schulsprecher/in', '1. Stellvertretung im SGA']), '2. Stellvertretung Schulsprecher/in und 1. Stellvertretung im SGA')
+  assert.equal(joinedLabels([]), '')
 })
 
 test('what the count decided, in one sentence, for every kind', () => {
@@ -68,6 +91,16 @@ test('the counts of a round and the first places, highest first; the votes of a 
   assert.equal(firstPlacesLine('at-school-speaker-v1', statistics, NAMES), 'Erste Stellen: Quirin Huber-Mayer 2, Paula Berger 1, Renate Wagner 1.')
   assert.equal(firstPlacesLine('single-choice-v1', { ...statistics, validBallots: 3 }, NAMES), 'Stimmen: Quirin Huber-Mayer 2, Paula Berger 1, Renate Wagner 1.')
   assert.equal(firstPlacesLine('at-school-speaker-v1', { validBallots: 0, noBallots: 0, invalidBallots: 2, candidates: statistics.candidates }, NAMES), '')
+})
+
+test('the first places as figures for bars, highest first, or the votes of a single choice; none without a valid ballot', () => {
+  const statistics: ContestStatistics = {
+    validBallots: 4, noBallots: 0, invalidBallots: 0,
+    candidates: [{ candidateId: 'q', firstPlaces: 1, rankCounts: [1, 3], points: 5 }, { candidateId: 'p', firstPlaces: 3, rankCounts: [3, 1], points: 7 }],
+  }
+  assert.deepEqual(firstPlaceFigures('at-representative-v1', statistics), { label: 'Erste Stellen', rows: [{ candidateId: 'p', figure: 3 }, { candidateId: 'q', figure: 1 }] })
+  assert.equal(firstPlaceFigures('single-choice-v1', statistics).label, 'Stimmen')
+  assert.deepEqual(firstPlaceFigures('at-representative-v1', { ...statistics, validBallots: 0 }).rows, [])
 })
 
 test('a recorded lot in one line, a moment in German, and the file name of an attachment', () => {
