@@ -3,22 +3,33 @@
    own scoped styles. */
 
 :root {
-  --ink: #1b1b1b;
-  --muted: #5a5f66;
-  --line: #d6d9de;
-  /* A field's border: 3:1 against the page and against the field (WCAG 1.4.11). */
+  --ink: #161a22;
+  --ink2: #434a58;
+  --muted: #596071;
+  --line: #e2e5ea;
+  /* Dashed outlines of what is not there yet. */
+  --line2: #c9ced7;
+  /* A field's border: 3:1 against the page, the grey ground and the field (WCAG 1.4.11). */
   --field-line: #868b94;
   --paper: #fff;
-  --field: #f6f7f9;
-  --accent: #1f5fa8;
+  /* The ground of a page of cards. */
+  --page: #f3f4f6;
+  --soft: #eef0f3;
+  --field: #fff;
+  --accent: #2443b5;
   --accent-ink: #fff;
+  --info: #1e3a9e;
+  --info-bg: #e3e8f8;
   --danger: #a4272b;
   --danger-bg: #fbeaea;
-  --warn: #7a5a00;
-  --warn-bg: #fff6d6;
-  --ok: #1e6b3a;
-  --ok-bg: #e6f4ea;
-  --radius: 6px;
+  --warn: #7a4300;
+  --warn-bg: #fff4d9;
+  --warn-line: #efd08a;
+  --warn-soft: #fffbf0;
+  --ok: #13663a;
+  --ok-bg: #e4f3e9;
+  --radius: 8px;
+  --radius-card: 14px;
 }
 
 html {
@@ -42,10 +53,27 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
+.shell-header {
+  background: var(--paper);
+}
+
 .shell-header .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-weight: 700;
   color: var(--ink);
   text-decoration: none;
+}
+
+.shell-header .brand-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 .shell-header nav {
@@ -62,6 +90,23 @@ body {
   max-width: 56rem;
   margin: 0 auto;
   padding: 16px;
+}
+
+/* A page of cards (the termin): wider, on a grey ground. */
+.shell.wide {
+  min-height: 100vh;
+  background: var(--page);
+}
+
+.shell.wide .shell-main {
+  max-width: 1240px;
+  padding: 24px;
+}
+
+@media (width <= 600px) {
+  .shell.wide .shell-main {
+    padding: 16px;
+  }
 }
 
 h1 {
@@ -120,7 +165,8 @@ select {
   width: 100%;
   max-width: 32rem;
   box-sizing: border-box;
-  padding: 7px 9px;
+  min-height: 40px;
+  padding: 7px 10px;
   border: 1px solid var(--field-line);
   border-radius: var(--radius);
   background: var(--field);
@@ -136,21 +182,44 @@ textarea {
 
 button,
 a.button {
-  font: inherit;
-  display: inline-block;
-  padding: 7px 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 16px;
   border: 1px solid var(--accent);
   border-radius: var(--radius);
   background: var(--accent);
   color: var(--accent-ink);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.2;
   text-decoration: none;
   cursor: pointer;
 }
 
 button.secondary,
 a.button.secondary {
+  border-color: var(--line2);
   background: var(--paper);
-  color: var(--accent);
+  color: var(--ink);
+}
+
+button.secondary:hover,
+a.button.secondary:hover {
+  background: var(--soft);
+}
+
+button.ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink2);
+}
+
+button.ghost:hover {
+  background: var(--soft);
 }
 
 button.danger {
@@ -160,10 +229,12 @@ button.danger {
 }
 
 button.link {
-  background: none;
-  border: 0;
-  color: var(--accent);
+  min-height: 0;
   padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-weight: 400;
   text-decoration: underline;
 }
 
@@ -236,9 +307,18 @@ button:disabled {
 
 .card-box {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 12px;
-  margin: 10px 0;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin: 12px 0;
+}
+
+/* The termin's tables: headers small and quiet, as labels. */
+.termin th {
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 table {
