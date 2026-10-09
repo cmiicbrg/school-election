@@ -27,8 +27,14 @@ const STATE_TEXT: Readonly<Record<StepState, string>> = {
 }
 
 /** A step's section on this page, the result's page once there is one, or no link yet. */
-const tagOf = (step: Step) => (step !== 'ergebnis' ? 'a' : props.resultReady ? RouterLink : 'span')
-const attrsOf = (step: Step) => (step !== 'ergebnis' ? { href: `#${step}` } : props.resultReady ? { to: `/wahlen/${props.electionId}/ergebnis` } : {})
+function tagOf(step: Step) {
+  if (step !== 'ergebnis') return 'a'
+  return props.resultReady ? RouterLink : 'span'
+}
+function attrsOf(step: Step) {
+  if (step !== 'ergebnis') return { href: `#${step}` }
+  return props.resultReady ? { to: `/wahlen/${props.electionId}/ergebnis` } : {}
+}
 
 /**
  * To the step's section, with the focus on its heading, so a keyboard goes

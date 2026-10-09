@@ -51,9 +51,6 @@ body {
   gap: 12px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--line);
-}
-
-.shell-header {
   background: var(--paper);
 }
 

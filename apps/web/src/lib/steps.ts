@@ -140,30 +140,32 @@ export interface StepFacts {
 
 const counted = (n: number, one: string, many: string): string => (n === 1 ? `1 ${one}` : `${n} ${many}`)
 
+/** The line under each step's name, step by step. */
+const STATUS: Readonly<Record<Step, (facts: StepFacts) => string>> = {
+  einrichten: (facts) => `${counted(facts.contests, 'Wahl', 'Wahlen')} · ${counted(facts.groups, 'Klasse oder Gruppe', 'Klassen oder Gruppen')}`,
+  mitglieder: (facts) => counted(facts.members, 'Person', 'Personen'),
+  vorbereiten: (facts) => {
+    if (facts.lifecycle.election !== 'draft') return 'Aufbau steht fest'
+    return facts.missing === 0 ? 'bereit' : `noch ${counted(facts.missing, 'Punkt', 'Punkte')} offen`
+  },
+  stimmkarten: (facts) => {
+    if (facts.lifecycle.election === 'draft') return 'nach dem Vorbereiten'
+    return facts.batches === 0 ? 'noch keine' : counted(facts.batches, 'gültiger Stapel', 'gültige Stapel')
+  },
+  probelauf: ({ lifecycle }) => {
+    if (lifecycle.regular === 'testing') return 'läuft'
+    return lifecycle.election === 'prepared' ? 'mehrmals möglich' : ''
+  },
+  wahltag: ({ lifecycle }) => (lifecycle.election === 'active' ? stateLabel(lifecycle) : ''),
+  ergebnis: ({ lifecycle }) => {
+    if (lifecycle.election === 'final') return 'festgestellt'
+    return lifecycle.regular === 'closed' ? 'noch nicht festgestellt' : ''
+  },
+}
+
 /** The line under a step's name in the steps' navigation; empty where there is nothing to say. */
 export function stepStatus(step: Step, facts: StepFacts): string {
-  const { lifecycle } = facts
-  const draft = lifecycle.election === 'draft'
-  switch (step) {
-    case 'einrichten':
-      return `${counted(facts.contests, 'Wahl', 'Wahlen')} · ${counted(facts.groups, 'Klasse oder Gruppe', 'Klassen oder Gruppen')}`
-    case 'mitglieder':
-      return counted(facts.members, 'Person', 'Personen')
-    case 'vorbereiten':
-      if (!draft) return 'Aufbau steht fest'
-      return facts.missing === 0 ? 'bereit' : `noch ${counted(facts.missing, 'Punkt', 'Punkte')} offen`
-    case 'stimmkarten':
-      if (draft) return 'nach dem Vorbereiten'
-      return facts.batches === 0 ? 'noch keine' : counted(facts.batches, 'gültiger Stapel', 'gültige Stapel')
-    case 'probelauf':
-      if (lifecycle.regular === 'testing') return 'läuft'
-      return lifecycle.election === 'prepared' ? 'mehrmals möglich' : ''
-    case 'wahltag':
-      return lifecycle.election === 'active' ? stateLabel(lifecycle) : ''
-    case 'ergebnis':
-      if (lifecycle.election === 'final') return 'festgestellt'
-      return lifecycle.regular === 'closed' ? 'noch nicht festgestellt' : ''
-  }
+  return STATUS[step](facts)
 }
 
 /** The page's sections, in their order: every step but the Probelauf, a block of the day, and the result, a page of its own. */
