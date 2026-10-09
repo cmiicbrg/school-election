@@ -4,6 +4,7 @@
 
 import type { Page } from '@playwright/test'
 import { expect, test } from '../support/test.ts'
+import { BASE_PATH } from '../support/base.ts'
 import { refused } from '../support/console.ts'
 import { electionId } from '../support/journey.ts'
 import { ANNA } from '../support/personas.ts'
@@ -32,6 +33,22 @@ test('die Zusammenfassung zeigt, wer wo wählt, und weist auf die fehlende zweit
   await expect(prepare.getByRole('list', { name: 'Empfohlen' })).toContainText('Als Zeug:in hat sich erst eine Person angemeldet')
   await expect(prepare.getByRole('list', { name: 'Nötig zum Vorbereiten' })).not.toContainText('offen')
   await shot(page, '08-vorbereiten')
+})
+
+test('die Adresse der Stimmabgabe lässt sich kopieren; wo der Browser das nicht erlaubt, ist sie markiert', async () => {
+  // Beside the steps; the strip's copy of it is hidden at this width.
+  const copy = page.getByRole('button', { name: 'Adresse kopieren' })
+  const link = `${new URL(page.url()).origin}${BASE_PATH}/v`
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await copy.click()
+  await expect(page.getByRole('status').filter({ hasText: 'Adresse kopiert.' })).toBeVisible()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(link)
+  // Without a clipboard the page can write, the address shown is selected for copying by hand.
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true }))
+  await copy.click()
+  await expect(page.getByRole('status').filter({ hasText: 'Kopieren ging nicht: Die Adresse ist markiert und lässt sich von Hand kopieren.' })).toBeVisible()
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe(link.replace(/^https?:\/\//, ''))
+  await page.reload()
 })
 
 test('Vorbereiten legt den Aufbau fest; Namen bleiben änderbar', async () => {

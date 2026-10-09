@@ -14,7 +14,9 @@
   --paper: #fff;
   /* The ground of a page of cards. */
   --page: #f3f4f6;
-  --soft: #eef0f3;
+  --soft: #f6f7f9;
+  /* A quiet chip or icon box, a step darker than --soft. */
+  --chip: #eaecf0;
   --field: #fff;
   --accent: #2443b5;
   --accent-ink: #fff;
@@ -22,6 +24,9 @@
   --info-bg: #e3e8f8;
   --danger: #a4272b;
   --danger-bg: #fbeaea;
+  /* The edge of a danger button and of the exceptions' panel. */
+  --danger-line: #edc2bd;
+  --danger-soft: #fff8f7;
   --warn: #7a4300;
   --warn-bg: #fff4d9;
   --warn-line: #efd08a;
@@ -45,20 +50,32 @@ body {
 }
 
 .shell-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 16px;
   border-bottom: 1px solid var(--line);
   background: var(--paper);
+}
+
+/* The header's content, as wide as the page under it. */
+.shell-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  max-width: 56rem;
+  margin: 0 auto;
+  padding: 10px 16px;
+}
+
+.shell.wide .shell-bar {
+  max-width: 1240px;
+  padding: 12px 24px;
 }
 
 .shell-header .brand {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--ink);
   text-decoration: none;
 }
@@ -76,11 +93,18 @@ body {
 .shell-header nav {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .shell-header .who {
-  color: var(--muted);
+  color: var(--ink2);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.shell-header .sign-out {
+  min-height: 36px;
+  padding: 0 10px;
 }
 
 .shell-main {
@@ -101,9 +125,22 @@ body {
 }
 
 @media (width <= 600px) {
-  .shell.wide .shell-main {
-    padding: 16px;
+  .shell.wide .shell-main,
+  .shell.wide .shell-bar {
+    padding-left: 16px;
+    padding-right: 16px;
   }
+}
+
+/* Bold, one step lighter than the browser's 700. */
+h1,
+h2,
+h3,
+h4,
+strong,
+b,
+th {
+  font-weight: 600;
 }
 
 h1 {
@@ -209,20 +246,45 @@ a.button.secondary:hover {
   background: var(--soft);
 }
 
-button.ghost {
+button.ghost,
+a.button.ghost {
   border-color: transparent;
   background: transparent;
   color: var(--ink2);
 }
 
-button.ghost:hover {
+button.ghost:hover,
+a.button.ghost:hover {
   background: var(--soft);
 }
 
 button.danger {
   background: var(--paper);
   color: var(--danger);
-  border-color: var(--danger);
+  border-color: var(--danger-line);
+}
+
+button.danger:hover {
+  background: var(--danger-bg);
+}
+
+/* A removal inside a card: red, without a frame. */
+button.ghost.danger {
+  border-color: transparent;
+  background: transparent;
+  color: var(--danger);
+}
+
+button.ghost.danger:hover {
+  background: var(--danger-bg);
+}
+
+/* A button among fields of a card: a step smaller. */
+button.small,
+a.button.small {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 0.8rem;
 }
 
 button.link {
@@ -310,12 +372,98 @@ button:disabled {
 }
 
 /* The termin's tables: headers small and quiet, as labels. */
+.termin table {
+  font-size: 0.85rem;
+}
+
 .termin th {
   background: var(--soft);
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+}
+
+.termin th,
+.termin td {
+  padding: 10px 14px;
+  vertical-align: middle;
+}
+
+/* The termin's labels: small, over their field. */
+.termin label {
+  margin: 0 0 6px;
+  color: var(--ink2);
+  font-size: 0.8rem;
+}
+
+/* A table in a box with rounded corners, which scrolls on a phone. */
+.table-box {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.table-box table {
+  margin: 0;
+}
+
+.table-box tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+/* A small coloured label: the state of a stack, the role of a member. */
+.badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--ink2);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge.info {
+  background: var(--info-bg);
+  color: var(--info);
+}
+
+.badge.void {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+/* A person's initials in a circle, beside their name; decoration only. */
+.initials {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--soft);
+  color: var(--ink2);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+/* A note on the side: grey, with an icon. */
+.note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--soft);
+  color: var(--ink2);
+  font-size: 0.85rem;
+}
+
+.note > .icon {
+  margin-top: 2px;
 }
 
 table {
@@ -342,15 +490,23 @@ td {
     font-size: 16px;
   }
 
-  /* A target a finger hits. */
+  /* A target a finger hits, the smaller buttons included. */
   button,
-  a.button {
+  a.button,
+  button.small,
+  a.button.small,
+  .shell-header .sign-out {
     min-height: 44px;
   }
 
   th,
   td {
     padding: 6px 4px;
+  }
+
+  .termin th,
+  .termin td {
+    padding: 8px;
   }
 }
 

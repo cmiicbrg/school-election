@@ -145,7 +145,7 @@ a.item:hover {
   background: var(--paper);
   color: var(--muted);
   font-size: 0.8rem;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .done .mark {
@@ -157,10 +157,6 @@ a.item:hover {
 .current .item {
   background: var(--paper);
   box-shadow: 0 0 0 1px var(--line);
-}
-
-.current .label {
-  font-weight: 700;
 }
 
 .current .mark {
