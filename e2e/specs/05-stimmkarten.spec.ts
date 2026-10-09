@@ -131,9 +131,12 @@ test('einen Stapel ersetzen: die alten Codes gelten nicht mehr, bleiben aber zum
 test('gedruckt: die Stimmkarten als erledigt einklappen; die Seite merkt es sich, und der Probelauf ist jetzt dran', async () => {
   const current = page.getByRole('navigation', { name: 'Schritte' }).locator('[aria-current="step"]')
   await expect(current).toContainText('Stimmkarten')
+  await expect(current).toContainText('3 gültige Stapel')
+  // Before any run the cards stand in their order.
+  await expect(page.getByRole('region').first()).toHaveAccessibleName('Einrichten')
   await sheets().getByRole('button', { name: 'Stimmkarten als erledigt einklappen' }).click()
   await expect(sheets().getByRole('button', { name: 'Stimmkarten aufklappen' })).toHaveAttribute('aria-expanded', 'false')
-  await expect(sheets()).toContainText('✓ erledigt')
+  await expect(sheets()).toContainText('erledigt')
   await expect(sheets()).toContainText('1. Wahlgang: 1A 25, 2B 20 Stimmkarten')
   await expect(sheets()).toContainText('Stichwahl: 1A 10 Stimmkarten')
   await expect(sheets().getByRole('button', { name: 'Stimmkarten erzeugen' })).toHaveCount(0)

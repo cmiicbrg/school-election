@@ -24,7 +24,7 @@ export const router = createRouter({
     { path: '/', component: ElectionList },
     { path: '/anmelden', component: SignIn },
     { path: '/wahlen/neu', component: NewElection },
-    { path: '/wahlen/:id', component: ElectionPage, props: true },
+    { path: '/wahlen/:id', component: ElectionPage, props: true, meta: { wide: true } },
     { path: '/wahlen/:id/ergebnis', component: Results, props: true },
     { path: '/wahlen/:id/protokoll', component: AuditLog, props: true },
     { path: '/hilfe/wahltag', component: ElectionDayHelp },

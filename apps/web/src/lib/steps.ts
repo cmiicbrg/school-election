@@ -9,6 +9,7 @@
 
 import { ref, watch, type Ref } from 'vue'
 import type { Lifecycle } from '@school-election/election-core'
+import { stateLabel } from './labels.ts'
 
 export const STEPS = ['einrichten', 'mitglieder', 'vorbereiten', 'stimmkarten', 'probelauf', 'wahltag', 'ergebnis'] as const
 export type Step = typeof STEPS[number]
@@ -26,6 +27,17 @@ export const STEP_LABELS: Readonly<Record<Step, string>> = {
   probelauf: 'Probelauf',
   wahltag: 'Wahltag',
   ergebnis: 'Ergebnis',
+}
+
+/** Each step's number, as the steps' navigation and the sections count them. */
+export const STEP_NUMBERS: Readonly<Record<Step, number>> = {
+  einrichten: 1,
+  mitglieder: 2,
+  vorbereiten: 3,
+  stimmkarten: 4,
+  probelauf: 5,
+  wahltag: 6,
+  ergebnis: 7,
 }
 
 /**
@@ -112,4 +124,67 @@ export function useStepMarks(electionId: () => string): { marks: Ref<Marks>, mar
     }
   }
   return { marks, mark }
+}
+
+/** What the page knows of a termin, for each step's line under its name. */
+export interface StepFacts {
+  lifecycle: Lifecycle
+  contests: number
+  groups: number
+  members: number
+  /** What preparing needs and does not have yet, as the checklist counts it. */
+  missing: number
+  /** Batches of keys that are valid. */
+  batches: number
+}
+
+const counted = (n: number, one: string, many: string): string => (n === 1 ? `1 ${one}` : `${n} ${many}`)
+
+/** The line under each step's name, step by step. */
+const STATUS: Readonly<Record<Step, (facts: StepFacts) => string>> = {
+  einrichten: (facts) => `${counted(facts.contests, 'Wahl', 'Wahlen')} · ${counted(facts.groups, 'Klasse oder Gruppe', 'Klassen oder Gruppen')}`,
+  mitglieder: (facts) => counted(facts.members, 'Person', 'Personen'),
+  vorbereiten: (facts) => {
+    if (facts.lifecycle.election !== 'draft') return 'Aufbau steht fest'
+    return facts.missing === 0 ? 'bereit' : `noch ${counted(facts.missing, 'Punkt', 'Punkte')} offen`
+  },
+  stimmkarten: (facts) => {
+    if (facts.lifecycle.election === 'draft') return 'nach dem Vorbereiten'
+    return facts.batches === 0 ? 'noch keine' : counted(facts.batches, 'gültiger Stapel', 'gültige Stapel')
+  },
+  probelauf: ({ lifecycle }) => {
+    if (lifecycle.regular === 'testing') return 'läuft'
+    return lifecycle.election === 'prepared' ? 'mehrmals möglich' : ''
+  },
+  wahltag: ({ lifecycle }) => (lifecycle.election === 'active' ? stateLabel(lifecycle) : ''),
+  ergebnis: ({ lifecycle }) => {
+    if (lifecycle.election === 'final') return 'festgestellt'
+    return lifecycle.regular === 'closed' ? 'noch nicht festgestellt' : ''
+  },
+}
+
+/** The line under a step's name in the steps' navigation; empty where there is nothing to say. */
+export function stepStatus(step: Step, facts: StepFacts): string {
+  return STATUS[step](facts)
+}
+
+/** The page's sections, in their order: every step but the Probelauf, a block of the day, and the result, a page of its own. */
+export const SECTIONS = ['einrichten', 'mitglieder', 'vorbereiten', 'stimmkarten', 'wahltag'] as const
+export type Section = typeof SECTIONS[number]
+
+/**
+ * Whether the day comes first: once a Probelauf runs or the 1. Wahlgang has
+ * opened, and from then on, the page leads with the day's state and
+ * controls (the turnout above all), since nothing above it changes during
+ * a run. A Probelauf that ended gives the page its order back.
+ */
+export function dayFirst(lifecycle: Lifecycle): boolean {
+  return lifecycle.regular === 'testing' || lifecycle.election === 'active' || lifecycle.election === 'final'
+}
+
+/** The sections in the order the page shows them: in their own order, or the day first, then what is open, then what is collapsed. */
+export function sectionOrder(lifecycle: Lifecycle, isCollapsed: (step: Markable) => boolean): Section[] {
+  if (!dayFirst(lifecycle)) return [...SECTIONS]
+  const others = SECTIONS.filter((section): section is Exclude<Section, 'wahltag'> => section !== 'wahltag')
+  return ['wahltag', ...others.filter((section) => !isCollapsed(section)), ...others.filter((section) => isCollapsed(section))]
 }

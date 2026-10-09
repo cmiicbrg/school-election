@@ -8,6 +8,7 @@
 
 import { computed, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
+import LineIcon from './components/LineIcon.vue'
 import ToastRegion from './components/ToastRegion.vue'
 import { isBarePath } from './router.ts'
 import { signInUrl } from './lib/api-rules.ts'
@@ -17,6 +18,8 @@ import { loadSession, session, signOut } from './lib/session.ts'
 const route = useRoute()
 const router = useRouter()
 const bare = computed(() => isBarePath(route.path))
+/** A page of cards, such as the termin: wider, on a grey ground. */
+const wide = computed(() => route.meta.wide === true)
 const shown = computed(() => session.value !== undefined && (session.value !== null || route.path === '/anmelden'))
 
 watch([bare, session, () => route.fullPath], ([isBare, who, path]) => {
@@ -37,13 +40,17 @@ function onSignOut(): void {
   <RouterView v-if="bare" />
   <div
     v-else
-    class="shell"
+    :class="['shell', { wide }]"
   >
     <header class="shell-header">
       <RouterLink
         to="/"
         class="brand"
       >
+        <span class="brand-mark"><LineIcon
+          name="ballot"
+          :size="18"
+        /></span>
         Schulwahl
       </RouterLink>
       <nav

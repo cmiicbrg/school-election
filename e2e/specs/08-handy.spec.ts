@@ -24,6 +24,14 @@ test('Anmeldung, Meine Wahlen, die Wahl und die Druckseite am Handy', async ({ b
   for (const name of ['Einrichten', 'Mitglieder', 'Vorbereiten', 'Stimmkarten']) {
     await expect(page.getByRole('region', { name })).toBeVisible()
   }
+  // On a phone the steps are a strip under the title that names the current one and opens the list.
+  const steps = page.getByRole('navigation', { name: 'Schritte' })
+  await expect(steps).toHaveCount(0)
+  await page.getByText('Schritt 4 von 7').click()
+  await expect(steps.locator('[aria-current="step"]')).toContainText('Stimmkarten')
+  await steps.getByRole('link', { name: 'Probelauf' }).click()
+  await expect(page.getByRole('heading', { name: 'Probelauf' })).toBeFocused()
+  await expect(steps).toHaveCount(0)
   // Nothing is wider than the phone: a table scrolls in its box, and buttons are a finger's size.
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
   expect((await page.getByRole('button', { name: 'Aufklappen' }).first().boundingBox())?.height).toBeGreaterThanOrEqual(44)
