@@ -219,6 +219,8 @@ test('ein Übungstermin, den niemand gebraucht hat, lässt sich löschen, nach e
   await page.getByRole('radio', { name: 'Schulsprecherwahl', exact: true }).check()
   await page.getByRole('button', { name: 'Wahltermin anlegen' }).click()
   await expect(page.getByRole('heading', { level: 1, name: 'Übungstermin' })).toBeVisible()
+  // Something typed and not added: once the termin is gone, nothing asks to stay on it.
+  await page.getByRole('form', { name: `Kandidat:in hinzufügen: ${SCHOOL}` }).getByLabel('Nachname').fill('Muster')
   await page.getByRole('button', { name: 'Wahltermin löschen' }).click()
   const asked = page.getByRole('group', { name: 'Löschen bestätigen: Wahltermin' })
   await expect(asked).toContainText('Wahltermin „Übungstermin“ endgültig löschen?')

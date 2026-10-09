@@ -3,10 +3,10 @@
 // draft, or prepared while the 1. Wahlgang has not opened and no
 // Probelauf runs: canDelete), with everything of it, the log included
 // (DELETE /api/elections/:id). It asks first, in place, naming what goes;
-// a toast confirms it on "Meine Wahltermine", where the page then goes.
+// once deleted, a toast confirms it, and the page goes to "Meine
+// Wahltermine" (ElectionPage, on `deleted`).
 
 import { nextTick, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import { apiDelete } from '../lib/api.ts'
 import { errorMessage } from '../lib/api-rules.ts'
 import { notify } from '../lib/toast.ts'
@@ -16,7 +16,8 @@ const props = defineProps<{
   title: string
 }>()
 
-const router = useRouter()
+const emit = defineEmits<{ deleted: [] }>()
+
 const asking = ref(false)
 const busy = ref(false)
 const error = ref<string | null>(null)
@@ -42,7 +43,7 @@ async function remove(): Promise<void> {
   try {
     await apiDelete(`/api/elections/${props.electionId}`)
     notify(`Wahltermin „${props.title}“ gelöscht.`)
-    await router.push('/')
+    emit('deleted')
   } catch (err) {
     asking.value = false
     error.value = errorMessage(err)
