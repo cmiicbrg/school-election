@@ -1,6 +1,8 @@
 <script setup lang="ts">
-// A candidate's picture: drop a photo onto it, paste one (Ctrl+V) or pick
-// one with "Bild auswählen". Any photo the browser can open will do; it is
+// A candidate's picture, the top of the candidate's card: drop a photo
+// onto it, paste one (Ctrl+V) or pick one with "Bild auswählen". The page
+// says how once, next to all cards, and names that hint (`hint`). Any
+// photo the browser can open will do; it is
 // turned upright, scaled and re-encoded here (lib/picture.ts) before the
 // page that embeds this component uploads it. The component itself talks
 // to no API: it emits `select` with the prepared picture and `remove`, and
@@ -11,12 +13,15 @@
 // picture alone otherwise.
 
 import { computed, nextTick, ref, useId, watch } from 'vue'
+import LineIcon from './LineIcon.vue'
 import { PictureError, preparePicture, type PreparedPicture } from '../lib/picture.ts'
 import { filesOf, pickFile, PICTURE_MESSAGES, type PictureProblem } from '../lib/picture-rules.ts'
 
 const props = defineProps<{
   /** The candidate's name, for the picture's alternative text. */
   name: string
+  /** The id of the page's hint on dropping and pasting, which describes "Bild auswählen". */
+  hint?: string
   /** The stored picture's URL, or null without one. */
   src?: string | null
   /** The page is uploading or removing the picture. */
@@ -33,7 +38,7 @@ const emit = defineEmits<{
   remove: []
 }>()
 
-const ids = { hint: useId(), input: useId() }
+const ids = { input: useId() }
 const zone = ref<HTMLElement>()
 const input = ref<HTMLInputElement>()
 const chooser = ref<HTMLButtonElement>()
@@ -174,7 +179,7 @@ watch(locked, (now) => {
     <div
       ref="zone"
       class="drop-zone"
-      :class="{ dragging, locked }"
+      :class="{ dragging, locked, filled: shown }"
       tabindex="-1"
       @dragenter.prevent="onDragOver"
       @dragover.prevent="onDragOver"
@@ -182,68 +187,37 @@ watch(locked, (now) => {
       @drop.prevent="onDrop"
       @paste="onPaste"
     >
-      <div class="frame">
-        <img
-          v-if="shown"
-          :src="shown"
-          :alt="`Bild von ${name}`"
+      <img
+        v-if="shown"
+        :src="shown"
+        :alt="`Bild von ${name}`"
+      >
+      <LineIcon
+        v-else
+        name="image"
+        :size="28"
+      />
+      <div class="actions">
+        <button
+          ref="chooser"
+          type="button"
+          class="secondary small"
+          :disabled="locked"
+          :aria-describedby="hint"
+          @click="choose"
         >
-        <span
-          v-else
-          class="placeholder"
-          aria-hidden="true"
-        >Kein Bild</span>
-      </div>
-      <div class="controls">
-        <p
-          :id="ids.hint"
-          class="hint"
+          Bild auswählen
+        </button>
+        <button
+          v-if="shown && !askingRemove"
+          ref="removeButton"
+          type="button"
+          class="secondary small remove"
+          :disabled="locked"
+          @click="askRemove"
         >
-          Foto hierher ziehen oder mit Strg+V einfügen. Jedes Foto passt: Größe und Ausrichtung werden automatisch angepasst.
-        </p>
-        <div class="actions">
-          <button
-            ref="chooser"
-            type="button"
-            :disabled="locked"
-            :aria-describedby="ids.hint"
-            @click="choose"
-          >
-            Bild auswählen
-          </button>
-          <button
-            v-if="shown && !askingRemove"
-            ref="removeButton"
-            type="button"
-            :disabled="locked"
-            @click="askRemove"
-          >
-            Bild entfernen
-          </button>
-        </div>
-        <fieldset
-          v-if="askingRemove"
-          class="confirm"
-          :aria-label="`Entfernen bestätigen: Bild von ${name}`"
-        >
-          <span>Bild von {{ name }} entfernen?</span>
-          <button
-            type="button"
-            class="danger"
-            :disabled="locked"
-            @click="remove"
-          >
-            Ja, entfernen
-          </button>
-          <button
-            ref="cancelButton"
-            type="button"
-            class="secondary"
-            @click="cancelRemove"
-          >
-            Abbrechen
-          </button>
-        </fieldset>
+          Bild entfernen
+        </button>
       </div>
       <!-- Reached through "Bild auswählen"; the button is what keyboards and screen readers use. -->
       <label
@@ -262,12 +236,33 @@ watch(locked, (now) => {
         @change="onChosen"
       >
     </div>
+    <fieldset
+      v-if="askingRemove"
+      class="confirm"
+      :aria-label="`Entfernen bestätigen: Bild von ${name}`"
+    >
+      <span>Bild von {{ name }} entfernen?</span>
+      <button
+        type="button"
+        class="danger"
+        :disabled="locked"
+        @click="remove"
+      >
+        Ja, entfernen
+      </button>
+      <button
+        ref="cancelButton"
+        type="button"
+        class="secondary"
+        @click="cancelRemove"
+      >
+        Abbrechen
+      </button>
+    </fieldset>
     <output
       class="status"
       aria-live="polite"
-    >
-      {{ preparing ? 'Bild wird vorbereitet …' : status }}
-    </output>
+    >{{ preparing ? 'Bild wird vorbereitet …' : status }}</output>
     <p
       v-if="message"
       class="problem"
@@ -280,100 +275,109 @@ watch(locked, (now) => {
 
 <style scoped>
 .candidate-picture {
-  display: grid;
-  gap: 0.5rem;
-  max-width: 32rem;
+  display: flex;
+  flex-direction: column;
   min-inline-size: 0;
   margin: 0;
   padding: 0;
   border: 0;
 }
 
+/* The top of the card: a picture, or the place for one. */
 .drop-zone {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
+  flex-direction: column;
   align-items: center;
-  padding: 0.75rem;
-  border: 2px dashed #8a8f98;
-  border-radius: 0.5rem;
-  background: #fafafa;
+  justify-content: center;
+  gap: 10px;
+  height: 132px;
+  overflow: hidden;
+  border-bottom: 1px dashed var(--line2);
+  background: var(--soft);
+  color: var(--muted);
+}
+
+.drop-zone.filled {
+  justify-content: flex-end;
+  border-bottom-style: solid;
+  border-bottom-color: var(--line);
 }
 
 .drop-zone:focus-visible,
 .drop-zone:focus-within {
-  outline: 2px solid #1d5fbf;
-  outline-offset: 2px;
+  outline: 3px solid #9db0ee;
+  outline-offset: -3px;
 }
 
 .drop-zone.dragging {
-  border-color: #1d5fbf;
-  background: #eaf1fb;
+  outline: 2px dashed var(--accent);
+  outline-offset: -6px;
+  background: var(--info-bg);
 }
 
 .drop-zone.locked {
   opacity: 0.7;
 }
 
-/* A fixed square: any picture fills it without being distorted, and the top,
-   where a portrait has the face, stays in view. */
-.frame {
-  flex: none;
-  width: 7.5rem;
-  height: 7.5rem;
-  overflow: hidden;
-  border-radius: 0.375rem;
-  background: #e4e6ea;
-  display: grid;
-  place-items: center;
-}
-
-.frame img {
+/* Any picture fills the place without being distorted, and the top, where
+   a portrait has the face, stays in view. */
+.drop-zone img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   object-position: 50% 25%;
 }
 
-.placeholder {
-  color: #4b5160;
-  font-size: 0.875rem;
-}
-
-.controls {
-  flex: 1 1 12rem;
-  display: grid;
-  gap: 0.5rem;
-}
-
-.hint {
-  margin: 0;
-  color: #333a45;
-  font-size: 0.9rem;
-}
-
 .actions {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  justify-content: center;
+  gap: 6px;
+  margin: 0;
 }
 
-.actions button {
-  min-height: 2.5rem;
-  padding: 0.25rem 0.875rem;
-  font: inherit;
+.filled .actions {
+  padding: 0 8px 8px;
+}
+
+/* Over a picture, both buttons fit side by side. */
+.filled .actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 0.75rem;
+}
+
+@media (width <= 600px) {
+  .filled .actions button {
+    min-height: 44px;
+  }
+}
+
+.remove {
+  color: var(--danger);
+}
+
+.confirm {
+  margin: 12px 12px 0;
 }
 
 .status {
   display: block;
-  margin: 0;
-  min-height: 1.25em;
-  font-size: 0.9rem;
+  padding: 0 12px;
+  font-size: 0.8rem;
+}
+
+.status:not(:empty) {
+  padding-top: 8px;
 }
 
 .problem {
-  margin: 0;
-  color: #a1161b;
-  font-size: 0.9rem;
+  margin: 8px 12px 0;
+  color: var(--danger);
+  font-size: 0.8rem;
 }
 </style>

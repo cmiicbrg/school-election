@@ -94,6 +94,13 @@ function toProbelauf(): void {
   heading?.focus({ preventScroll: true })
 }
 
+/** What preparing is for, under its heading. */
+const PREPARE_INTRO = 'Vorbereiten legt den Aufbau fest: welche Klassen und Gruppen in welchen Wahlen wählen. Danach können Stimmkarten erzeugt werden; Namen von Kandidat:innen bleiben bis zum Beginn der Stimmabgabe änderbar.'
+/** What the cards are, under their heading; in a draft, before there are any, only the first sentence. */
+const CARDS_INTRO = 'Jede Klasse oder Gruppe bekommt ihren eigenen Stapel Stimmkarten, sechs je A4-Seite.'
+const CARDS_PRINTING = 'Die Druckseite zeigt immer dieselben Codes und kann bis zum Beginn ihres Wahlgangs noch einmal gedruckt werden; danach nicht mehr. Für eine mögliche Stichwahl können Stimmkarten schon vorab erzeugt werden; sie gelten erst, wenn die Stichwahl beginnt.'
+const cardsIntro = computed(() => (draft.value && (batches.value ?? []).length === 0 ? CARDS_INTRO : `${CARDS_INTRO} ${CARDS_PRINTING}`))
+
 const plural = (n: number, one: string, many: string): string => (n === 1 ? `1 ${one}` : `${n} ${many}`)
 const nameOf = (member: Member): string => member.displayName ?? member.email ?? ''
 /** Everyone of the termin with their role, for the members' collapsed section. */
@@ -373,6 +380,7 @@ onUnmounted(() => {
             <MembersSection
               :election-id="election.id"
               :members="members"
+              :caller-role="election.role"
               :witnesses="rules.witnesses"
               :co-admins="rules.coAdmins"
               :lead="rules.lead"
@@ -385,6 +393,7 @@ onUnmounted(() => {
             id="vorbereiten"
             title="Vorbereiten"
             :number="3"
+            :intro="PREPARE_INTRO"
             :collapsed="isCollapsed('vorbereiten')"
             @toggle="toggle('vorbereiten')"
           >
@@ -405,6 +414,7 @@ onUnmounted(() => {
             id="stimmkarten"
             title="Stimmkarten"
             :number="4"
+            :intro="cardsIntro"
             :locked="draft"
             :collapsed="draft ? null : isCollapsed('stimmkarten')"
             @toggle="toggle('stimmkarten')"
@@ -532,7 +542,7 @@ onUnmounted(() => {
 }
 
 .chip.neutral {
-  background: var(--soft);
+  background: var(--chip);
   color: var(--ink2);
 }
 
@@ -578,7 +588,7 @@ h1 {
 }
 
 .side {
-  flex: 1 1 220px;
+  flex: 1 1 240px;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -630,7 +640,7 @@ h1 {
   background: var(--accent);
   color: var(--accent-ink);
   font-size: 0.8rem;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .strip-text {
@@ -642,7 +652,7 @@ h1 {
 .strip-over {
   color: var(--accent);
   font-size: 0.75rem;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }

@@ -46,7 +46,7 @@ test('die 2B wählt nun auch die Klassensprecher:in: ihre Stimmkarten passen nic
   await page.getByRole('alertdialog', { name: 'Stimmkarten werden ungültig' }).getByRole('button', { name: 'Trotzdem vorbereiten (20 Stimmkarten werden ungültig)' }).click()
   await expect(page.getByText(/^Vorbereitet · Ihre Rolle/)).toBeVisible()
   const sheets = page.getByRole('region', { name: 'Stimmkarten' })
-  const box2B = sheets.locator('.card-box').filter({ has: page.getByRole('heading', { name: '2B', exact: true }) })
+  const box2B = sheets.getByRole('article', { name: '2B', exact: true })
   await expect(box2B.getByTestId('batch-regular-void')).toContainText('ungültig')
   await expect(box2B.getByTestId('batch-regular-issued')).toHaveCount(0)
 })

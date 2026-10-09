@@ -25,14 +25,19 @@ test.afterAll(async () => {
 
 const members = (page: Page) => page.getByRole('region', { name: 'Mitglieder' })
 const list = (page: Page) => members(page).getByRole('list', { name: 'Mitglieder' })
+/** A member's row: their initials, their name, whether they have signed in and their address, and their role. */
+const row = (page: Page, text: string) => list(page).getByRole('listitem').filter({ hasText: text })
 
 test('die Wahlleitung lädt einen Co-Admin und eine Zeugin ein', async () => {
+  await expect(row(anna, 'Anna Lehrerin')).toContainText('Anna Lehrerin (Sie)')
+  await expect(row(anna, 'Anna Lehrerin')).toContainText('Wahlleitung')
   for (const [person, role] of [[CARLA, 'admin'], [WANDA, 'witness']] as const) {
     await anna.getByLabel('Schul-E-Mail-Adresse').fill(person.email ?? '')
     await anna.getByLabel('Rolle').selectOption(role)
     await anna.getByRole('button', { name: 'Einladen' }).click()
     await expect(members(anna).getByRole('status')).toContainText('gilt ab der nächsten Anmeldung')
-    await expect(list(anna)).toContainText(`${person.email} · ${role === 'admin' ? 'Co-Admin' : 'Zeug:in'} · eingeladen, noch nicht angemeldet`)
+    await expect(row(anna, person.email ?? '')).toContainText('eingeladen, noch nicht angemeldet')
+    await expect(row(anna, person.email ?? '')).toContainText(role === 'admin' ? 'Co-Admin' : 'Zeug:in')
   }
   const form = members(anna).getByRole('form', { name: 'Einladen' })
   await expect(form).toContainText('Es wird keine E-Mail verschickt')
@@ -55,13 +60,15 @@ test('die Zeugin meldet sich an, sieht die Wahl ohne Bedienelemente, und steht b
   await expect(wanda.getByRole('button', { name: 'Wahltermin löschen' })).toHaveCount(0)
   // Pictures without the zone to drop a new one.
   await expect(wanda.getByRole('img', { name: 'Bild von Paula Berger' })).toBeVisible()
-  await expect(wanda.getByText('Foto hierher ziehen')).toHaveCount(0)
-  await expect(list(wanda)).toContainText('Wanda Zeugin')
+  await expect(wanda.getByText('Fotos auf das Bild einer Karte ziehen')).toHaveCount(0)
+  await expect(row(wanda, 'Wanda Zeugin')).toContainText('Wanda Zeugin (Sie)')
   await shot(wanda, '07-zeugin-sicht')
   await wanda.context().close()
 
   await anna.reload()
-  await expect(list(anna)).toContainText('Wanda Zeugin · Zeug:in · angemeldet · wanda.zeugin@schule.example.org')
+  await expect(row(anna, 'Wanda Zeugin')).toContainText('angemeldet · wanda.zeugin@schule.example.org')
+  await expect(row(anna, 'Wanda Zeugin')).toContainText('Zeug:in')
+  await expect(row(anna, 'Wanda Zeugin')).not.toContainText('(Sie)')
 })
 
 test('Entfernen fragt zuerst; abgebrochen bleibt, wer eingeladen ist', async () => {
@@ -73,7 +80,7 @@ test('Entfernen fragt zuerst; abgebrochen bleibt, wer eingeladen ist', async () 
   await asked.getByRole('button', { name: 'Abbrechen' }).click()
   await expect(asked).toHaveCount(0)
   await expect(remove).toBeFocused()
-  await expect(list(anna)).toContainText('Wanda Zeugin · Zeug:in · angemeldet')
+  await expect(row(anna, 'Wanda Zeugin')).toContainText('angemeldet')
 })
 
 test('der Co-Admin meldet sich an, darf einrichten und Zeug:innen einladen, aber keine Co-Admins', async ({ browser }) => {
@@ -103,8 +110,11 @@ test('die Wahlleitung geht an den angemeldeten Co-Admin und wieder zurück; die 
   await asked.getByRole('button', { name: 'Ja, übergeben' }).click()
   await expect(anna.getByRole('status').filter({ hasText: 'Wahlleitung an Carla Kollegin übergeben. Sie sind jetzt Co-Admin.' })).toBeVisible()
   await expect(anna.getByText(/Ihre Rolle: Co-Admin · Wahlleitung: Carla Kollegin$/)).toBeVisible()
-  await expect(list(anna)).toContainText('Carla Kollegin · Wahlleitung')
-  await expect(list(anna)).toContainText('Anna Lehrerin · Co-Admin · angemeldet')
+  await expect(row(anna, 'Carla Kollegin')).toContainText('Wahlleitung')
+  // Anna is a co-admin now, and still herself.
+  await expect(row(anna, 'Anna Lehrerin')).toContainText('Anna Lehrerin (Sie)')
+  await expect(row(anna, 'Anna Lehrerin')).toContainText('Co-Admin')
+  await expect(row(anna, 'Anna Lehrerin')).toContainText('angemeldet')
   await expect(members(anna).getByRole('combobox', { name: 'Rolle' }).getByRole('option')).toHaveText(['Zeug:in'])
   await expect(members(anna).getByRole('combobox', { name: 'Rolle' })).toHaveValue('witness')
   await expect(list(anna).getByRole('button', { name: /^(Wahlleitung übergeben|Entfernen): (Anna Lehrerin|Carla Kollegin)$/ })).toHaveCount(0)
@@ -119,5 +129,6 @@ test('die Wahlleitung geht an den angemeldeten Co-Admin und wieder zurück; die 
 
   await anna.reload()
   await expect(anna.getByText(/^Entwurf · Ihre Rolle: Wahlleitung$/)).toBeVisible()
-  await expect(list(anna)).toContainText('Carla Kollegin · Co-Admin · angemeldet')
+  await expect(row(anna, 'Carla Kollegin')).toContainText('Co-Admin')
+  await expect(row(anna, 'Carla Kollegin')).toContainText('angemeldet')
 })

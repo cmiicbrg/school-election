@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// Einrichten: the election's title and description, its contests with
-// their candidates and pictures, and the classes and groups with the
-// contests each votes in. What may change now comes from the rules
+// Einrichten: the election's title and description, its contests, each a
+// panel of candidate cards with the picture on top and the form to add one
+// as the last card, and the classes and groups, a row each with the
+// contests it votes in. What may change now comes from the rules
 // (lib/setup-rules.ts): everything in a draft, candidates and the title
 // until voting starts, nothing for a witness. Every change goes to its
 // route and the page reads the configuration again.
@@ -25,6 +26,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, useId, w
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { RULESET_IDS, type RulesetId } from '@school-election/election-core'
 import CandidatePicture from './CandidatePicture.vue'
+import LineIcon from './LineIcon.vue'
 import SaveState from './SaveState.vue'
 import { apiDelete, apiPatch, apiPost, apiPut } from '../lib/api.ts'
 import { withBase } from '../lib/base.ts'
@@ -45,7 +47,7 @@ const props = defineProps<{
 const emit = defineEmits<{ changed: [] }>()
 
 const base = computed(() => `/api/elections/${props.election.id}`)
-const ids = { title: useId(), description: useId(), contestTitle: useId(), contestRuleset: useId(), groupName: useId() }
+const ids = { title: useId(), description: useId(), pictureHint: useId(), contestTitle: useId(), contestRuleset: useId(), groupName: useId() }
 
 /** The forms whose change is on its way, by key ("election", "contest:<id>", "candidate:<id>", ...). */
 const pending = reactive(new Set<string>())
@@ -378,7 +380,7 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
 </script>
 
 <template>
-  <div>
+  <div class="setup">
     <p
       v-if="locked"
       class="message warning"
@@ -386,238 +388,143 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
       {{ locked }}
     </p>
 
-    <h3>Wahltermin</h3>
-    <form
-      v-if="rules.candidates"
-      @submit.prevent="saveElectionField"
-    >
-      <label :for="ids.title">Titel</label>
-      <input
-        :id="ids.title"
-        v-model="draft.title"
-        type="text"
-        required
-        maxlength="200"
-        @blur="saveElectionField"
-      >
-      <label :for="ids.description">Beschreibung</label>
-      <textarea
-        :id="ids.description"
-        v-model="draft.description"
-        maxlength="2000"
-        @blur="saveElectionField"
-      />
-      <SaveState :state="saveState('election', electionDirty())" />
-      <p
-        v-if="errors.election"
-        class="message error"
-        role="alert"
-      >
-        {{ errors.election }}
-        <button
-          v-if="retries.has('election')"
-          type="button"
-          class="link"
-          @click="retries.get('election')?.()"
-        >
-          Noch einmal
-        </button>
-      </p>
-    </form>
-    <template v-else>
-      <p>{{ election.title }}</p>
-      <p
-        v-if="election.description"
-        class="description"
-      >
-        {{ election.description }}
-      </p>
-    </template>
-
-    <h3>Wahlen an diesem Termin</h3>
-    <article
-      v-for="contest in configuration.contests"
-      :key="contest.id"
-      class="card-box"
-      :aria-label="contest.title"
-    >
+    <div class="part">
+      <h3>Wahltermin</h3>
       <form
-        v-if="rules.structure && contestDrafts[contest.id]"
-        class="row"
-        @submit.prevent="saveContestField(contest)"
+        v-if="rules.candidates"
+        @submit.prevent="saveElectionField"
       >
-        <div>
-          <label :for="`contest-title-${contest.id}`">Titel der Wahl</label>
-          <input
-            :id="`contest-title-${contest.id}`"
-            v-model="contestDrafts[contest.id]!.title"
-            type="text"
-            required
-            maxlength="200"
-            @blur="saveContestField(contest)"
-          >
-        </div>
-        <div>
-          <label :for="`contest-ruleset-${contest.id}`">Regeln</label>
-          <select
-            :id="`contest-ruleset-${contest.id}`"
-            v-model="contestDrafts[contest.id]!.rulesetId"
-            @change="saveContestField(contest)"
-          >
-            <option
-              v-for="rulesetId in RULESET_IDS"
-              :key="rulesetId"
-              :value="rulesetId"
+        <div class="pair">
+          <div>
+            <label :for="ids.title">Titel</label>
+            <input
+              :id="ids.title"
+              v-model="draft.title"
+              type="text"
+              required
+              maxlength="200"
+              @blur="saveElectionField"
             >
-              {{ RULESET_LABELS[rulesetId] }}
-            </option>
-          </select>
+          </div>
+          <div>
+            <label :for="ids.description">Beschreibung</label>
+            <textarea
+              :id="ids.description"
+              v-model="draft.description"
+              rows="2"
+              maxlength="2000"
+              @blur="saveElectionField"
+            />
+          </div>
         </div>
-        <SaveState :state="saveState(`contest:${contest.id}`, contestDirty(contest.id))" />
-        <button
-          v-if="confirming !== `contest:${contest.id}`"
-          type="button"
-          class="danger"
-          :aria-label="`Wahl entfernen: ${contest.title}`"
-          :data-remove="`contest:${contest.id}`"
-          @click="ask(`contest:${contest.id}`)"
+        <SaveState :state="saveState('election', electionDirty())" />
+        <p
+          v-if="errors.election"
+          class="message error"
+          role="alert"
         >
-          Wahl entfernen
-        </button>
+          {{ errors.election }}
+          <button
+            v-if="retries.has('election')"
+            type="button"
+            class="link"
+            @click="retries.get('election')?.()"
+          >
+            Noch einmal
+          </button>
+        </p>
       </form>
       <template v-else>
-        <h4>{{ contest.title }}</h4>
-        <p class="muted">
-          {{ RULESET_LABELS[contest.rulesetId] }}
+        <p>{{ election.title }}</p>
+        <p
+          v-if="election.description"
+          class="description"
+        >
+          {{ election.description }}
         </p>
       </template>
-      <fieldset
-        v-if="rules.structure && confirming === `contest:${contest.id}`"
-        class="confirm"
-        :aria-label="`Entfernen bestätigen: ${contest.title}`"
-        :data-confirm="`contest:${contest.id}`"
-      >
-        <span>{{ contestRemoval(contest) }}</span>
-        <button
-          type="button"
-          class="danger"
-          :disabled="pending.has(`contest:${contest.id}`)"
-          @click="confirmed(() => removeContest(contest))"
-        >
-          Ja, entfernen
-        </button>
-        <button
-          type="button"
-          class="secondary cancel"
-          @click="cancel"
-        >
-          Abbrechen
-        </button>
-      </fieldset>
-      <p
-        v-if="errors[`contest:${contest.id}`]"
-        class="message error"
-        role="alert"
-      >
-        {{ errors[`contest:${contest.id}`] }}
-        <button
-          v-if="retries.has(`contest:${contest.id}`)"
-          type="button"
-          class="link"
-          @click="retries.get(`contest:${contest.id}`)?.()"
-        >
-          Noch einmal
-        </button>
-      </p>
+    </div>
 
-      <ul
-        class="plain candidates"
-        :aria-label="`Kandidat:innen: ${contest.title}`"
-      >
-        <li
-          v-for="candidate in contest.candidates"
-          :key="candidate.id"
-          class="candidate"
-          :aria-label="fullName(candidate)"
+    <div class="part">
+      <div class="part-head">
+        <h3>Wahlen an diesem Termin</h3>
+        <p
+          v-if="rules.candidates"
+          :id="ids.pictureHint"
+          class="hint"
         >
-          <CandidatePicture
-            v-if="rules.candidates"
-            :name="fullName(candidate)"
-            :src="candidate.picture === null ? null : withBase(candidate.picture)"
-            :busy="pending.has(`picture:${candidate.id}`)"
-            :error="errors[`picture:${candidate.id}`] ?? null"
-            @select="(prepared) => setPicture(candidate, prepared)"
-            @remove="removePicture(candidate)"
-          />
-          <div
-            v-else
-            class="portrait"
-          >
-            <img
-              v-if="candidate.picture !== null"
-              :src="withBase(candidate.picture)"
-              :alt="`Bild von ${fullName(candidate)}`"
-            >
-            <span
-              v-else
-              class="muted"
-            >Kein Bild</span>
-          </div>
+          Fotos auf das Bild einer Karte ziehen oder dort mit Strg+V einfügen. Jedes Foto passt: Größe und Ausrichtung werden automatisch angepasst.
+        </p>
+      </div>
+      <article
+        v-for="contest in configuration.contests"
+        :key="contest.id"
+        class="contest"
+        :aria-label="contest.title"
+      >
+        <div class="contest-head">
           <form
-            v-if="rules.candidates && candidateDrafts[candidate.id]"
-            class="row"
-            @submit.prevent="saveCandidateField(candidate)"
+            v-if="rules.structure && contestDrafts[contest.id]"
+            class="fields"
+            @submit.prevent="saveContestField(contest)"
           >
-            <div>
-              <label :for="`candidate-surname-${candidate.id}`">Nachname</label>
+            <div class="grow">
+              <label :for="`contest-title-${contest.id}`">Titel der Wahl</label>
               <input
-                :id="`candidate-surname-${candidate.id}`"
-                v-model="candidateDrafts[candidate.id]!.surname"
+                :id="`contest-title-${contest.id}`"
+                v-model="contestDrafts[contest.id]!.title"
                 type="text"
                 required
-                maxlength="100"
-                @blur="saveCandidateField(candidate)"
-                @keydown.enter="enterSaves($event, candidate)"
+                maxlength="200"
+                @blur="saveContestField(contest)"
               >
             </div>
-            <div>
-              <label :for="`candidate-given-${candidate.id}`">Vorname</label>
-              <input
-                :id="`candidate-given-${candidate.id}`"
-                v-model="candidateDrafts[candidate.id]!.givenName"
-                type="text"
-                maxlength="100"
-                @blur="saveCandidateField(candidate)"
-                @keydown.enter="enterSaves($event, candidate)"
+            <div class="grow-more">
+              <label :for="`contest-ruleset-${contest.id}`">Regeln</label>
+              <select
+                :id="`contest-ruleset-${contest.id}`"
+                v-model="contestDrafts[contest.id]!.rulesetId"
+                @change="saveContestField(contest)"
               >
+                <option
+                  v-for="rulesetId in RULESET_IDS"
+                  :key="rulesetId"
+                  :value="rulesetId"
+                >
+                  {{ RULESET_LABELS[rulesetId] }}
+                </option>
+              </select>
             </div>
-            <SaveState :state="saveState(`candidate:${candidate.id}`, candidateDirty(candidate.id))" />
+            <SaveState :state="saveState(`contest:${contest.id}`, contestDirty(contest.id))" />
             <button
-              v-if="(rules.structure || contest.candidates.length > 1) && confirming !== `candidate:${candidate.id}`"
+              v-if="confirming !== `contest:${contest.id}`"
               type="button"
               class="danger"
-              :aria-label="`Entfernen: ${fullName(candidate)}`"
-              :data-remove="`candidate:${candidate.id}`"
-              @click="ask(`candidate:${candidate.id}`)"
+              :aria-label="`Wahl entfernen: ${contest.title}`"
+              :data-remove="`contest:${contest.id}`"
+              @click="ask(`contest:${contest.id}`)"
             >
-              Entfernen
+              <LineIcon name="trash" />Wahl entfernen
             </button>
           </form>
-          <p v-else>
-            {{ fullName(candidate) }}
-          </p>
+          <template v-else>
+            <h4>{{ contest.title }}</h4>
+            <p class="muted">
+              {{ RULESET_LABELS[contest.rulesetId] }}
+            </p>
+          </template>
           <fieldset
-            v-if="rules.candidates && confirming === `candidate:${candidate.id}`"
-            class="confirm full"
-            :aria-label="`Entfernen bestätigen: ${fullName(candidate)}`"
-            :data-confirm="`candidate:${candidate.id}`"
+            v-if="rules.structure && confirming === `contest:${contest.id}`"
+            class="confirm"
+            :aria-label="`Entfernen bestätigen: ${contest.title}`"
+            :data-confirm="`contest:${contest.id}`"
           >
-            <span>{{ candidateRemoval(candidate) }}</span>
+            <span>{{ contestRemoval(contest) }}</span>
             <button
               type="button"
               class="danger"
-              :disabled="pending.has(`candidate:${candidate.id}`)"
-              @click="confirmed(() => removeCandidate(candidate))"
+              :disabled="pending.has(`contest:${contest.id}`)"
+              @click="confirmed(() => removeContest(contest))"
             >
               Ja, entfernen
             </button>
@@ -630,304 +537,548 @@ function votesIn(group: VoterGroup, contestId: string): boolean {
             </button>
           </fieldset>
           <p
-            v-if="errors[`candidate:${candidate.id}`]"
-            class="message error full"
+            v-if="errors[`contest:${contest.id}`]"
+            class="message error"
             role="alert"
           >
-            {{ errors[`candidate:${candidate.id}`] }}
+            {{ errors[`contest:${contest.id}`] }}
             <button
-              v-if="retries.has(`candidate:${candidate.id}`)"
+              v-if="retries.has(`contest:${contest.id}`)"
               type="button"
               class="link"
-              @click="retries.get(`candidate:${candidate.id}`)?.()"
+              @click="retries.get(`contest:${contest.id}`)?.()"
             >
               Noch einmal
             </button>
           </p>
-        </li>
-      </ul>
-      <p
-        v-if="contest.candidates.length === 0"
-        class="muted"
-      >
-        Noch keine Kandidat:innen.
-      </p>
+        </div>
+
+        <div class="cards">
+          <!-- The list's items and the form to add one share the grid of cards. -->
+          <ul
+            class="candidates"
+            :aria-label="`Kandidat:innen: ${contest.title}`"
+          >
+            <li
+              v-for="candidate in contest.candidates"
+              :key="candidate.id"
+              class="candidate"
+              :aria-label="fullName(candidate)"
+            >
+              <CandidatePicture
+                v-if="rules.candidates"
+                :name="fullName(candidate)"
+                :hint="ids.pictureHint"
+                :src="candidate.picture === null ? null : withBase(candidate.picture)"
+                :busy="pending.has(`picture:${candidate.id}`)"
+                :error="errors[`picture:${candidate.id}`] ?? null"
+                @select="(prepared) => setPicture(candidate, prepared)"
+                @remove="removePicture(candidate)"
+              />
+              <div
+                v-else
+                class="portrait"
+              >
+                <img
+                  v-if="candidate.picture !== null"
+                  :src="withBase(candidate.picture)"
+                  :alt="`Bild von ${fullName(candidate)}`"
+                >
+                <span v-else>Kein Bild</span>
+              </div>
+              <form
+                v-if="rules.candidates && candidateDrafts[candidate.id]"
+                class="names"
+                @submit.prevent="saveCandidateField(candidate)"
+              >
+                <div>
+                  <label :for="`candidate-surname-${candidate.id}`">Nachname</label>
+                  <input
+                    :id="`candidate-surname-${candidate.id}`"
+                    v-model="candidateDrafts[candidate.id]!.surname"
+                    type="text"
+                    required
+                    maxlength="100"
+                    @blur="saveCandidateField(candidate)"
+                    @keydown.enter="enterSaves($event, candidate)"
+                  >
+                </div>
+                <div>
+                  <label :for="`candidate-given-${candidate.id}`">Vorname</label>
+                  <input
+                    :id="`candidate-given-${candidate.id}`"
+                    v-model="candidateDrafts[candidate.id]!.givenName"
+                    type="text"
+                    maxlength="100"
+                    @blur="saveCandidateField(candidate)"
+                    @keydown.enter="enterSaves($event, candidate)"
+                  >
+                </div>
+                <div class="card-foot">
+                  <SaveState :state="saveState(`candidate:${candidate.id}`, candidateDirty(candidate.id))" />
+                  <button
+                    v-if="(rules.structure || contest.candidates.length > 1) && confirming !== `candidate:${candidate.id}`"
+                    type="button"
+                    class="ghost danger small"
+                    :aria-label="`Entfernen: ${fullName(candidate)}`"
+                    :data-remove="`candidate:${candidate.id}`"
+                    @click="ask(`candidate:${candidate.id}`)"
+                  >
+                    <LineIcon name="trash" />Entfernen
+                  </button>
+                </div>
+              </form>
+              <p
+                v-else
+                class="name"
+              >
+                {{ fullName(candidate) }}
+              </p>
+              <fieldset
+                v-if="rules.candidates && confirming === `candidate:${candidate.id}`"
+                class="confirm in-card"
+                :aria-label="`Entfernen bestätigen: ${fullName(candidate)}`"
+                :data-confirm="`candidate:${candidate.id}`"
+              >
+                <span>{{ candidateRemoval(candidate) }}</span>
+                <button
+                  type="button"
+                  class="danger"
+                  :disabled="pending.has(`candidate:${candidate.id}`)"
+                  @click="confirmed(() => removeCandidate(candidate))"
+                >
+                  Ja, entfernen
+                </button>
+                <button
+                  type="button"
+                  class="secondary cancel"
+                  @click="cancel"
+                >
+                  Abbrechen
+                </button>
+              </fieldset>
+              <p
+                v-if="errors[`candidate:${candidate.id}`]"
+                class="message error in-card"
+                role="alert"
+              >
+                {{ errors[`candidate:${candidate.id}`] }}
+                <button
+                  v-if="retries.has(`candidate:${candidate.id}`)"
+                  type="button"
+                  class="link"
+                  @click="retries.get(`candidate:${candidate.id}`)?.()"
+                >
+                  Noch einmal
+                </button>
+              </p>
+            </li>
+          </ul>
+          <p
+            v-if="contest.candidates.length === 0"
+            class="muted empty"
+          >
+            Noch keine Kandidat:innen.
+          </p>
+          <form
+            v-if="rules.candidates && newCandidates[contest.id]"
+            class="add-card"
+            :aria-label="`Kandidat:in hinzufügen: ${contest.title}`"
+            @submit.prevent="addCandidate(contest)"
+          >
+            <div>
+              <label :for="`new-surname-${contest.id}`">Nachname</label>
+              <input
+                :id="`new-surname-${contest.id}`"
+                v-model="newCandidates[contest.id]!.surname"
+                type="text"
+                required
+                maxlength="100"
+                autocomplete="off"
+              >
+            </div>
+            <div>
+              <label :for="`new-given-${contest.id}`">Vorname</label>
+              <input
+                :id="`new-given-${contest.id}`"
+                v-model="newCandidates[contest.id]!.givenName"
+                type="text"
+                maxlength="100"
+                autocomplete="off"
+              >
+            </div>
+            <p
+              v-if="errors[`new-candidate:${contest.id}`]"
+              class="message error"
+              role="alert"
+            >
+              {{ errors[`new-candidate:${contest.id}`] }}
+            </p>
+            <button
+              type="submit"
+              :disabled="pending.has(`new-candidate:${contest.id}`)"
+            >
+              <LineIcon name="plus" />Kandidat:in hinzufügen
+            </button>
+          </form>
+        </div>
+      </article>
       <form
-        v-if="rules.candidates && newCandidates[contest.id]"
-        class="row"
-        :aria-label="`Kandidat:in hinzufügen: ${contest.title}`"
-        @submit.prevent="addCandidate(contest)"
+        v-if="rules.structure"
+        class="new-contest fields"
+        aria-label="Wahl hinzufügen"
+        @submit.prevent="addContest"
       >
-        <div>
-          <label :for="`new-surname-${contest.id}`">Nachname</label>
+        <div class="grow">
+          <label :for="ids.contestTitle">Titel der neuen Wahl</label>
           <input
-            :id="`new-surname-${contest.id}`"
-            v-model="newCandidates[contest.id]!.surname"
+            :id="ids.contestTitle"
+            v-model="newContest.title"
             type="text"
             required
-            maxlength="100"
+            maxlength="200"
             autocomplete="off"
           >
         </div>
-        <div>
-          <label :for="`new-given-${contest.id}`">Vorname</label>
-          <input
-            :id="`new-given-${contest.id}`"
-            v-model="newCandidates[contest.id]!.givenName"
-            type="text"
-            maxlength="100"
-            autocomplete="off"
+        <div class="grow-more">
+          <label :for="ids.contestRuleset">Regeln</label>
+          <select
+            :id="ids.contestRuleset"
+            v-model="newContest.rulesetId"
           >
+            <option
+              v-for="rulesetId in RULESET_IDS"
+              :key="rulesetId"
+              :value="rulesetId"
+            >
+              {{ RULESET_LABELS[rulesetId] }}
+            </option>
+          </select>
         </div>
         <button
           type="submit"
-          :disabled="pending.has(`new-candidate:${contest.id}`)"
+          class="secondary"
+          :disabled="pending.has('new-contest')"
         >
-          Kandidat:in hinzufügen
+          <LineIcon name="plus" />Wahl hinzufügen
         </button>
       </form>
       <p
-        v-if="errors[`new-candidate:${contest.id}`]"
+        v-if="errors['new-contest']"
         class="message error"
         role="alert"
       >
-        {{ errors[`new-candidate:${contest.id}`] }}
+        {{ errors['new-contest'] }}
       </p>
-    </article>
-    <form
-      v-if="rules.structure"
-      class="card-box row"
-      aria-label="Wahl hinzufügen"
-      @submit.prevent="addContest"
-    >
-      <div>
-        <label :for="ids.contestTitle">Titel der neuen Wahl</label>
-        <input
-          :id="ids.contestTitle"
-          v-model="newContest.title"
-          type="text"
-          required
-          maxlength="200"
-          autocomplete="off"
-        >
-      </div>
-      <div>
-        <label :for="ids.contestRuleset">Regeln</label>
-        <select
-          :id="ids.contestRuleset"
-          v-model="newContest.rulesetId"
-        >
-          <option
-            v-for="rulesetId in RULESET_IDS"
-            :key="rulesetId"
-            :value="rulesetId"
-          >
-            {{ RULESET_LABELS[rulesetId] }}
-          </option>
-        </select>
-      </div>
-      <button
-        type="submit"
-        :disabled="pending.has('new-contest')"
-      >
-        Wahl hinzufügen
-      </button>
-    </form>
-    <p
-      v-if="errors['new-contest']"
-      class="message error"
-      role="alert"
-    >
-      {{ errors['new-contest'] }}
-    </p>
+    </div>
 
-    <h3>Klassen und Gruppen</h3>
-    <article
-      v-for="group in configuration.voterGroups"
-      :key="group.id"
-      class="card-box"
-      :aria-label="group.name"
-    >
-      <form
-        v-if="rules.structure"
-        class="row"
-        @submit.prevent="saveGroupField(group)"
+    <div class="part">
+      <h3>Klassen und Gruppen</h3>
+      <div
+        v-if="configuration.voterGroups.length > 0 || rules.structure"
+        class="groups"
       >
-        <div>
-          <label :for="`group-name-${group.id}`">Name</label>
-          <input
-            :id="`group-name-${group.id}`"
-            v-model="groupDrafts[group.id]"
-            type="text"
-            required
-            maxlength="100"
-            @blur="saveGroupField(group)"
+        <article
+          v-for="group in configuration.voterGroups"
+          :key="group.id"
+          class="group"
+          :aria-label="group.name"
+        >
+          <div class="group-row">
+            <form
+              v-if="rules.structure"
+              class="group-name"
+              @submit.prevent="saveGroupField(group)"
+            >
+              <label :for="`group-name-${group.id}`">Name</label>
+              <input
+                :id="`group-name-${group.id}`"
+                v-model="groupDrafts[group.id]"
+                type="text"
+                required
+                maxlength="100"
+                @blur="saveGroupField(group)"
+              >
+            </form>
+            <h4 v-else>
+              {{ group.name }}
+            </h4>
+            <fieldset
+              v-if="rules.structure"
+              class="votes"
+            >
+              <legend>Wählt in</legend>
+              <label
+                v-for="contest in configuration.contests"
+                :key="contest.id"
+                class="check"
+              >
+                <input
+                  type="checkbox"
+                  :checked="votesIn(group, contest.id)"
+                  :disabled="pending.has(`votes:${group.id}`)"
+                  @change="setVotes(group, contest, checked($event))"
+                >
+                {{ contest.title }}
+              </label>
+              <p
+                v-if="configuration.contests.length === 0"
+                class="muted"
+              >
+                Zuerst Wahlen anlegen.
+              </p>
+            </fieldset>
+            <p
+              v-else
+              class="muted votes"
+            >
+              Wählt in: {{ configuration.contests.filter((contest) => group.contestIds.includes(contest.id)).map((contest) => contest.title).join(', ') || '–' }}
+            </p>
+            <div
+              v-if="rules.structure"
+              class="group-end"
+            >
+              <SaveState :state="saveState(`group:${group.id}`, groupDirty(group.id))" />
+              <SaveState :state="saveState(`votes:${group.id}`, false)" />
+              <button
+                v-if="confirming !== `group:${group.id}`"
+                type="button"
+                class="ghost danger small"
+                :aria-label="`Entfernen: ${group.name}`"
+                :data-remove="`group:${group.id}`"
+                @click="ask(`group:${group.id}`)"
+              >
+                <LineIcon name="trash" />Entfernen
+              </button>
+            </div>
+          </div>
+          <fieldset
+            v-if="rules.structure && confirming === `group:${group.id}`"
+            class="confirm"
+            :aria-label="`Entfernen bestätigen: ${group.name}`"
+            :data-confirm="`group:${group.id}`"
           >
-        </div>
-        <SaveState :state="saveState(`group:${group.id}`, groupDirty(group.id))" />
-        <button
-          v-if="confirming !== `group:${group.id}`"
-          type="button"
-          class="danger"
-          :aria-label="`Entfernen: ${group.name}`"
-          :data-remove="`group:${group.id}`"
-          @click="ask(`group:${group.id}`)"
-        >
-          Entfernen
-        </button>
-      </form>
-      <h4 v-else>
-        {{ group.name }}
-      </h4>
-      <fieldset
-        v-if="rules.structure && confirming === `group:${group.id}`"
-        class="confirm"
-        :aria-label="`Entfernen bestätigen: ${group.name}`"
-        :data-confirm="`group:${group.id}`"
-      >
-        <span>Klasse oder Gruppe „{{ group.name }}“ entfernen?</span>
-        <button
-          type="button"
-          class="danger"
-          :disabled="pending.has(`group:${group.id}`)"
-          @click="confirmed(() => removeGroup(group))"
-        >
-          Ja, entfernen
-        </button>
-        <button
-          type="button"
-          class="secondary cancel"
-          @click="cancel"
-        >
-          Abbrechen
-        </button>
-      </fieldset>
-      <p
-        v-if="errors[`group:${group.id}`]"
-        class="message error"
-        role="alert"
-      >
-        {{ errors[`group:${group.id}`] }}
-        <button
-          v-if="retries.has(`group:${group.id}`)"
-          type="button"
-          class="link"
-          @click="retries.get(`group:${group.id}`)?.()"
-        >
-          Noch einmal
-        </button>
-      </p>
-      <fieldset v-if="rules.structure">
-        <legend>Wählt in</legend>
-        <label
-          v-for="contest in configuration.contests"
-          :key="contest.id"
-          class="check"
-        >
-          <input
-            type="checkbox"
-            :checked="votesIn(group, contest.id)"
-            :disabled="pending.has(`votes:${group.id}`)"
-            @change="setVotes(group, contest, checked($event))"
+            <span>Klasse oder Gruppe „{{ group.name }}“ entfernen?</span>
+            <button
+              type="button"
+              class="danger"
+              :disabled="pending.has(`group:${group.id}`)"
+              @click="confirmed(() => removeGroup(group))"
+            >
+              Ja, entfernen
+            </button>
+            <button
+              type="button"
+              class="secondary cancel"
+              @click="cancel"
+            >
+              Abbrechen
+            </button>
+          </fieldset>
+          <p
+            v-if="errors[`group:${group.id}`]"
+            class="message error"
+            role="alert"
           >
-          {{ contest.title }}
-        </label>
-        <p
-          v-if="configuration.contests.length === 0"
-          class="muted"
+            {{ errors[`group:${group.id}`] }}
+            <button
+              v-if="retries.has(`group:${group.id}`)"
+              type="button"
+              class="link"
+              @click="retries.get(`group:${group.id}`)?.()"
+            >
+              Noch einmal
+            </button>
+          </p>
+          <p
+            v-if="errors[`votes:${group.id}`]"
+            class="message error"
+            role="alert"
+          >
+            {{ errors[`votes:${group.id}`] }}
+          </p>
+        </article>
+        <form
+          v-if="rules.structure"
+          class="add-row"
+          aria-label="Klasse oder Gruppe hinzufügen"
+          @submit.prevent="addGroup"
         >
-          Zuerst Wahlen anlegen.
-        </p>
-        <SaveState :state="saveState(`votes:${group.id}`, false)" />
-      </fieldset>
-      <p
-        v-else
-        class="muted"
-      >
-        Wählt in: {{ configuration.contests.filter((contest) => group.contestIds.includes(contest.id)).map((contest) => contest.title).join(', ') || '–' }}
-      </p>
-      <p
-        v-if="errors[`votes:${group.id}`]"
-        class="message error"
-        role="alert"
-      >
-        {{ errors[`votes:${group.id}`] }}
-      </p>
-    </article>
-    <form
-      v-if="rules.structure"
-      class="card-box row"
-      aria-label="Klasse oder Gruppe hinzufügen"
-      @submit.prevent="addGroup"
-    >
-      <div>
-        <label :for="ids.groupName">Name der Klasse oder Gruppe</label>
-        <input
-          :id="ids.groupName"
-          v-model="newGroup"
-          type="text"
-          required
-          maxlength="100"
-          autocomplete="off"
-        >
+          <div class="grow">
+            <label :for="ids.groupName">Name der Klasse oder Gruppe</label>
+            <input
+              :id="ids.groupName"
+              v-model="newGroup"
+              type="text"
+              required
+              maxlength="100"
+              autocomplete="off"
+            >
+          </div>
+          <button
+            type="submit"
+            class="secondary"
+            :disabled="pending.has('new-group')"
+          >
+            <LineIcon name="plus" />Klasse oder Gruppe hinzufügen
+          </button>
+        </form>
       </div>
-      <button
-        type="submit"
-        :disabled="pending.has('new-group')"
+      <p
+        v-if="errors['new-group']"
+        class="message error"
+        role="alert"
       >
-        Klasse oder Gruppe hinzufügen
-      </button>
-    </form>
-    <p
-      v-if="errors['new-group']"
-      class="message error"
-      role="alert"
-    >
-      {{ errors['new-group'] }}
-    </p>
+        {{ errors['new-group'] }}
+      </p>
+    </div>
   </div>
 </template>
 
 <style scoped>
-h4 {
-  margin: 0 0 4px;
-  font-size: 1.05rem;
+.setup {
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+}
+
+.part {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.part h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.part-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.message {
+  margin: 0;
+}
+
+.pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.pair input,
+.pair textarea {
+  max-width: none;
+}
+
+.pair textarea {
+  min-height: 0;
+  resize: vertical;
 }
 
 .description {
   white-space: pre-line;
 }
 
-.candidates > li {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 12px;
-  align-items: start;
-}
-
-fieldset:not(.confirm) {
+/* A Wahl: its fields in a grey head, its candidates as cards beneath. */
+.contest {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  margin: 8px 0 0;
-  padding: 6px 12px;
+  border-radius: 12px;
 }
 
-.check {
-  font-weight: 400;
-  margin: 4px 0;
+.contest-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 12px 12px 0 0;
+  background: var(--soft);
 }
 
-/* A picture that no longer changes: the square the picture zone shows,
-   without the zone. */
+.contest-head .confirm {
+  margin: 0;
+}
+
+.fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.grow {
+  flex: 1 1 220px;
+}
+
+.grow-more {
+  flex: 2 1 320px;
+}
+
+.fields input,
+.fields select {
+  max-width: none;
+}
+
+.fields > .save-state {
+  min-height: 40px;
+  line-height: 40px;
+}
+
+h4 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.contest-head p {
+  margin: 0;
+}
+
+/* The candidates' cards and the card that adds one, in one grid. */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  padding: 16px;
+}
+
+/* The list lends its items to the grid; it stays a list for screen readers. */
+.candidates {
+  display: contents;
+  list-style: none;
+}
+
+.candidate {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+/* A picture that no longer changes: the place the picture shows, without
+   its buttons. */
 .portrait {
   display: grid;
   place-items: center;
-  width: 7.5rem;
-  height: 7.5rem;
+  height: 132px;
   overflow: hidden;
-  border-radius: var(--radius);
-  background: var(--field);
-  font-size: 0.875rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
 .portrait img {
@@ -937,13 +1088,165 @@ fieldset:not(.confirm) {
   object-position: 50% 25%;
 }
 
-.candidates > li > .full {
-  grid-column: 1 / -1;
+.names {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
 }
 
-@media (width <= 600px) {
-  .candidates > li {
-    grid-template-columns: 1fr;
-  }
+.names input,
+.add-card input {
+  max-width: none;
+}
+
+.card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 8px;
+  margin-top: auto;
+  font-size: 0.8rem;
+}
+
+.card-foot button {
+  margin-left: auto;
+}
+
+.name {
+  margin: 0;
+  padding: 12px;
+  font-weight: 600;
+}
+
+.in-card {
+  margin: 0 12px 12px;
+}
+
+.empty {
+  margin: 0;
+  align-self: center;
+}
+
+.add-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px;
+  border: 1.5px dashed var(--line2);
+  border-radius: 12px;
+}
+
+.new-contest {
+  padding: 16px;
+  border: 1.5px dashed var(--line2);
+  border-radius: 12px;
+}
+
+/* The classes: a row each, and a grey row that adds one. */
+.groups {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.group {
+  padding: 12px 16px;
+}
+
+.group + .group,
+.group + .add-row {
+  border-top: 1px solid var(--line);
+}
+
+.group-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+}
+
+.group-name {
+  flex: 0 1 180px;
+}
+
+.group-name label {
+  margin-bottom: 4px;
+}
+
+.votes {
+  flex: 1 1 260px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 18px;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.votes legend {
+  float: left;
+  margin: 0 4px 0 0;
+  padding: 0;
+  color: var(--ink2);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.votes p {
+  margin: 0;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 400;
+}
+
+.check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.group-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-left: auto;
+  font-size: 0.8rem;
+}
+
+.group .confirm,
+.group .message {
+  margin: 10px 0 0;
+}
+
+.add-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 0 0 12px 12px;
+  background: var(--soft);
+}
+
+.add-row:first-child {
+  border-radius: 12px;
+}
+
+.add-row .grow {
+  flex: 0 1 280px;
 }
 </style>

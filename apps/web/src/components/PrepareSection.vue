@@ -1,12 +1,13 @@
 <script setup lang="ts">
-// Vorbereiten: what will be printed and for whom, a checklist of what
-// preparing needs and what a formal election usually has (lib/checklist.ts),
-// and the step itself. The checklist is neutral, open or done, and turns
+// Vorbereiten: what will be printed and for whom, side by side, a
+// checklist of what preparing needs beside what a formal election usually
+// has (lib/checklist.ts), and the step itself. The checklist is neutral, open or done, and turns
 // red only where a refused "Vorbereiten" found something missing. Preparing
 // again after a return to draft may make sheets invalid: the API says
 // which, and the page asks before it goes on.
 
 import { computed, ref, watch } from 'vue'
+import LineIcon from './LineIcon.vue'
 import { useDialogFocus } from '../lib/dialog-focus.ts'
 import { apiPost } from '../lib/api.ts'
 import { ApiError, errorMessage } from '../lib/api-rules.ts'
@@ -104,152 +105,181 @@ const staleKeys = computed(() => (stale.value ?? []).reduce((sum, batch) => sum 
 </script>
 
 <template>
-  <div>
-    <p class="muted">
-      Vorbereiten legt den Aufbau fest: welche Klassen und Gruppen in welchen Wahlen wählen. Danach können Stimmkarten erzeugt werden; Namen von Kandidat:innen bleiben bis zum Beginn der Stimmabgabe änderbar.
-    </p>
-
-    <h3>Wer wählt wo</h3>
-    <div
-      v-if="preparation.summary.voterGroups.length > 0"
-      class="table-scroll"
-    >
-      <table>
-        <thead>
-          <tr>
-            <th scope="col">
-              Klasse / Gruppe
-            </th><th scope="col">
-              Wahlen
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="group in preparation.summary.voterGroups"
-            :key="group.id"
-          >
-            <td>{{ group.name }}</td>
-            <td>{{ group.contests.map((contest) => contest.title).join(', ') || '–' }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <p
-      v-else
-      class="muted"
-    >
-      Noch keine Klassen oder Gruppen.
-    </p>
-
-    <h3>Wahlen</h3>
-    <div
-      v-if="preparation.summary.contests.length > 0"
-      class="table-scroll"
-    >
-      <table>
-        <thead>
-          <tr>
-            <th scope="col">
-              Wahl
-            </th><th scope="col">
-              Regeln
-            </th><th scope="col">
-              Kandidat:innen
-            </th><th scope="col">
-              Reihungen
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="contest in preparation.summary.contests"
-            :key="contest.id"
-          >
-            <td>{{ contest.title }}</td>
-            <td>{{ RULESET_LABELS[contest.rulesetId] }}</td>
-            <td>{{ contest.candidates }}</td>
-            <td>{{ contest.activeSlots }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <p
-      v-else
-      class="muted"
-    >
-      Noch keine Wahlen.
-    </p>
-
-    <template v-if="!prepared">
-      <h3>Nötig zum Vorbereiten</h3>
-      <ul
-        class="checklist"
-        aria-label="Nötig zum Vorbereiten"
-      >
-        <li
-          v-for="item in required"
-          :key="item.text"
-          :class="{ done: item.done, missing: refused && !item.done }"
+  <div class="prepare">
+    <div class="columns">
+      <div class="column">
+        <h3>Wer wählt wo</h3>
+        <div
+          v-if="preparation.summary.voterGroups.length > 0"
+          class="table-box"
         >
-          <span
-            class="mark"
-            aria-hidden="true"
-          >{{ item.done ? '✓' : '○' }}</span>
-          <span>
-            {{ item.text }}<span class="visually-hidden">: {{ item.done ? 'erledigt' : 'offen' }}</span>
-            <ul
-              v-if="!item.done && item.missing.length > 0"
-              class="details"
-            >
-              <li
-                v-for="line in item.missing"
-                :key="line"
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">
+                  Klasse / Gruppe
+                </th><th scope="col">
+                  Wahlen
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="group in preparation.summary.voterGroups"
+                :key="group.id"
               >
-                {{ line }}
-              </li>
-            </ul>
-          </span>
-        </li>
-      </ul>
-      <p
-        v-if="refused"
-        class="message error"
-        role="alert"
+                <td class="group">
+                  {{ group.name }}
+                </td>
+                <td>{{ group.contests.map((contest) => contest.title).join(', ') || '–' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p
+          v-else
+          class="muted"
+        >
+          Noch keine Klassen oder Gruppen.
+        </p>
+      </div>
+
+      <div class="column">
+        <h3>Wahlen</h3>
+        <div
+          v-if="preparation.summary.contests.length > 0"
+          class="table-box"
+        >
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">
+                  Wahl
+                </th><th
+                  scope="col"
+                  class="number"
+                >
+                  Kandidat:innen
+                </th><th
+                  scope="col"
+                  class="number"
+                >
+                  Reihungen
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="contest in preparation.summary.contests"
+                :key="contest.id"
+              >
+                <td>
+                  <span class="name">{{ contest.title }}</span>
+                  <span class="rules">{{ RULESET_LABELS[contest.rulesetId] }}</span>
+                </td>
+                <td class="number">
+                  {{ contest.candidates }}
+                </td>
+                <td class="number">
+                  {{ contest.activeSlots }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p
+          v-else
+          class="muted"
+        >
+          Noch keine Wahlen.
+        </p>
+      </div>
+    </div>
+
+    <div class="columns">
+      <div
+        v-if="!prepared"
+        class="column"
       >
-        Vorbereiten geht noch nicht: Was oben rot steht, fehlt noch.
-      </p>
-    </template>
-    <h3>Empfohlen</h3>
-    <ul
-      class="checklist"
-      aria-label="Empfohlen"
-    >
-      <li
-        v-for="item in recommended"
-        :key="item.text"
-        :class="{ done: item.done }"
-      >
-        <span
-          class="mark"
-          aria-hidden="true"
-        >{{ item.done ? '✓' : '○' }}</span>
-        <span>
-          {{ item.text }}<span class="visually-hidden">: {{ item.done ? 'erledigt' : 'offen' }}</span>
-          <ul
-            v-if="!item.done && item.missing.length > 0"
-            class="details"
+        <h3>Nötig zum Vorbereiten</h3>
+        <ul
+          class="checklist"
+          aria-label="Nötig zum Vorbereiten"
+        >
+          <li
+            v-for="item in required"
+            :key="item.text"
+            :class="{ done: item.done, missing: refused && !item.done }"
           >
-            <li
-              v-for="line in item.missing"
-              :key="line"
-            >
-              {{ line }}
-            </li>
-          </ul>
-        </span>
-      </li>
-    </ul>
+            <span
+              class="mark"
+              aria-hidden="true"
+            ><LineIcon
+              v-if="item.done"
+              name="check"
+              :size="13"
+            /></span>
+            <span>
+              {{ item.text }}<span class="visually-hidden">: {{ item.done ? 'erledigt' : 'offen' }}</span>
+              <ul
+                v-if="!item.done && item.missing.length > 0"
+                class="details"
+              >
+                <li
+                  v-for="line in item.missing"
+                  :key="line"
+                >
+                  {{ line }}
+                </li>
+              </ul>
+            </span>
+          </li>
+        </ul>
+        <p
+          v-if="refused"
+          class="message error"
+          role="alert"
+        >
+          Vorbereiten geht noch nicht: Was oben rot steht, fehlt noch.
+        </p>
+      </div>
+      <div class="column">
+        <h3>Empfohlen</h3>
+        <ul
+          class="checklist"
+          aria-label="Empfohlen"
+        >
+          <li
+            v-for="item in recommended"
+            :key="item.text"
+            :class="{ done: item.done }"
+          >
+            <span
+              class="mark"
+              aria-hidden="true"
+            ><LineIcon
+              v-if="item.done"
+              name="check"
+              :size="13"
+            /></span>
+            <span>
+              {{ item.text }}<span class="visually-hidden">: {{ item.done ? 'erledigt' : 'offen' }}</span>
+              <ul
+                v-if="!item.done && item.missing.length > 0"
+                class="details"
+              >
+                <li
+                  v-for="line in item.missing"
+                  :key="line"
+                >
+                  {{ line }}
+                </li>
+              </ul>
+            </span>
+          </li>
+        </ul>
+      </div>
+    </div>
 
     <div
       v-if="stale"
@@ -300,16 +330,21 @@ const staleKeys = computed(() => (stale.value ?? []).reduce((sum, batch) => sum 
     >
       {{ error }}
     </p>
-    <div class="actions">
+    <div class="actions step-actions">
       <button
         v-if="rules.prepare"
         ref="prepareButton"
         type="button"
+        class="large"
         :disabled="busy"
         @click="prepare()"
       >
         Vorbereiten
       </button>
+      <span
+        v-if="rules.prepare"
+        class="muted"
+      >Was unter „Empfohlen“ offen ist, hält das Vorbereiten nicht auf.</span>
       <button
         v-if="rules.unprepare"
         type="button"
@@ -330,26 +365,91 @@ const staleKeys = computed(() => (stale.value ?? []).reduce((sum, batch) => sum 
 </template>
 
 <style scoped>
+.prepare {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.column > h3 {
+  margin: 0;
+  color: var(--ink2);
+  font-size: 0.85rem;
+}
+
+.column > p {
+  margin: 0;
+}
+
+.group {
+  font-weight: 600;
+}
+
+.name {
+  display: block;
+  font-weight: 600;
+}
+
+.rules {
+  display: block;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .checklist {
-  margin: 0 0 12px;
+  margin: 0;
   padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
   list-style: none;
 }
 
 .checklist > li {
   display: flex;
-  gap: 8px;
-  padding: 4px 0;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  font-size: 0.85rem;
+}
+
+.checklist > li + li {
+  border-top: 1px solid var(--line);
 }
 
 .mark {
   flex: none;
-  width: 1.2em;
-  color: var(--muted);
-  text-align: center;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--line2);
+  border-radius: 50%;
+  background: var(--paper);
 }
 
 .done > .mark {
+  border-color: transparent;
+  background: var(--ok-bg);
   color: var(--ok);
 }
 
@@ -359,12 +459,32 @@ const staleKeys = computed(() => (stale.value ?? []).reduce((sum, batch) => sum 
 }
 
 .missing > .mark {
-  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .details {
   margin: 2px 0 0;
   padding-left: 1.1em;
+  color: var(--muted);
   font-weight: 400;
+}
+
+.missing .details {
+  color: var(--danger);
+}
+
+.step-actions {
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+}
+
+.step-actions .muted {
+  font-size: 0.85rem;
+}
+
+button.large {
+  min-height: 44px;
+  padding: 0 20px;
 }
 </style>
