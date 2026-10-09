@@ -19,9 +19,13 @@ const MARKS: Readonly<Record<StepState, { symbol: string, text: string }>> = {
   open: { symbol: '○', text: 'noch offen' },
 }
 
-/** To the step's section, with the focus on its heading, so a keyboard goes on from there. */
+/**
+ * To the step's section, with the focus on its heading, so a keyboard goes
+ * on from there. The Probelauf's block is there only while one can run or
+ * runs; otherwise its step leads to the day's section it belongs to.
+ */
 function go(step: Step): void {
-  const heading = document.getElementById(`${step}-heading`)
+  const heading = document.getElementById(`${step}-heading`) ?? document.getElementById('wahltag-heading')
   heading?.scrollIntoView({ block: 'start' })
   heading?.focus({ preventScroll: true })
 }

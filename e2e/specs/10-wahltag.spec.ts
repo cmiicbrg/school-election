@@ -81,6 +81,9 @@ test('die Wahlleitung öffnet die Wahl: der Dialog, dann läuft sie, und der Auf
   // Everything before the day is done now: the cards and the Probelauf with the opening, and the day is the step.
   await expect(anna.getByRole('navigation', { name: 'Schritte' }).locator('[aria-current="step"]')).toContainText('Wahltag')
   await expect(run(anna).getByRole('heading', { name: 'Probelauf' })).toHaveCount(0)
+  // Its step leads to the day's section, where it was.
+  await anna.getByRole('navigation', { name: 'Schritte' }).getByRole('link', { name: 'Probelauf' }).click()
+  await expect(run(anna).getByRole('heading', { name: 'Wahltag' })).toBeFocused()
   await anna.getByRole('button', { name: 'Einrichten aufklappen' }).click()
   await expect(anna.getByText('Die Stimmabgabe hat begonnen: Kandidat:innen und die Stimmkarten des 1. Wahlgangs sind festgelegt.')).toBeVisible()
   // Opened only to look: the setup stays done, and the day stays the step.
