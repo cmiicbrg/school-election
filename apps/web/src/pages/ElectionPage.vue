@@ -9,6 +9,7 @@
 
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
+import DeleteElection from '../components/DeleteElection.vue'
 import MembersSection from '../components/MembersSection.vue'
 import PrepareSection from '../components/PrepareSection.vue'
 import RunSection from '../components/RunSection.vue'
@@ -298,6 +299,11 @@ onUnmounted(() => {
         @probelauf="(done) => mark('probelauf', done)"
       />
     </StepSection>
+    <DeleteElection
+      v-if="rules.remove"
+      :election-id="election.id"
+      :title="election.title"
+    />
   </template>
   <p
     v-else
