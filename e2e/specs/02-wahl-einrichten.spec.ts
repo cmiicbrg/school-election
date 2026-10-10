@@ -177,11 +177,23 @@ test('Entfernen fragt zuerst und nennt, was mitgeht', async () => {
 
 test('die Klassen und was sie wählen', async () => {
   const form = page.getByRole('form', { name: 'Klasse oder Gruppe hinzufügen' })
-  for (const name of ['1A', '2B']) {
-    await form.getByLabel('Name der Klasse oder Gruppe').fill(name)
-    await form.getByRole('button', { name: 'Klasse oder Gruppe hinzufügen' }).click()
-    await expect(page.getByRole('article', { name, exact: true })).toBeVisible()
-  }
+  const field = form.getByLabel('Name der Klasse oder Gruppe', { exact: true })
+  // Before the first class, one group for everyone is offered, and the section says when separate ones are needed.
+  await expect(form.getByRole('button', { name: 'Eine Gruppe für alle anlegen' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Einrichten' })).toContainText('Eigene Gruppen braucht es nur, wo Gruppen in verschiedenen Wahlen wählen')
+  // Two classes at once, pasted as a list.
+  await field.fill('1A\n2B\n')
+  await form.getByRole('button', { name: 'Klasse oder Gruppe hinzufügen' }).click()
+  await expect(toast('2 Klassen oder Gruppen hinzugefügt.')).toBeVisible()
+  await expect(field).toHaveValue('')
+  for (const name of ['1A', '2B']) await expect(page.getByRole('textbox', { name: `Name von ${name}`, exact: true })).toHaveValue(name)
+  await expect(form.getByRole('button', { name: 'Eine Gruppe für alle anlegen' })).toHaveCount(0)
+  // A name that is taken stays in the field, with the ones after it, and says why.
+  await field.fill('2B\n3C')
+  await refused(page, 409, () => field.press('Enter'))
+  await expect(page.getByRole('alert').filter({ hasText: '„2B“' })).toHaveText('„2B“: Eine Klasse oder Gruppe mit diesem Namen gibt es schon.')
+  await expect(field).toHaveValue('2B\n3C')
+  await field.fill('')
   // The checklist says what is still open, neutrally; preparing is refused while a class votes
   // nowhere, and then the page says so, until it is supplied.
   const preparing = page.getByRole('region', { name: 'Vorbereiten' })
@@ -197,13 +209,25 @@ test('die Klassen und was sie wählen', async () => {
   await page.getByRole('region', { name: 'Einrichten' }).getByLabel('Beschreibung').press('Tab')
   await expect(toast('Titel und Beschreibung gespeichert.')).toBeVisible()
   await expect(preparing.getByRole('alert')).toBeVisible()
-  await assignContest(page, '1A', SCHOOL)
-  await expect(toast(`„1A“ wählt jetzt in „${SCHOOL}“.`)).toBeVisible()
   await assignContest(page, '1A', CLASS_1A)
-  await assignContest(page, '2B', SCHOOL)
-  await expect(page.getByRole('article', { name: '2B', exact: true }).getByRole('checkbox', { name: CLASS_1A })).not.toBeChecked()
-  // While the draft is editable, only the forms show, not the read-only summaries beside them.
-  await expect(page.getByRole('article', { name: '1A', exact: true }).getByText(/^Wählt in:/)).toHaveCount(0)
+  await expect(toast(`„1A“ wählt jetzt in „${CLASS_1A}“.`)).toBeVisible()
+  // The Wahl's column: some classes ticked, then all with one box.
+  const all = page.getByRole('checkbox', { name: `Alle Klassen und Gruppen wählen in ${SCHOOL}`, exact: true })
+  await expect(page.getByRole('checkbox', { name: `Alle Klassen und Gruppen wählen in ${CLASS_1A}`, exact: true })).toHaveJSProperty('indeterminate', true)
+  // The first class's save fails, as with a dropped connection: the toast says only one of two changed, the failed row says why.
+  await page.route('**/api/elections/*/voter-groups/*/contests', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"unavailable"}' }), { times: 1 })
+  await refused(page, 503, () => all.check())
+  await expect(toast('Nur 1 von 2 Klassen oder Gruppen geändert; bei den übrigen steht, warum nicht.')).toBeVisible()
+  await expect(page.getByRole('checkbox', { name: `1A wählt in ${SCHOOL}`, exact: true })).not.toBeChecked()
+  await expect(all).toHaveJSProperty('indeterminate', true)
+  // A click on a mixed box ticks it.
+  await all.click()
+  await expect(toast(`Alle Klassen und Gruppen wählen jetzt in „${SCHOOL}“.`)).toBeVisible()
+  await expect(all).toBeChecked()
+  for (const name of ['1A', '2B']) await expect(page.getByRole('checkbox', { name: `${name} wählt in ${SCHOOL}`, exact: true })).toBeChecked()
+  await expect(page.getByRole('checkbox', { name: `2B wählt in ${CLASS_1A}`, exact: true })).not.toBeChecked()
+  // While the draft is editable, only the boxes show, not the read-only marks.
+  await expect(page.getByRole('region', { name: 'Einrichten' }).getByText(/wählt nicht in/)).toHaveCount(0)
   await expect(contest(SCHOOL).getByRole('heading', { level: 4 })).toHaveCount(0)
   await expect(missing).not.toContainText('offen')
   await expect(preparing.getByRole('alert')).toHaveCount(0)
@@ -219,6 +243,10 @@ test('ein Übungstermin, den niemand gebraucht hat, lässt sich löschen, nach e
   await page.getByRole('radio', { name: 'Schulsprecherwahl', exact: true }).check()
   await page.getByRole('button', { name: 'Wahltermin anlegen' }).click()
   await expect(page.getByRole('heading', { level: 1, name: 'Übungstermin' })).toBeVisible()
+  // A termin where everyone votes in everything needs one group, on the teacher's choice.
+  await page.getByRole('button', { name: 'Eine Gruppe für alle anlegen' }).click()
+  await expect(toast('„Alle Wahlberechtigten“ angelegt; sie wählt in allen Wahlen.')).toBeVisible()
+  await expect(page.getByRole('checkbox', { name: `Alle Wahlberechtigten wählt in ${SCHOOL}`, exact: true })).toBeChecked()
   // Something typed and not added: once the termin is gone, nothing asks to stay on it.
   await page.getByRole('form', { name: `Kandidat:in hinzufügen: ${SCHOOL}` }).getByLabel('Nachname').fill('Muster')
   await page.getByRole('button', { name: 'Wahltermin löschen' }).click()
