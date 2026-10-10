@@ -215,11 +215,20 @@ test('die Klassen und was sie wählen', async () => {
   const all = page.getByRole('checkbox', { name: `Alle Klassen und Gruppen wählen in ${SCHOOL}`, exact: true })
   await expect(page.getByRole('checkbox', { name: `Alle Klassen und Gruppen wählen in ${CLASS_1A}`, exact: true })).toHaveJSProperty('indeterminate', true)
   // The first class's save fails, as with a dropped connection: the toast says only one of two changed, the failed row says why.
-  await page.route('**/api/elections/*/voter-groups/*/contests', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"unavailable"}' }), { times: 1 })
+  // One handler that fails the first save and lets the rest through: the second class's save follows within
+  // milliseconds, and a route limited to one use could still catch it while it is being removed.
+  const contestsSaved = '**/api/elections/*/voter-groups/*/contests'
+  let failed = false
+  await page.route(contestsSaved, async (route) => {
+    if (failed) return route.fallback()
+    failed = true
+    return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"unavailable"}' })
+  })
   await refused(page, 503, () => all.check())
   await expect(toast('Nur 1 von 2 Klassen oder Gruppen geändert; bei den übrigen steht, warum nicht.')).toBeVisible()
   await expect(page.getByRole('checkbox', { name: `1A wählt in ${SCHOOL}`, exact: true })).not.toBeChecked()
   await expect(all).toHaveJSProperty('indeterminate', true)
+  await page.unroute(contestsSaved)
   // A click on a mixed box ticks it.
   await all.click()
   await expect(toast(`Alle Klassen und Gruppen wählen jetzt in „${SCHOOL}“.`)).toBeVisible()
