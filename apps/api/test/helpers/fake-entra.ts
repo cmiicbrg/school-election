@@ -185,12 +185,15 @@ export async function startFakeEntra({ redirectUri = `${ORIGIN}/api/auth/callbac
 /**
  * A person typed into the sign-in page: the address and name as given, the
  * teacher role if ticked, and an object id derived from the address, so the
- * same address is the same person on every sign-in. Undefined without an
+ * same address is the same person on every sign-in. A test person's address
+ * is that person, as their button signs them in. Undefined without an
  * address.
  */
 export function typedPerson(email: string, name: string, teacher: boolean): Person | undefined {
   const address = email.trim().toLowerCase()
   if (!address.includes('@')) return undefined
+  const persona = PERSONAS.find((person) => person.email?.toLowerCase() === address)
+  if (persona) return persona
   const hex = createHash('sha256').update(address).digest('hex')
   const oid = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`
   return { oid, name: name.trim() || address.split('@')[0] || address, email: address, roles: teacher ? ['teacher'] : [] }
