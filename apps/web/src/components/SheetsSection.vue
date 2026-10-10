@@ -53,7 +53,7 @@ useDialogFocus(replacing, replaceHeading)
 const counts = reactive<Record<string, number | undefined>>({})
 /** The classes whose count is the one proposed for the runoff, not one typed. */
 const proposed = reactive(new Set<string>())
-/** A top-up waiting for its yes: the class, the Wahlgang and how many cards. */
+/** A top-up waiting for its yes: the class, the Wahlgang and how many cards; the count's field is read-only meanwhile, so it shows what the question names. */
 const topUp = ref<{ groupId: string, kind: RoundKind, count: number } | null>(null)
 
 /** The valid cards of a class in a Wahlgang, all its batches together. */
@@ -335,6 +335,7 @@ function groupName(batch: BatchSummary): string {
               min="1"
               :max="MAX_BATCH"
               :aria-describedby="proposed.has(group.id) ? `count-hint-${group.id}` : undefined"
+              :readonly="topUp?.groupId === group.id"
               @input="proposed.delete(group.id)"
             >
           </div>

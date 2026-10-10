@@ -130,7 +130,10 @@ onMounted(() => {
       <p v-if="election && stacks.length > 0">
         {{ election.title }} · {{ roundLabel }} · {{ stacks.length === 1 ? '1 Stapel' : `${stacks.length} Stapel` }}, {{ cardCount }} Karten auf {{ pageCount }} Seiten. Jeder Stapel beginnt auf einem neuen Blatt.
       </p>
-      <PrintNotes v-if="prints && stacks.length > 0" />
+      <PrintNotes
+        v-if="prints && stacks.length > 0"
+        all
+      />
       <p
         v-if="error"
         role="alert"
