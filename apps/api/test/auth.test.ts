@@ -10,6 +10,7 @@ import { createTestDatabase, DB } from './helpers/db.ts'
 import { secretFile, TENANT_ID } from './helpers/env.ts'
 import { STATE_COOKIE } from '../lib/entra.ts'
 import { CookieJar, ISSUER, startFakeEntra, type AuthorizeOptions, type FakeEntra } from './helpers/fake-entra.ts'
+import { ANNA } from './helpers/personas.ts'
 
 const sameOrigin = { 'sec-fetch-site': 'same-origin' }
 const VERIFIER_COOKIE = '__Host-oauth2-code-verifier'
@@ -46,6 +47,26 @@ async function signIn(s: Setup, jar: CookieJar, options: AuthorizeOptions & { re
   jar.update(login)
   const callback = new URL(s.entra.authorize(String(login.headers.location), options), ORIGIN)
   options.beforeCallback?.(callback)
+  const res = await s.app.inject({ method: 'GET', url: callback.pathname + callback.search, headers: { cookie: jar.header() } })
+  jar.update(res)
+  return res
+}
+
+/**
+ * Login, then the stand-in's own sign-in page as a browser uses it (the
+ * journeys, and npm run dev:api:fake-entra): the page's pending request,
+ * the form sent with `choice`, and the callback it sends the browser to.
+ */
+async function signInOnPage(s: Setup, jar: CookieJar, choice: Record<string, string>) {
+  const login = await s.app.inject({ method: 'GET', url: `${s.basePath}/api/auth/login`, headers: { cookie: jar.header() } })
+  jar.update(login)
+  const page = await (await fetch(String(login.headers.location))).text()
+  const request = /name="request" value="([^"]+)"/.exec(page)?.[1] ?? ''
+  const form = new URL(`${s.entra.authority}/${TENANT_ID}/oauth2/v2.0/authorize`)
+  form.search = new URLSearchParams({ request, ...choice }).toString()
+  const back = await fetch(form, { redirect: 'manual' })
+  assert.equal(back.status, 302)
+  const callback = new URL(back.headers.get('location') ?? '')
   const res = await s.app.inject({ method: 'GET', url: callback.pathname + callback.search, headers: { cookie: jar.header() } })
   jar.update(res)
   return res
@@ -432,4 +453,30 @@ test('the callback is the only GET that starts a session, and only with a pendin
   assert.equal((await app.inject({ method: 'GET', url: '/api/auth/callback?code=x&code=y' })).statusCode, 400)
   assert.equal((await app.inject({ method: 'GET', url: '/api/auth/login?returnTo=/a&returnTo=/b' })).statusCode, 400)
   assert.equal((await app.inject({ method: 'GET', url: '/api/auth/login?sso_reload=true&sso_reload=true' })).statusCode, 400)
+})
+
+test('the stand-in\'s page signs in anyone typed in, an address as the same person every time, and a test person\'s address as that person', DB, async (t) => {
+  const s = await setup(t)
+  const signedIn = async (choice: Record<string, string>) => {
+    const jar = new CookieJar()
+    assert.equal((await signInOnPage(s, jar, choice)).statusCode, 303)
+    return (await me(s.app, jar)).json<{ id: string, displayName: string, roles: string[] }>()
+  }
+  const toni = await signedIn({ name: 'Toni Test', email: 'toni.test@schule.example.org', teacher: 'on' })
+  assert.deepEqual([toni.displayName, toni.roles], ['Toni Test', ['teacher']])
+  // The same address, written otherwise and without the teacher box: the same person, now without the role.
+  const again = await signedIn({ name: 'Toni', email: ' Toni.Test@Schule.example.org ' })
+  assert.deepEqual([again.id, again.roles], [toni.id, []])
+  // A test person's address typed in is that person, as their button signs them in.
+  const anna = await signedIn({ persona: ANNA.oid })
+  const typedAnna = await signedIn({ name: 'Jemand', email: ANNA.email ?? '' })
+  assert.deepEqual([typedAnna.id, typedAnna.displayName, typedAnna.roles], [anna.id, 'Anna Lehrerin', ['teacher']])
+  // An address is needed.
+  const jar = new CookieJar()
+  const login = await s.app.inject({ method: 'GET', url: '/api/auth/login' })
+  jar.update(login)
+  const page = await (await fetch(String(login.headers.location))).text()
+  const request = /name="request" value="([^"]+)"/.exec(page)?.[1] ?? ''
+  const refused = await fetch(`${s.entra.authority}/${TENANT_ID}/oauth2/v2.0/authorize?${new URLSearchParams({ request, name: 'Niemand', email: 'keine-adresse' }).toString()}`, { redirect: 'manual' })
+  assert.equal(refused.status, 404)
 })
