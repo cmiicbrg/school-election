@@ -2,18 +2,19 @@
 // its token endpoint, so sign-in runs end to end without a real tenant. It
 // insists on what Entra insists on and the app must get right: the
 // registered redirect URI, client authentication and a code used once.
-// For a real browser (the Playwright journeys) it also has the authorize
-// page: a form that lists the test personas, keeps the request it answers
-// on the server under a random id, and sends the browser back to the
-// registered callback with a code and the state, as Entra would after the
-// person signed in.
+// For a real browser (the Playwright journeys, and development without a
+// tenant: test/dev-server.ts) it also has the authorize page: a form that
+// lists the test personas and takes any name and address typed in, keeps
+// the request it answers on the server under a random id, and sends the
+// browser back to the registered callback with a code and the state, as
+// Entra would after the person signed in.
 
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { exportJWK, generateKeyPair, SignJWT } from 'jose'
 import { CLIENT_ID, CLIENT_SECRET, ORIGIN, TENANT_ID } from './env.ts'
-import { claimsOf, PERSONAS } from './personas.ts'
+import { claimsOf, PERSONAS, type Person } from './personas.ts'
 
 export const ISSUER = `https://login.microsoftonline.com/${TENANT_ID}/v2.0`
 
@@ -134,7 +135,8 @@ export async function startFakeEntra({ redirectUri = `${ORIGIN}/api/auth/callbac
   function authorizePage(request: IncomingMessage, response: ServerResponse): void {
     const url = new URL(request.url ?? '/', authority)
     const chosen = url.searchParams.get('persona')
-    if (chosen === null) {
+    const typed = url.searchParams.get('email')
+    if (chosen === null && typed === null) {
       try {
         checked(url.toString())
       } catch {
@@ -147,7 +149,9 @@ export async function startFakeEntra({ redirectUri = `${ORIGIN}/api/auth/callbac
     const pending = pendingRequests.get(url.searchParams.get('request') ?? '')
     pendingRequests.delete(url.searchParams.get('request') ?? '')
     if (pending === undefined) return json(response, 400, { error: 'invalid_request' })
-    const person = PERSONAS.find((persona) => persona.oid === chosen)
+    const person = chosen === null
+      ? typedPerson(typed ?? '', url.searchParams.get('name') ?? '', url.searchParams.has('teacher'))
+      : PERSONAS.find((persona) => persona.oid === chosen)
     if (!person) return json(response, 404, { error: 'unknown_persona' })
     const { query } = issue(pending, { claims: claimsOf(person) })
     response.writeHead(302, { location: `${redirectUri}?${query}` }).end()
@@ -178,20 +182,42 @@ export async function startFakeEntra({ redirectUri = `${ORIGIN}/api/auth/callbac
   }
 }
 
-/** The sign-in page of the stand-in: the pending request's id, and one button per persona. */
+/**
+ * A person typed into the sign-in page: the address and name as given, the
+ * teacher role if ticked, and an object id derived from the address, so the
+ * same address is the same person on every sign-in. Undefined without an
+ * address.
+ */
+export function typedPerson(email: string, name: string, teacher: boolean): Person | undefined {
+  const address = email.trim().toLowerCase()
+  if (!address.includes('@')) return undefined
+  const hex = createHash('sha256').update(address).digest('hex')
+  const oid = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+  return { oid, name: name.trim() || address.split('@')[0] || address, email: address, roles: teacher ? ['teacher'] : [] }
+}
+
+/** The sign-in page of the stand-in: the pending request's id, one button per persona, and a form for anyone else. */
 function chooser(requestId: string): string {
   const buttons = PERSONAS
     .map((person) => `<button type="submit" name="persona" value="${person.oid}">${person.name}</button>`)
     .join('\n')
   return `<!doctype html>
 <html lang="de"><head><meta charset="utf-8"><title>Anmeldung (Test)</title>
-<style>body{font-family:system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem}button{display:block;margin:.5rem 0;padding:.5rem 1rem;font:inherit}</style>
+<style>body{font-family:system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem}button{display:block;margin:.5rem 0;padding:.5rem 1rem;font:inherit}label{display:block;margin:.5rem 0}input:not([type=checkbox]){display:block;width:100%;padding:.4rem;font:inherit;box-sizing:border-box}h2{font-size:1.1rem;margin-top:2rem}</style>
 </head><body>
 <h1>Anmeldung (Test)</h1>
 <p>Ein Stand-in für Microsoft Entra ID, nur für Tests. Als wer möchten Sie sich anmelden?</p>
 <form method="get" action="/${TENANT_ID}/oauth2/v2.0/authorize">
 <input type="hidden" name="request" value="${requestId}">
 ${buttons}
+</form>
+<h2>Jemand anderes</h2>
+<form method="get" action="/${TENANT_ID}/oauth2/v2.0/authorize">
+<input type="hidden" name="request" value="${requestId}">
+<label>Name <input name="name" autocomplete="off"></label>
+<label>Schul-E-Mail-Adresse <input name="email" type="email" required autocomplete="off"></label>
+<label><input name="teacher" type="checkbox" checked> Lehrkraft (darf Wahltermine anlegen)</label>
+<button type="submit">Anmelden</button>
 </form>
 </body></html>`
 }
