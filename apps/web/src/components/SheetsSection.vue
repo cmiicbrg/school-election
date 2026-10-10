@@ -4,8 +4,14 @@
 // the exception that makes sheets invalid: replacing a batch. What issuing
 // or replacing came to shows in the card of its class. Witnesses see
 // counts, and the codes once the batch's round has closed.
+//
+// A class's further batch of a Wahlgang is a top-up, which asks first, so
+// a second click never adds cards unnoticed; the count empties once a
+// batch is issued, and a class with cards for the 1. Wahlgang and none for
+// the runoff gets that count proposed. Every valid batch of a Wahlgang
+// prints in one go (pages/PrintRound.vue).
 
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import LineIcon from './LineIcon.vue'
 import { useDialogFocus } from '../lib/dialog-focus.ts'
 import type { Lifecycle, RoundKind } from '@school-election/election-core'
@@ -28,7 +34,12 @@ const props = defineProps<{
 
 const emit = defineEmits<{ changed: [] }>()
 
-const BATCH_STATE_LABELS = { issued: 'ausgegeben', void: 'ungültig' } as const
+const BATCH_STATE_LABELS = { issued: 'gültig', void: 'ungültig' } as const
+/** A Wahlgang as an object of "für": "für den 1. Wahlgang". */
+const FOR_ROUND: Readonly<Record<RoundKind, string>> = { regular: 'den 1. Wahlgang', runoff: 'die Stichwahl' }
+const KINDS: readonly RoundKind[] = ['regular', 'runoff']
+/** The most cards a batch holds, as the API takes them. */
+const MAX_BATCH = 1000
 
 const busy = ref(false)
 /** Why the last change was refused, in the card of its class, or in the exceptions' panel for a replacement. */
@@ -39,7 +50,42 @@ const replacing = ref<BatchSummary | null>(null)
 const replaceHeading = ref<HTMLElement | null>(null)
 useDialogFocus(replacing, replaceHeading)
 /** The number of voters entered per class. */
-const counts = reactive<Record<string, number>>({})
+const counts = reactive<Record<string, number | undefined>>({})
+/** The classes whose count is the one proposed for the runoff, not one typed. */
+const proposed = reactive(new Set<string>())
+/** A top-up waiting for its yes: the class, the Wahlgang and how many cards; the count's field is read-only meanwhile, so it shows what the question names. */
+const topUp = ref<{ groupId: string, kind: RoundKind, count: number } | null>(null)
+
+/** The valid cards of a class in a Wahlgang, all its batches together. */
+function validKeys(groupId: string, kind: RoundKind): number {
+  return props.batches.filter((batch) => batch.voterGroupId === groupId && batch.roundKind === kind && batch.state === 'issued').reduce((sum, batch) => sum + batch.keys, 0)
+}
+
+// A class with cards for the 1. Wahlgang and none for the runoff, while
+// runoff cards can be issued, gets the 1. Wahlgang's count in its empty
+// field: the runoff's voters are the same.
+watch([() => props.batches, () => props.rules.issue.runoff], () => {
+  if (!props.rules.issue.runoff) return
+  for (const group of props.configuration.voterGroups) {
+    const regular = validKeys(group.id, 'regular')
+    if (counts[group.id] === undefined && regular > 0 && validKeys(group.id, 'runoff') === 0) {
+      counts[group.id] = Math.min(regular, MAX_BATCH)
+      proposed.add(group.id)
+    }
+  }
+}, { immediate: true })
+
+/** The totals of the Wahlgänge where a class has more than one valid batch. */
+function totals(groupId: string): { kind: RoundKind, keys: number }[] {
+  return KINDS
+    .filter((kind) => props.batches.filter((batch) => batch.voterGroupId === groupId && batch.roundKind === kind && batch.state === 'issued').length > 1)
+    .map((kind) => ({ kind, keys: validKeys(groupId, kind) }))
+}
+
+/** The Wahlgänge whose valid batches can be printed now, all at once. */
+const printAll = computed(() => KINDS.filter((kind) => printable(props.lifecycle, kind)
+  && mayReadKeys(props.role, props.lifecycle, kind)
+  && props.batches.some((batch) => batch.roundKind === kind && batch.state === 'issued')))
 
 const groups = computed(() => props.configuration.voterGroups.map((group) => ({
   ...group,
@@ -81,14 +127,38 @@ function readable(batch: BatchSummary): boolean {
   return batch.state === 'void' || prints(batch) || closed(batch)
 }
 
-async function issue(groupId: string, roundKind: RoundKind): Promise<void> {
+/** Issues the cards entered, or asks first where the class has valid cards for that Wahlgang already. */
+function request(groupId: string, roundKind: RoundKind): void {
   const count = counts[groupId] ?? 0
+  if (validKeys(groupId, roundKind) === 0) {
+    void issue(groupId, roundKind, count)
+    return
+  }
+  topUp.value = { groupId, kind: roundKind, count }
+  void nextTick(() => document.querySelector<HTMLButtonElement>(`[data-top-up="${groupId}"] .cancel`)?.focus())
+}
+
+function cancelTopUp(): void {
+  const asked = topUp.value
+  topUp.value = null
+  if (asked) void nextTick(() => document.querySelector<HTMLButtonElement>(`[data-issue="${asked.groupId}:${asked.kind}"]`)?.focus())
+}
+
+async function confirmTopUp(): Promise<void> {
+  const asked = topUp.value
+  topUp.value = null
+  if (asked) await issue(asked.groupId, asked.kind, asked.count)
+}
+
+async function issue(groupId: string, roundKind: RoundKind, count: number): Promise<void> {
   busy.value = true
   error.value = null
   done.value = null
   try {
     const issued = await apiPost<{ batch: BatchSummary }>(`/api/elections/${props.electionId}/batches`, { voterGroupId: groupId, roundKind, count })
     done.value = { text: `${count} Stimmkarten (${ROUND_LABELS[roundKind]}) erzeugt.`, batchId: issued.batch.id, groupId }
+    counts[groupId] = undefined
+    proposed.delete(groupId)
     emit('changed')
   } catch (err) {
     error.value = { text: errorMessage(err), groupId }
@@ -128,6 +198,20 @@ function groupName(batch: BatchSummary): string {
     </p>
 
     <template v-else>
+      <div
+        v-if="printAll.length > 0"
+        class="print-all"
+      >
+        <a
+          v-for="kind in printAll"
+          :key="kind"
+          :href="withBase(`/elections/${electionId}/rounds/${kind}/print`)"
+          target="_blank"
+          rel="noopener"
+          class="button secondary"
+        ><LineIcon name="print" />Alle Stapel drucken: {{ ROUND_LABELS[kind] }}</a>
+        <span class="muted">Ein Dokument, jede Klasse auf eigenen Blättern.</span>
+      </div>
       <article
         v-for="group in groups"
         :key="group.id"
@@ -194,6 +278,23 @@ function groupName(batch: BatchSummary): string {
                 </td>
               </tr>
             </tbody>
+            <tfoot v-if="totals(group.id).length > 0">
+              <tr
+                v-for="total in totals(group.id)"
+                :key="total.kind"
+                class="total"
+              >
+                <th scope="row">
+                  {{ ROUND_LABELS[total.kind] }} gesamt
+                </th>
+                <td class="number">
+                  {{ total.keys }}
+                </td>
+                <td>
+                  <span class="badge info">gültig</span>
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
         <p
@@ -232,26 +333,63 @@ function groupName(batch: BatchSummary): string {
               v-model.number="counts[group.id]"
               type="number"
               min="1"
-              max="1000"
+              :max="MAX_BATCH"
+              :aria-describedby="proposed.has(group.id) ? `count-hint-${group.id}` : undefined"
+              :readonly="topUp?.groupId === group.id"
+              @input="proposed.delete(group.id)"
             >
           </div>
-          <button
-            v-if="rules.issue.regular"
-            type="button"
-            :disabled="busy || !((counts[group.id] ?? 0) >= 1)"
-            @click="issue(group.id, 'regular')"
+          <template v-if="topUp?.groupId !== group.id">
+            <button
+              v-if="rules.issue.regular"
+              type="button"
+              :class="{ secondary: validKeys(group.id, 'regular') > 0 }"
+              :disabled="busy || !((counts[group.id] ?? 0) >= 1)"
+              :data-issue="`${group.id}:regular`"
+              @click="request(group.id, 'regular')"
+            >
+              {{ validKeys(group.id, 'regular') > 0 ? 'Weitere Stimmkarten (zusätzlicher Stapel)' : 'Stimmkarten erzeugen' }}
+            </button>
+            <button
+              v-if="rules.issue.runoff"
+              type="button"
+              class="secondary"
+              :disabled="busy || !((counts[group.id] ?? 0) >= 1)"
+              :data-issue="`${group.id}:runoff`"
+              @click="request(group.id, 'runoff')"
+            >
+              {{ validKeys(group.id, 'runoff') > 0 ? 'Weitere Stichwahl-Stimmkarten (zusätzlicher Stapel)' : 'Stichwahl-Stimmkarten erzeugen' }}
+            </button>
+          </template>
+          <p
+            v-if="proposed.has(group.id)"
+            :id="`count-hint-${group.id}`"
+            class="count-hint"
           >
-            Stimmkarten erzeugen
-          </button>
-          <button
-            v-if="rules.issue.runoff"
-            type="button"
-            class="secondary"
-            :disabled="busy || !((counts[group.id] ?? 0) >= 1)"
-            @click="issue(group.id, 'runoff')"
+            Für die Stichwahl vorgeschlagen: so viele wie im 1. Wahlgang.
+          </p>
+          <fieldset
+            v-if="topUp?.groupId === group.id"
+            class="confirm top-up"
+            :aria-label="`Zusätzlichen Stapel bestätigen: ${group.name}`"
+            :data-top-up="group.id"
           >
-            Stichwahl-Stimmkarten erzeugen
-          </button>
+            <span>{{ group.name }} hat schon {{ validKeys(group.id, topUp.kind) }} gültige Stimmkarten für {{ FOR_ROUND[topUp.kind] }}. Einen zusätzlichen Stapel mit {{ topUp.count }} Stimmkarten erzeugen?</span>
+            <button
+              type="button"
+              :disabled="busy"
+              @click="confirmTopUp"
+            >
+              Ja, zusätzlichen Stapel erzeugen
+            </button>
+            <button
+              type="button"
+              class="secondary cancel"
+              @click="cancelTopUp"
+            >
+              Abbrechen
+            </button>
+          </fieldset>
         </div>
       </article>
     </template>
@@ -436,6 +574,43 @@ function groupName(batch: BatchSummary): string {
 
 .class-foot input {
   width: 140px;
+}
+
+.count-hint {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.top-up {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+/* A total row: the class's valid cards of a Wahlgang, all batches together. */
+.total th {
+  background: none;
+  color: var(--ink);
+  font-size: 0.85rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.total > * {
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+}
+
+.print-all {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.print-all .muted {
+  font-size: 0.85rem;
 }
 
 .exceptions {

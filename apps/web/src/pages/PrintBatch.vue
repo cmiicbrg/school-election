@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// A batch of voting keys as sheets to print: six cards to an A4 page, each
-// exactly a sixth of the sheet, with the election, the round, the class, a
-// QR code and the key, and only the three cut lines between them. The page
+// A batch of voting keys as sheets to print (components/CardSheets.vue:
+// six cards to an A4 page, cut lines between them, a band on a runoff's
+// cards); pages/PrintRound.vue prints every batch of a Wahlgang. The page
 // shows the stored keys however often it is opened, so a sheet can be
 // printed again, until the batch's round opens: once votes are accepted,
 // nothing is printed any more. Opening it creates nothing. The browser
@@ -9,17 +9,20 @@
 // The owner and co-admins may open it any time; a witness once the batch's
 // round has closed, which the API decides.
 
-import QRCode from 'qrcode'
 import { computed, onMounted, ref } from 'vue'
 import '@fontsource/dm-sans/400.css'
 import '@fontsource/dm-sans/700.css'
 import '@fontsource/jetbrains-mono/400.css'
+import '../print-page.css'
 import { formatKey, type Lifecycle, type RoundKind } from '@school-election/election-core'
+import CardSheets from '../components/CardSheets.vue'
+import PrintNotes from '../components/PrintNotes.vue'
 import { apiGet } from '../lib/api.ts'
 import { ApiError } from '../lib/api-rules.ts'
 import { BASE_URL } from '../lib/base.ts'
 import { usePageTitle } from '../lib/page-title.ts'
-import { cardsOf, pagesOf, printable, ROUND_LABELS, voterAddress, type Card } from '../lib/sheet.ts'
+import { allDrawn, drawCodes } from '../lib/qr-images.ts'
+import { cardsOf, pagesOf, printable, ROUND_LABELS, voterAddress } from '../lib/sheet.ts'
 
 const props = defineProps<{
   id: string
@@ -96,20 +99,13 @@ async function load(): Promise<void> {
   // cards either way, and nothing to draw.
   if (!prints.value) return
   try {
-    // One image per key, drawn here: the policy allows data: images. The
-    // sheets appear, and can be printed, only once every image is there.
-    const drawn = await Promise.all(cards.value.map(async (card): Promise<[string, string]> =>
-      [card.key, await QRCode.toDataURL(card.url, { errorCorrectionLevel: 'M', margin: 0, width: 320 })]))
-    qr.value = new Map(drawn)
-    ready.value = drawn.every(([, image]) => image !== '')
+    // The sheets appear, and can be printed, only once every image is there.
+    qr.value = await drawCodes(cards.value)
+    ready.value = allDrawn(cards.value, qr.value)
     if (!ready.value) error.value = 'Die QR-Codes konnten nicht erzeugt werden.'
   } catch {
     error.value = 'Die QR-Codes konnten nicht erzeugt werden.'
   }
-}
-
-function image(card: Card): string {
-  return qr.value.get(card.key) ?? ''
 }
 
 function print(): void {
@@ -122,18 +118,13 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="print-batch">
+  <div class="print-page">
     <header class="screen-only">
       <h1>Stimmkarten drucken</h1>
       <p v-if="election && batch">
         {{ election.title }} · {{ roundLabel }} · {{ groupName }} · {{ batch.batch.keys }} Karten auf {{ pages.length }} Seiten.
       </p>
-      <p v-if="prints">
-        Diese Seite zeigt immer dieselben Codes. Sie kann bis zum Beginn des Wahlgangs noch einmal gedruckt werden; neue Codes gibt es nur über „Stapel ersetzen“ auf der Seite des Wahltermins.
-      </p>
-      <p v-if="prints">
-        Ohne Verkleinerung drucken (tatsächliche Größe, keine Ränder): Jede Karte ist genau ein Sechstel des Blattes, drei Schnitte entlang der Linien trennen sie.
-      </p>
+      <PrintNotes v-if="prints" />
       <p
         v-if="error"
         role="alert"
@@ -214,64 +205,19 @@ onMounted(() => {
       </table>
     </section>
 
-    <template v-if="ready && prints && batch && election">
-      <section
-        v-for="(page, index) in pages"
-        :key="index"
-        class="page"
-        data-testid="page"
-      >
-        <article
-          v-for="card in page"
-          :key="card.key"
-          class="card"
-          data-testid="card"
-        >
-          <h2 class="title">
-            {{ election.title }}
-          </h2>
-          <p class="round">
-            {{ roundLabel }} · {{ groupName }}
-          </p>
-          <img
-            :src="image(card)"
-            alt=""
-            class="qr"
-            data-testid="qr"
-          >
-          <p
-            class="key"
-            data-testid="key"
-          >
-            {{ card.grouped }}
-          </p>
-          <p class="how">
-            QR-Code mit dem Handy scannen, oder <strong>{{ address }}</strong> öffnen und den Code eingeben.
-          </p>
-        </article>
-      </section>
-    </template>
+    <CardSheets
+      v-if="ready && prints && batch && election"
+      :title="election.title"
+      :round-kind="batch.batch.roundKind"
+      :group-name="groupName"
+      :cards="cards"
+      :images="qr"
+      :address="address"
+    />
   </div>
 </template>
 
 <style scoped>
-.print-batch {
-  font-family: 'DM Sans', sans-serif;
-  color: #111;
-}
-
-header {
-  max-width: 210mm;
-  margin: 0 auto;
-  padding: 16px;
-}
-
-header button {
-  font: inherit;
-  font-size: 1.1rem;
-  padding: 0.5rem 1.25rem;
-}
-
 .usage {
   max-width: 210mm;
   margin: 0 auto;
@@ -289,159 +235,7 @@ header button {
   border-bottom: 1px solid #ddd;
 }
 
-/* An <output> is inline by default; these are paragraphs that announce themselves. */
-.note,
-.replaced {
-  display: block;
-}
-
-.replaced {
-  max-width: 210mm;
-  margin: 0 auto;
-  padding: 16px;
-  color: #8a1c1c;
-  font-weight: 700;
-}
-
-/* Exactly A4, two columns of 105mm by three rows of 99mm, so a card is a
-   sixth of the sheet and three cuts separate them. The cut lines are the
-   borders of two empty elements over the grid: one vertical line down the
-   middle, one horizontal line at each third. Borders print by default,
-   where a background would not; a card has no border of its own. */
-.page {
-  position: relative;
-  box-sizing: border-box;
-  width: 210mm;
-  height: 297mm;
-  padding: 0;
-  display: grid;
-  grid-template-columns: 105mm 105mm;
-  grid-template-rows: repeat(3, 99mm);
-  gap: 0;
-  break-after: page;
-  background: #fff;
-}
-
-.page::before,
-.page::after {
-  content: '';
-  position: absolute;
-  box-sizing: border-box;
-  pointer-events: none;
-}
-
-.page::before {
-  top: 0;
-  bottom: 0;
-  left: calc(105mm - 0.1mm);
-  width: 0.2mm;
-  border-left: 0.2mm solid #999;
-}
-
-.page::after {
-  left: 0;
-  right: 0;
-  top: calc(99mm - 0.1mm);
-  height: calc(99mm + 0.2mm);
-  border-top: 0.2mm solid #999;
-  border-bottom: 0.2mm solid #999;
-}
-
-/* The content keeps away from the edges, where a printer may not print. */
-.card {
-  box-sizing: border-box;
-  padding: 8mm;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: 2.5mm;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-
-/* Text is clamped to its lines, so a long title or class name, both valid,
-   never pushes the QR code or the key out of the card. */
-.title,
-.round,
-.how {
-  margin: 0;
-  max-width: 100%;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-}
-
-.title {
-  font-size: 12pt;
-  font-weight: 700;
-  line-height: 1.2;
-  -webkit-line-clamp: 2;
-}
-
-.round {
-  font-size: 10pt;
-  line-height: 1.2;
-  -webkit-line-clamp: 1;
-}
-
-.qr {
-  width: 32mm;
-  height: 32mm;
-  flex-shrink: 0;
-}
-
-.key {
+.usage .key {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 14pt;
-  letter-spacing: 0.04em;
-  margin: 0;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.how {
-  font-size: 8.5pt;
-  line-height: 1.3;
-  -webkit-line-clamp: 2;
-}
-
-@media screen {
-  .page {
-    margin: 0 auto 8mm;
-    box-shadow: 0 0 6px rgb(0 0 0 / 25%);
-  }
-}
-
-@media print {
-  .screen-only {
-    display: none;
-  }
-
-  .page {
-    margin: 0;
-    box-shadow: none;
-  }
-}
-
-@page {
-  size: A4 portrait;
-  margin: 0;
-}
-</style>
-
-<style>
-/* The sheets are sized to A4 exactly, so the browser's default body margin
-   would push them over the page edge in print: none while printing. Global,
-   like the page size above. */
-@media print {
-  html,
-  body {
-    margin: 0;
-    padding: 0;
-  }
 }
 </style>

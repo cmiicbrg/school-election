@@ -1,0 +1,41 @@
+/* The screen parts of the two print pages (pages/PrintBatch.vue,
+   pages/PrintRound.vue): the head with the notes and "Drucken", and the
+   notices in place of sheets. The sheets themselves are
+   components/CardSheets.vue's. */
+
+.print-page {
+  font-family: 'DM Sans', sans-serif;
+  color: #111;
+}
+
+.print-page > header {
+  max-width: 210mm;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.print-page > header button {
+  font: inherit;
+  font-size: 1.1rem;
+  padding: 0.5rem 1.25rem;
+}
+
+/* An <output> is inline by default; these are paragraphs that announce themselves. */
+.print-page .note,
+.print-page .replaced {
+  display: block;
+}
+
+.print-page .replaced {
+  max-width: 210mm;
+  margin: 0 auto;
+  padding: 16px;
+  color: #8a1c1c;
+  font-weight: 700;
+}
+
+@media print {
+  .print-page .screen-only {
+    display: none;
+  }
+}
