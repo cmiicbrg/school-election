@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env server.ts",
     "dev": "node --watch --env-file-if-exists=.env server.ts",
+    "dev:fake-entra": "node --watch --env-file-if-exists=.env test/dev-server.ts",
     "migrate": "node --env-file-if-exists=.env scripts/migrate.ts",
     "test": "node --test --test-concurrency=1 \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"

@@ -258,7 +258,8 @@ function refuseRenamed(env: Env): void {
   }
 }
 
-function isLoopbackHost(hostname: string): boolean {
+/** Whether a host name or address is this machine's: localhost, ::1 or 127.x. */
+export function isLoopbackHost(hostname: string): boolean {
   const host = hostname.replace(/^\[|\]$/g, '')
   return host === 'localhost' || host === '::1' || (isIP(host) === 4 && host.startsWith('127.'))
 }

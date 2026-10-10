@@ -13,6 +13,7 @@
   ],
   "scripts": {
     "dev:api": "npm run dev --workspace apps/api",
+    "dev:api:fake-entra": "npm run dev:fake-entra --workspace apps/api",
     "dev:web": "npm run dev --workspace apps/web",
     "build": "npm run build --workspace apps/web",
     "migrate": "npm run migrate --workspace apps/api",
