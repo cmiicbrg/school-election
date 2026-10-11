@@ -1,8 +1,10 @@
 // Die Stimmabgabe am Handy: der Code aus dem QR-Code, die Wahlgänge, der
 // Stimmzettel mit einer Zeile je Platz, das Prüfen, eine absichtlich
-// ungültige Stimme, das Ende, und der Code getippt, mit Tippfehlern. Im
-// Probelauf der Lehrkraft, den sie auf ihrer Seite startet, beobachtet
-// und beendet, und der nichts behält.
+// ungültige Stimme, das Ende, der Code getippt, mit Tippfehlern, und ein
+// verbrauchter Code. Im Probelauf der Lehrkraft, den sie auf ihrer Seite
+// startet, beobachtet und beendet, und der nichts behält. Danach eine
+// Stichwahl-Stimmkarte vor der Stichwahl, und der Weg von der Anmeldung
+// zur Stimmabgabe.
 
 import { devices, type BrowserContext, type Page } from '@playwright/test'
 import { expect, test } from '../support/test.ts'
@@ -80,6 +82,7 @@ test('die Lehrkraft startet den Probelauf; der Code aus dem QR-Code verlässt di
   await shot(anna, '24-probelauf')
   await page.goto(at(`/v#${firstKey()}`))
   await expect(page.getByRole('heading', { name: 'Schulsprecherwahl 2026/27' })).toBeVisible()
+  await expect(page.getByText('1. Wahlgang', { exact: true })).toBeVisible()
   await expect(page).toHaveURL(urlOf('/v'))
   expect(await page.evaluate(() => window.location.hash)).toBe('')
   expect(requested.filter((url) => url.includes(firstKey()))).toEqual([])
@@ -105,12 +108,14 @@ test('der Stimmzettel für Schulsprecher/in: drei Zeilen mit 6, 5 und 4 Punkten,
   await expect(candidates.filter({ has: page.locator('img') })).toContainText('Paula Berger')
   expect(await pictures.first().evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true)
 
-  // Paula for 6, then Paula for 5: she moves, and 6 is empty again.
+  // Paula for 6, then Paula for 5: she moves, 6 is empty again, and the ballot says so.
   await row('6 Punkte · Schulsprecher/in').selectOption({ label: 'Paula Berger' })
   await expect(candidates.filter({ hasText: 'Paula Berger' })).toContainText('gereiht: 6 Punkte')
+  await expect(page.getByRole('status')).toHaveText('')
   await row('5 Punkte · 1. Stellvertretung Schulsprecher/in').selectOption({ label: 'Paula Berger' })
   await expect(row('6 Punkte · Schulsprecher/in')).toHaveValue('')
   await expect(candidates.filter({ hasText: 'Paula Berger' })).toContainText('gereiht: 5 Punkte')
+  await expect(page.getByRole('status')).toHaveText('Paula Berger steht jetzt in der Zeile mit 5 Punkten; die Zeile mit 6 Punkten ist leer.')
   await row('6 Punkte · Schulsprecher/in').selectOption({ label: 'Paula Berger' })
   await row('5 Punkte · 1. Stellvertretung Schulsprecher/in').selectOption({ label: 'Renate Wagner' })
   await row('4 Punkte · 2. Stellvertretung Schulsprecher/in').selectOption({ label: 'Quirin Huber-Mayer' })
@@ -124,11 +129,13 @@ test('der Stimmzettel für Schulsprecher/in: drei Zeilen mit 6, 5 und 4 Punkten,
     '4 Punkte · 2. Stellvertretung Schulsprecher/in: Quirin Huber-Mayer',
   ])
   await expect(page.getByRole('status')).toHaveText('Gültige Stimme.')
+  await expect(page.getByText('Nach dem Abgeben lässt sich die Stimme nicht mehr ändern.')).toBeVisible()
   await shot(page, '21-handy-pruefen')
   await page.getByRole('button', { name: 'Abgeben', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Schulsprecherwahl 2026/27' })).toBeFocused()
   await expect(contests().filter({ hasText: SCHOOL })).toContainText('abgegeben')
-  await expect(page.getByRole('status')).toHaveText('Noch 1 Wahl offen.')
+  await expect(contests().filter({ hasText: SCHOOL }).getByRole('button')).toHaveCount(0)
+  await expect(page.getByRole('status')).toHaveText(`Stimme für „${SCHOOL}“ abgegeben. Noch 1 Wahl offen.`)
 })
 
 test('der Klassensprecher-Stimmzettel mit einer leeren Zeile: ungültig, nur mit Bestätigung; die letzte Stimme beendet die Sitzung', async () => {
@@ -148,6 +155,8 @@ test('der Klassensprecher-Stimmzettel mit einer leeren Zeile: ungültig, nur mit
   await shot(page, '22-handy-ungueltig')
   await page.getByRole('button', { name: 'Ungültig abgeben' }).click()
   await expect(page.getByRole('heading', { name: 'Danke!' })).toBeFocused()
+  await expect(page.getByText('Ihre Stimmen sind abgegeben.')).toBeVisible()
+  await expect(page.getByText('Diese Stimmkarte ist damit verbraucht. Sie können diese Seite jetzt schließen.')).toBeVisible()
   await shot(page, '23-handy-fertig')
   expect((await phone.cookies()).map((cookie) => cookie.name)).not.toContain('__Secure-voter-session')
   expect(requested.filter((url) => url.includes(firstKey()))).toEqual([])
@@ -160,7 +169,7 @@ test('der Klassensprecher-Stimmzettel mit einer leeren Zeile: ungültig, nur mit
   await expect(interim).toContainText(`${SCHOOL}: 1 Stimme. Erste Stellen: Paula Berger 1, Quirin Huber-Mayer 0, Renate Wagner 0.`)
 })
 
-test('derselbe Code getippt: Tippfehler werden vor dem Senden erkannt, die Karte eines ersetzten Stapels abgewiesen, ein verbrauchter Code zeigt, dass alles abgegeben ist', async ({ browser }) => {
+test('derselbe Code getippt: Tippfehler werden vor dem Senden erkannt, die Karte eines ersetzten Stapels abgewiesen, ein verbrauchter Code sagt, dass mit ihm schon abgestimmt wurde', async ({ browser }) => {
   const other = await browser.newContext({ ...devices['Pixel 7'] })
   const typed = await other.newPage()
   const sent: string[] = []
@@ -170,6 +179,7 @@ test('derselbe Code getippt: Tippfehler werden vor dem Senden erkannt, die Karte
   await typed.goto(at('/v'))
   await expect(typed.getByRole('heading', { name: 'Stimmabgabe' })).toBeVisible()
   await expect(typed.getByLabel('Code')).toBeFocused()
+  await expect(typed.getByLabel('Code')).toHaveAccessibleDescription(/Der Code steht auf der Stimmkarte unter dem QR-Code: 20 Zeichen in Gruppen zu vier\./)
   await shot(typed, '18-handy-code')
   const key = firstKey()
 
@@ -179,6 +189,9 @@ test('derselbe Code getippt: Tippfehler werden vor dem Senden erkannt, die Karte
   await typed.getByLabel('Code').fill(`${key.slice(0, 19)}${key[19] === 'A' ? 'B' : 'A'}`)
   await typed.getByRole('button', { name: 'Weiter' }).click()
   await expect(typed.getByRole('alert')).toHaveText('Da ist ein Tippfehler. Bitte vergleichen Sie Ihre Eingabe mit der Stimmkarte.')
+  await typed.getByLabel('Code').fill(`${key.slice(0, 19)}U`)
+  await typed.getByRole('button', { name: 'Weiter' }).click()
+  await expect(typed.getByRole('alert')).toHaveText('Ein Zeichen kommt in Codes nicht vor: Ein Code hat Ziffern und Buchstaben, aber kein U. Bitte vergleichen Sie Ihre Eingabe mit der Stimmkarte.')
   expect(sent).toEqual([])
 
   // The card of a replaced batch: well formed, and refused as an unknown code is.
@@ -190,16 +203,18 @@ test('derselbe Code getippt: Tippfehler werden vor dem Senden erkannt, die Karte
   await typed.getByLabel('Code').fill(key.toLowerCase().match(/.{1,4}/g)?.join(' ') ?? '')
   await expect(typed.getByText(key.match(/.{1,4}/g)?.join('-') ?? '', { exact: true })).toBeVisible()
   await typed.getByRole('button', { name: 'Weiter' }).click()
-  await expect(typed.getByRole('status')).toHaveText('Sie haben in allen Wahlen abgestimmt.')
-  await expect(typed.getByRole('list', { name: 'Wahlen' }).getByText('abgegeben')).toHaveCount(2)
-  // "Fertig" that does not reach the server leaves the page as it is: the cookie is still there.
+  // Used up: said straight away, not as a list of Wahlen all cast.
+  await expect(typed.getByRole('heading', { name: 'Schon abgestimmt' })).toBeFocused()
+  await expect(typed.getByText('Mit dieser Stimmkarte wurde in allen Wahlen schon abgestimmt.')).toBeVisible()
+  await expect(typed.getByRole('list', { name: 'Wahlen' })).toHaveCount(0)
+  // "Anderen Code eingeben" that does not reach the server leaves the page as it is: the cookie is still there.
   await other.route('**/api/voter/session/end', (route) => route.abort())
   expectFailure(new URL(`${BASE_PATH}/api/voter/session/end`, typed.url()).toString())
-  await typed.getByRole('button', { name: 'Fertig' }).click()
+  await typed.getByRole('button', { name: 'Anderen Code eingeben' }).click()
   await expect(typed.getByRole('alert')).toHaveText('Das hat nicht geklappt. Bitte versuchen Sie es noch einmal.')
-  await expect(typed.getByRole('status')).toHaveText('Sie haben in allen Wahlen abgestimmt.')
+  await expect(typed.getByRole('heading', { name: 'Schon abgestimmt' })).toBeVisible()
   await other.unroute('**/api/voter/session/end')
-  await typed.getByRole('button', { name: 'Fertig' }).click()
+  await typed.getByRole('button', { name: 'Anderen Code eingeben' }).click()
   await expect(typed.getByRole('heading', { name: 'Stimmabgabe' })).toBeVisible()
   expect((await other.cookies()).map((cookie) => cookie.name)).not.toContain('__Secure-voter-session')
   await other.close()
@@ -298,5 +313,33 @@ test('ein zweiter Code läuft über ein Neuladen der Seite weiter; nach dem Ende
     await reloaded.reload()
   })
   await expect(reloaded.getByRole('alert')).toHaveText('Die Stimmabgabe hat noch nicht begonnen. Bitte versuchen Sie es später noch einmal.')
+  await context.close()
+})
+
+test('eine Stichwahl-Stimmkarte vor der Stichwahl sagt, dass sie erst dann gilt; wer /v vergisst, kommt von der Anmeldung zur Stimmabgabe', async ({ browser }) => {
+  const runoffKey = (await apiGet<{ keys: { key: string }[] }>(anna, `/api/elections/${electionId()}/batches/${batchId('1A runoff')}`)).body.keys[0]?.key ?? ''
+  expect(runoffKey).toMatch(/^[0-9A-HJKMNP-TV-Z]{20}$/)
+  const context = await browser.newContext({ ...devices['Pixel 7'] })
+  const scanned = await context.newPage()
+  // Scanned with a slash after the /v, as a typed address may end: the same page, and the key leaves the address all the same.
+  await refused(scanned, 409, async () => {
+    await scanned.goto(at(`/v/#${runoffKey}`))
+  })
+  await expect(scanned.getByRole('alert')).toHaveText('Das ist eine Stichwahl-Stimmkarte. Sie gilt erst, wenn die Stichwahl beginnt.')
+  await expect(scanned).toHaveURL(urlOf('/v'))
+  expect(await scanned.evaluate(() => window.location.hash)).toBe('')
+
+  // The app's address without the /v leads to the teachers' sign-in, which shows the way to the voter page.
+  const lost = await context.newPage()
+  await lost.goto(at('/'))
+  await expect(lost.getByRole('heading', { name: 'Anmeldung', exact: true })).toBeVisible()
+  await expect(lost.getByText('Sie möchten wählen? Dafür ist keine Anmeldung nötig.')).toBeVisible()
+  await lost.getByRole('link', { name: 'Zur Stimmabgabe' }).click()
+  await expect(lost.getByRole('heading', { name: 'Stimmabgabe' })).toBeVisible()
+  await expect(lost).toHaveURL(urlOf('/v'))
+  // Typed with the slash, the voter page as well, not the sign-in.
+  await lost.goto(at('/v/'))
+  await expect(lost.getByRole('heading', { name: 'Stimmabgabe' })).toBeVisible()
+  await expect(lost.getByLabel('Code')).toBeFocused()
   await context.close()
 })

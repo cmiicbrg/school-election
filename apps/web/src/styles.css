@@ -80,7 +80,8 @@ body {
   text-decoration: none;
 }
 
-.shell-header .brand-mark {
+/* The app's mark: the ballot in a blue square, in the shell and above the voter page. */
+.brand-mark {
   display: grid;
   place-items: center;
   width: 32px;

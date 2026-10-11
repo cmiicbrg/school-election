@@ -23,17 +23,22 @@ export interface HistoryLike {
 let pending: string | undefined
 
 /**
- * On the voter page, under the app's base path, takes the key out of the
- * fragment and the history entry and keeps it for `pendingKey`; anywhere
- * else, or without a fragment, does nothing. Returns what it took.
+ * On the voter page, under the app's base path and with or without a
+ * trailing slash, takes the key out of the fragment and the history entry
+ * and keeps it for `pendingKey`; anywhere else, or without a fragment,
+ * does nothing. Returns what it took.
  */
 export function takeKey(location: LocationLike, history: HistoryLike, basePath = ''): string | undefined {
   const voterPath = `${basePath}${VOTER_PATH}`
-  if (location.pathname !== voterPath || location.hash.length < 2) return undefined
+  if (!isVoterPath(location.pathname, voterPath) || location.hash.length < 2) return undefined
   const key = location.hash.slice(1)
   history.replaceState(history.state, '', voterPath)
   pending = key
   return key
+}
+
+function isVoterPath(pathname: string, voterPath: string): boolean {
+  return pathname === voterPath || pathname === `${voterPath}/`
 }
 
 /** The key the page was opened with, once; afterwards undefined. */

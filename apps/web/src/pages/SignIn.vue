@@ -1,11 +1,13 @@
 <script setup lang="ts">
 // Where a signed-out person lands: one button, to the school's Microsoft
-// sign-in, and back to the page they wanted. Whoever is signed in already
-// is sent there right away. The return path is a full path, base path
-// included, as the server takes it; the router gets it without the base.
+// sign-in, and back to the page they wanted; and, for a student who typed
+// the address without its /v, the way to the voter page. Whoever is signed
+// in already is sent there right away. The return path is a full path,
+// base path included, as the server takes it; the router gets it without
+// the base.
 
 import { computed, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { loginUrl, ownPath } from '../lib/api-rules.ts'
 import { withBase, withoutBase } from '../lib/base.ts'
 import { usePageTitle } from '../lib/page-title.ts'
@@ -29,4 +31,18 @@ watch([session, returnTo], ([who, to]) => {
     class="button"
     :href="target"
   >Anmelden</a>
+  <p class="voting">
+    Sie möchten wählen? Dafür ist keine Anmeldung nötig.
+    <RouterLink to="/v">
+      Zur Stimmabgabe
+    </RouterLink>
+  </p>
 </template>
+
+<style scoped>
+.voting {
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+</style>

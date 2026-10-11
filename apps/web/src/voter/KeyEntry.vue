@@ -1,8 +1,9 @@
 <script setup lang="ts">
-// The code from the card, typed: shown as the card prints it while typing,
-// checked here for its length, its symbols and its check symbol before
-// anything is sent, and handed up as typed. The page's message, a refusal
-// of the code or an ended session, is shown in the same place.
+// The code from the card, typed: where the card has it, shown as the card
+// prints it while typing, checked here for its length, its symbols and its
+// check symbol before anything is sent, and handed up as typed. The page's
+// message, a refusal of the code or an ended session, is shown in the same
+// place.
 
 import { computed, onMounted, ref } from 'vue'
 import { groupedKey, keyHint } from './voter-rules.ts'
@@ -45,6 +46,12 @@ function submit(): void {
     </h1>
     <p>Geben Sie den Code von Ihrer Stimmkarte ein.</p>
     <label for="voter-key">Code</label>
+    <p
+      id="voter-key-hint"
+      class="hint muted"
+    >
+      Der Code steht auf der Stimmkarte unter dem QR-Code: 20 Zeichen in Gruppen zu vier. Wenn Sie den QR-Code scannen, ist der Code schon eingetragen.
+    </p>
     <input
       id="voter-key"
       ref="field"
@@ -55,7 +62,7 @@ function submit(): void {
       autocomplete="off"
       spellcheck="false"
       :disabled="busy"
-      aria-describedby="voter-key-shown"
+      aria-describedby="voter-key-hint voter-key-shown"
     >
     <output
       id="voter-key-shown"
@@ -95,5 +102,10 @@ function submit(): void {
   font-size: 1.1rem;
   letter-spacing: 0.08em;
   color: var(--muted);
+}
+
+.hint {
+  margin-bottom: 8px;
+  font-size: 0.9rem;
 }
 </style>

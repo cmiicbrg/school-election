@@ -21,8 +21,19 @@ test('on the voter page the key is taken out of the fragment and the history ent
   assert.equal(pendingKey(), undefined, 'once')
 })
 
+test('a typed address may end in a slash: the key is taken all the same, and the entry is replaced by /v', () => {
+  const history = fakeHistory()
+  assert.equal(takeKey({ pathname: '/v/', hash: '#7KM4P9VX2RNCWQ5DH3TB' }, history), '7KM4P9VX2RNCWQ5DH3TB')
+  assert.deepEqual(history.calls, [[{ marker: 1 }, '', VOTER_PATH]])
+  assert.equal(pendingKey(), '7KM4P9VX2RNCWQ5DH3TB')
+  const based = fakeHistory()
+  assert.equal(takeKey({ pathname: '/wahl/v/', hash: '#7KM4P9VX2RNCWQ5DH3TB' }, based, '/wahl'), '7KM4P9VX2RNCWQ5DH3TB')
+  assert.deepEqual(based.calls, [[{ marker: 1 }, '', '/wahl/v']])
+  assert.equal(pendingKey(), '7KM4P9VX2RNCWQ5DH3TB')
+})
+
 test('without a fragment, or on another page, nothing is taken and nothing replaced', () => {
-  for (const location of [{ pathname: '/v', hash: '' }, { pathname: '/v', hash: '#' }, { pathname: '/', hash: '#7KM4P9VX2RNCWQ5DH3TB' }, { pathname: '/anmelden', hash: '#x' }]) {
+  for (const location of [{ pathname: '/v', hash: '' }, { pathname: '/v/', hash: '#' }, { pathname: '/', hash: '#7KM4P9VX2RNCWQ5DH3TB' }, { pathname: '/anmelden', hash: '#x' }, { pathname: '/v/x', hash: '#7KM4P9VX2RNCWQ5DH3TB' }, { pathname: '/vv', hash: '#7KM4P9VX2RNCWQ5DH3TB' }]) {
     const history = fakeHistory()
     assert.equal(takeKey(location, history), undefined, JSON.stringify(location))
     assert.deepEqual(history.calls, [])

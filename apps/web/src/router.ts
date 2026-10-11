@@ -35,7 +35,7 @@ export const router = createRouter({
   ],
 })
 
-/** Pages without the shell: the voter page and the print pages. */
+/** Pages without the shell: the voter page, also with the slash a typed address may end in, and the print pages. */
 export function isBarePath(path: string): boolean {
-  return path === '/v' || path.endsWith('/print')
+  return path === '/v' || path === '/v/' || path.endsWith('/print')
 }
