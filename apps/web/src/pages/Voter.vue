@@ -309,35 +309,6 @@ function end(): void {
         @correct="correct"
       />
       <section
-        v-else-if="step.kind === 'done' && step.used"
-        aria-labelledby="voter-heading"
-      >
-        <h1
-          id="voter-heading"
-          tabindex="-1"
-        >
-          Schon abgestimmt
-        </h1>
-        <p>Mit dieser Stimmkarte wurde in allen Wahlen schon abgestimmt.</p>
-        <p
-          v-if="message"
-          class="message error"
-          role="alert"
-        >
-          {{ message }}
-        </p>
-        <div class="actions">
-          <button
-            type="button"
-            class="secondary"
-            :disabled="busy"
-            @click="end"
-          >
-            Anderen Code eingeben
-          </button>
-        </div>
-      </section>
-      <section
         v-else-if="step.kind === 'done'"
         aria-labelledby="voter-heading"
       >
@@ -345,16 +316,38 @@ function end(): void {
           id="voter-heading"
           tabindex="-1"
         >
-          Danke!
+          {{ step.used ? 'Schon abgestimmt' : 'Danke!' }}
         </h1>
-        <p class="thanks">
-          <LineIcon
-            name="check"
-            :size="22"
-          />
-          {{ step.ballots > 1 ? 'Ihre Stimmen sind abgegeben.' : 'Ihre Stimme ist abgegeben.' }}
-        </p>
-        <p>Diese Stimmkarte ist damit verbraucht. Sie können diese Seite jetzt schließen.</p>
+        <template v-if="step.used">
+          <p>Mit dieser Stimmkarte wurde in allen Wahlen schon abgestimmt.</p>
+          <p
+            v-if="message"
+            class="message error"
+            role="alert"
+          >
+            {{ message }}
+          </p>
+          <div class="actions">
+            <button
+              type="button"
+              class="secondary"
+              :disabled="busy"
+              @click="end"
+            >
+              Anderen Code eingeben
+            </button>
+          </div>
+        </template>
+        <template v-else>
+          <p class="thanks">
+            <LineIcon
+              name="check"
+              :size="22"
+            />
+            {{ step.ballots > 1 ? 'Ihre Stimmen sind abgegeben.' : 'Ihre Stimme ist abgegeben.' }}
+          </p>
+          <p>Diese Stimmkarte ist damit verbraucht. Sie können diese Seite jetzt schließen.</p>
+        </template>
       </section>
     </main>
   </div>
