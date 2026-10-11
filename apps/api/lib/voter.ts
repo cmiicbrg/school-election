@@ -5,7 +5,7 @@
 // ballot or restore an entitlement.
 
 import type pg from 'pg'
-import { activeSlots, RULESETS, type RoundState, type RulesetId } from '@school-election/election-core'
+import { activeSlots, RULESETS, type RoundKind, type RoundState, type RulesetId } from '@school-election/election-core'
 import type { Database } from './db.ts'
 import { compareCandidates, compareLabels } from './names.ts'
 
@@ -18,6 +18,8 @@ export type VotingState = 'open' | 'testing'
 export interface RedeemedKey {
   credentialId: string
   electionId: string
+  /** The round the key's batch is for, as its card says: the regular round or the runoff. */
+  roundKind: RoundKind
   /** The key's round, or null while the batch's round does not exist yet (runoff keys before activation). */
   roundId: string | null
   roundState: RoundState | null
@@ -28,8 +30,8 @@ export interface RedeemedKey {
 
 /** The key as stored, of an issued batch, with its round as it is now; undefined for an unknown key or one of a void batch, alike. */
 export async function lookUpKey(db: Queryable, key: string): Promise<RedeemedKey | undefined> {
-  const { rows: [row] } = await db.query<{ id: string, election_id: string, round_id: string | null, state: RoundState | null, phase: string | null, accepts: boolean | null }>(
-    `select c.id, c.election_id, r.id as round_id, r.state, r.phase, rs.accepts_ballots as accepts
+  const { rows: [row] } = await db.query<{ id: string, election_id: string, kind: RoundKind, round_id: string | null, state: RoundState | null, phase: string | null, accepts: boolean | null }>(
+    `select c.id, c.election_id, b.round_kind as kind, r.id as round_id, r.state, r.phase, rs.accepts_ballots as accepts
        from credential c
        join credential_batch b on b.id = c.batch_id and b.state = 'issued'
        left join round r on r.election_id = c.election_id and r.kind = b.round_kind
@@ -38,7 +40,7 @@ export async function lookUpKey(db: Queryable, key: string): Promise<RedeemedKey
     [key],
   )
   if (!row) return undefined
-  return { credentialId: row.id, electionId: row.election_id, roundId: row.round_id, roundState: row.state, phase: row.phase, acceptsBallots: row.accepts === true }
+  return { credentialId: row.id, electionId: row.election_id, roundKind: row.kind, roundId: row.round_id, roundState: row.state, phase: row.phase, acceptsBallots: row.accepts === true }
 }
 
 export interface VoterCandidate {
@@ -61,6 +63,8 @@ export interface VoterContest {
 export interface VoterElection {
   title: string
   round: VotingState
+  /** The round the key votes in: the regular round or the runoff. */
+  roundKind: RoundKind
   contests: VoterContest[]
   remaining: number
 }
@@ -91,8 +95,8 @@ export async function roundNow(db: Queryable, roundId: string, lock = false): Pr
 
 /** The election's title and the contests the key is entitled to in its round, in the configuration's order with candidates in ballot order, each with whether the key has voted there. */
 export async function voterElection(db: Queryable, credentialId: string, roundId: string, round: VotingState): Promise<VoterElection> {
-  const { rows: [election] } = await db.query<{ title: string }>(
-    'select e.title from round r join election e on e.id = r.election_id where r.id = $1',
+  const { rows: [election] } = await db.query<{ title: string, kind: RoundKind }>(
+    'select e.title, r.kind from round r join election e on e.id = r.election_id where r.id = $1',
     [roundId],
   )
   if (!election) throw new Error('the session names a round that is gone')
@@ -131,6 +135,7 @@ export async function voterElection(db: Queryable, credentialId: string, roundId
   return {
     title: election.title,
     round,
+    roundKind: election.kind,
     contests,
     remaining: contests.filter((contest) => !contest.done).length,
   }

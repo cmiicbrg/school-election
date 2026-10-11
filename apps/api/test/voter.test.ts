@@ -30,6 +30,7 @@ const prepared = (t: TestContext): Promise<RouteSetup> => preparedElection(t, {
 interface VoterElection {
   title: string
   round: string
+  roundKind: string
   remaining: number
   contests: { id: string, roundContestId: string, title: string, activeSlots: number, done: boolean, candidates: { id: string, surname: string, picture: string | null }[] }[]
 }
@@ -64,6 +65,7 @@ test('a key votes once in every contest it is entitled to and in no other; the l
   const voter = voterBrowser(x.s)
   const election = ok<VoterElection>(await voter.redeem(x.keys['1A']?.[0] ?? ''))
   assert.equal(election.round, 'open')
+  assert.equal(election.roundKind, 'regular')
   assert.equal(election.remaining, 2)
   assert.deepEqual(election.contests.map((contest) => [contest.title, contest.roundContestId, contest.activeSlots, contest.done]), [['Klassensprecher/in 1A', classBox, 2, false], ['Schulsprecher/in', schoolBox, 3, false]])
   assert.deepEqual(election.contests[1]?.candidates.map((candidate) => candidate.surname), ['Berger', 'Huber', 'Wagner'])
@@ -98,7 +100,8 @@ test('a malformed key names its typo; an unknown key and a void batch\'s key get
   const voter = voterBrowser(x.s)
   const [key] = x.keys['2B'] ?? []
   assert.ok(key)
-  refused(await voter.redeem(key), 409, 'round_planned')
+  // The refusal names the round the card is for, as printed on it.
+  assert.deepEqual((await voter.redeem(key)).json(), { error: 'round_planned', round: 'regular' })
   assert.deepEqual((await voter.redeem('ABC')).json(), { error: 'invalid_key', problem: 'length' })
   assert.deepEqual((await voter.redeem(`${key.slice(0, 19)}${key[19] === 'A' ? 'B' : 'A'}`)).json(), { error: 'invalid_key', problem: 'check' })
   assert.deepEqual((await voter.redeem(key.replace(/[0-9A-Z]/, 'U'))).json(), { error: 'invalid_key', problem: 'symbol' })
@@ -125,7 +128,8 @@ test('a malformed key names its typo; an unknown key and a void batch\'s key get
 
   // Closing ends the sessions still open: the lifecycle's answer once, the cookie gone with it, and nothing after.
   ok(await x.anna.request('POST', `${x.base}/rounds/regular/close`))
-  refused(await voterBrowser(x.s).redeem(x.keys['1A']?.[1] ?? ''), 409, 'round_closed')
+  const closed = await voterBrowser(x.s).redeem(x.keys['1A']?.[1] ?? '')
+  assert.deepEqual([closed.statusCode, closed.json()], [409, { error: 'round_closed', round: 'regular' }])
   refused(await late.contests(), 409, 'round_closed')
   assert.equal(late.jar.values.has('__Secure-voter-session'), false, 'the answer took the cookie with it')
   const [school] = x.contests

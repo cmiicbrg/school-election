@@ -51,8 +51,11 @@ test('the runoff: activated with the pair on fresh keys, voted through the voter
   refused(await x.wanda.request('GET', `${x.base}/rounds/runoff/result`), 409, 'no_runoff')
   // Keys before the activation: a runoff key's round does not exist yet, a first-round key's round is over.
   const [runoff1, runoff2, runoff3] = x.runoffKeys['1A'] as [string, string, string]
-  refused((await voteByKey(x, runoff1, x.boxId, { kind: 'ranking', ranking: [paula] })).redeemed, 409, 'round_planned')
-  refused((await voteByKey(x, x.keys['1A']?.[0] ?? '', x.boxId, { kind: 'ranking', ranking: [paula] })).redeemed, 409, 'round_closed')
+  // Each refusal names the round the card is for: the page tells a runoff card early from a first-round card late.
+  const early = (await voteByKey(x, runoff1, x.boxId, { kind: 'ranking', ranking: [paula] })).redeemed
+  assert.deepEqual([early.statusCode, early.json()], [409, { error: 'round_planned', round: 'runoff' }])
+  const late = (await voteByKey(x, x.keys['1A']?.[0] ?? '', x.boxId, { kind: 'ranking', ranking: [paula] })).redeemed
+  assert.deepEqual([late.statusCode, late.json()], [409, { error: 'round_closed', round: 'regular' }])
 
   refused(await x.wanda.request('POST', `${x.base}/rounds/runoff/activate`), 403, 'forbidden')
   const activated = ok<{ election: string, round: string, contests: { contestId: string, candidates: string[] }[], keys: number }>(await x.carla.request('POST', `${x.base}/rounds/runoff/activate`))
@@ -69,8 +72,8 @@ test('the runoff: activated with the pair on fresh keys, voted through the voter
   // The runoff voted: the pair as one choice; a candidate outside the pair, a first-round key and a second ballot are refused.
   const box = await runoffBoxOf(x, x.contest.id)
   const first = await voteByKey(x, runoff1, box, { kind: 'ranking', ranking: [paula] })
-  const seen = ok<{ round: string, contests: { rulesetId: string, activeSlots: number, candidates: { id: string }[] }[] }>(first.redeemed)
-  assert.equal(seen.round, 'open')
+  const seen = ok<{ round: string, roundKind: string, contests: { rulesetId: string, activeSlots: number, candidates: { id: string }[] }[] }>(first.redeemed)
+  assert.deepEqual([seen.round, seen.roundKind], ['open', 'runoff'])
   assert.deepEqual(seen.contests.map((contest) => [contest.rulesetId, contest.activeSlots, contest.candidates.map((candidate) => candidate.id)]), [['single-choice-v1', 1, [paula, quirin]]])
   assert.deepEqual(ok(first.cast ?? assert.fail('no ballot')), { done: true, remaining: 0 })
   const outside = await voteByKey(x, runoff2, box, { kind: 'ranking', ranking: [renate] })
@@ -78,13 +81,15 @@ test('the runoff: activated with the pair on fresh keys, voted through the voter
   assert.deepEqual(ok(((await voteByKey(x, runoff2, box, { kind: 'ranking', ranking: [paula] })).cast) ?? assert.fail('no ballot')), { done: true, remaining: 0 })
   assert.deepEqual(ok(((await voteByKey(x, runoff3, box, { kind: 'ranking', ranking: [quirin] })).cast) ?? assert.fail('no ballot')), { done: true, remaining: 0 })
   refused((await voteByKey(x, runoff3, box, { kind: 'ranking', ranking: [quirin] })).cast ?? assert.fail('no ballot'), 409, 'already_voted')
-  refused((await voteByKey(x, x.keys['1A']?.[1] ?? '', box, { kind: 'ranking', ranking: [paula] })).redeemed, 409, 'round_closed')
+  const firstRoundCard = (await voteByKey(x, x.keys['1A']?.[1] ?? '', box, { kind: 'ranking', ranking: [paula] })).redeemed
+  assert.deepEqual([firstRoundCard.statusCode, firstRoundCard.json()], [409, { error: 'round_closed', round: 'regular' }])
   assert.deepEqual(ok(await x.wanda.request('GET', `${x.base}/rounds/runoff/turnout`)), { round: 'open', keys: { issued: 3, used: 3 }, contests: [{ contestId: x.contest.id, issued: 3, used: 3 }] })
 
   refused(await x.wanda.request('POST', `${x.base}/rounds/runoff/close`), 403, 'forbidden')
   const closedRunoff = ok<{ election: string, round: string, ballots: number, contests: { contestId: string, outcome: string }[] }>(await x.anna.request('POST', `${x.base}/rounds/runoff/close`))
   assert.deepEqual(closedRunoff, { election: 'active', round: 'closed', ballots: 3, contests: [{ contestId: x.contest.id, outcome: 'final' }] })
-  refused((await voteByKey(x, runoff3, box, { kind: 'ranking', ranking: [quirin] })).redeemed, 409, 'round_closed')
+  const afterRunoff = (await voteByKey(x, runoff3, box, { kind: 'ranking', ranking: [quirin] })).redeemed
+  assert.deepEqual([afterRunoff.statusCode, afterRunoff.json()], [409, { error: 'round_closed', round: 'runoff' }])
   assert.deepEqual((await lifecycleOf(x.wanda, x.base)).lifecycle, { election: 'active', regular: 'closed', runoff: 'closed' })
 
   for (const by of [x.anna, x.carla, x.wanda]) {
