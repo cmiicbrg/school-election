@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { generateKey, KEY_RANDOM_BYTES } from '@school-election/election-core'
 import { refusalOf, type VoterContest } from '../src/voter/voter-api.ts'
-import { candidateName, emptyRowsText, GENERAL_MESSAGE, groupedKey, keyHint, KEY_HINTS, messageFor, pointsLabel, remainingText, slotRows, VOTER_MESSAGES, yesOrNo } from '../src/voter/voter-rules.ts'
+import { candidateName, castText, emptyRowsText, GENERAL_MESSAGE, groupedKey, keyHint, KEY_HINTS, messageFor, movedText, pointsLabel, remainingText, slotRows, VOTER_MESSAGES, WRONG_ROUND, yesOrNo } from '../src/voter/voter-rules.ts'
 
 const KEY = generateKey(Uint8Array.from({ length: KEY_RANDOM_BYTES }, (_, n) => n * 7))
 
@@ -30,6 +30,14 @@ test('the hints name the length, a symbol outside the alphabet and a typo, and t
   assert.equal(messageFor(refusalOf(400, { error: 'invalid_key', problem: 'nonsense' })), KEY_HINTS.check)
 })
 
+test('I, L and O are read as 1 and 0, so only a character no code has is refused as a symbol', () => {
+  const withLetters = KEY.replaceAll('1', 'l').replaceAll('0', 'O')
+  assert.equal(keyHint(withLetters), null)
+  assert.equal(keyHint(`${KEY.slice(0, 19)}Ä`), KEY_HINTS.symbol)
+  assert.match(KEY_HINTS.symbol, /kommt in Codes nicht vor/)
+  assert.doesNotMatch(KEY_HINTS.symbol, /ohne I, L, O/)
+})
+
 test('every answer of the voter API has its sentence; anything else gets the general one', () => {
   for (const code of ['unknown_key', 'invalid_key', 'round_planned', 'round_closed', 'rate_limited', 'no_session', 'already_voted', 'not_entitled', 'invalid_ballot', 'cross_site_request', 'internal_error']) {
     const message = VOTER_MESSAGES[code]
@@ -39,6 +47,21 @@ test('every answer of the voter API has its sentence; anything else gets the gen
   assert.equal(messageFor(refusalOf(503, {})), GENERAL_MESSAGE)
   assert.equal(messageFor(refusalOf(400, { error: 'something_new' })), GENERAL_MESSAGE)
   assert.equal(messageFor(new TypeError('failed to fetch')), GENERAL_MESSAGE)
+})
+
+test('a card whose Wahlgang takes no votes now hears which Wahlgang it is for: a 1. Wahlgang card in the runoff is over, a runoff card early is not yet valid', () => {
+  assert.equal(refusalOf(409, { error: 'round_closed', round: 'regular' }).round, 'regular')
+  assert.equal(refusalOf(409, { error: 'round_closed', round: 'second' }).round, undefined, 'only the two Wahlgänge')
+  assert.equal(messageFor(refusalOf(409, { error: 'round_closed', round: 'regular' })),
+    'Der 1. Wahlgang ist beendet; diese Stimmkarte gilt nicht mehr. Für eine Stichwahl gibt es eigene Stimmkarten.')
+  assert.equal(messageFor(refusalOf(409, { error: 'round_planned', round: 'runoff' })),
+    'Das ist eine Stichwahl-Stimmkarte. Sie gilt erst, wenn die Stichwahl beginnt.')
+  assert.equal(messageFor(refusalOf(409, { error: 'round_closed', round: 'runoff' })),
+    'Die Stichwahl ist beendet. Es können keine Stimmen mehr abgegeben werden.')
+  assert.equal(messageFor(refusalOf(409, { error: 'round_planned', round: 'regular' })), VOTER_MESSAGES.round_planned)
+  assert.equal(WRONG_ROUND.regular.round_planned, VOTER_MESSAGES.round_planned)
+  // Without the card's Wahlgang, as a session's refusal comes: the words of the code alone.
+  assert.equal(messageFor(refusalOf(409, { error: 'round_closed' })), VOTER_MESSAGES.round_closed)
 })
 
 test('the rows of a ballot are the active slots: four candidates show four, seven show six, one shows Ja/Nein', () => {
@@ -63,4 +86,7 @@ test('the words for points, names, what is left and empty rows', () => {
   assert.equal(remainingText(0), 'Sie haben in allen Wahlen abgestimmt.')
   assert.equal(emptyRowsText(1, 2), '1 von 2 Zeilen ist leer')
   assert.equal(emptyRowsText(2, 3), '2 von 3 Zeilen sind leer')
+  assert.equal(castText('Schulsprecher/in', 1), 'Stimme für „Schulsprecher/in“ abgegeben. Noch 1 Wahl offen.')
+  assert.equal(movedText('Paula Berger', 6, 5), 'Paula Berger steht jetzt in der Zeile mit 6 Punkten; die Zeile mit 5 Punkten ist leer.')
+  assert.equal(movedText('Lena Bauer', 1, 2), 'Lena Bauer steht jetzt in der Zeile mit 1 Punkt; die Zeile mit 2 Punkten ist leer.')
 })

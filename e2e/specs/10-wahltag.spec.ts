@@ -212,7 +212,8 @@ test('Stichwahl aktivieren: der Hinweis auf die Stichwahl-Stimmkarten je Klasse,
   await refused(old, 409, async () => {
     await old.goto(at(`/v#${key(5)}`))
   })
-  await expect(old.getByRole('alert')).toHaveText('Die Stimmabgabe ist beendet. Es können keine Stimmen mehr abgegeben werden.')
+  // Not "the Stimmabgabe is over": the runoff runs, on cards of its own.
+  await expect(old.getByRole('alert')).toHaveText('Der 1. Wahlgang ist beendet; diese Stimmkarte gilt nicht mehr. Für eine Stichwahl gibt es eigene Stimmkarten.')
   await old.close()
 })
 

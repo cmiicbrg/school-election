@@ -1,8 +1,8 @@
 // Request and response schemas of the voter routes. Every id travels in a
 // body or a cookie, never in a path; the one path parameter names a
 // picture by its content. Responses are allow-lists: a voter learns the
-// election's title, their own contests with the candidates, and nothing
-// of anyone else.
+// election's title, their own contests with the candidates, the round
+// their card is for (printed on it as well), and nothing of anyone else.
 
 import { Type } from 'typebox'
 import { KEY_LENGTH, RULESET_IDS } from '@school-election/election-core'
@@ -37,6 +37,8 @@ export const VoterElection = StrictObject({
   title: Type.String(),
   /** The round the key votes in: the election, or the teacher's test. */
   round: Literals(['open', 'testing'] as const),
+  /** The kind of that round: the regular round or the runoff. */
+  roundKind: Literals(['regular', 'runoff'] as const),
   contests: Type.Array(VoterContest),
   /** Contests the key has not voted in yet. */
   remaining: Type.Integer(),
@@ -69,4 +71,6 @@ export const VoterRefusal = StrictObject({
   error: Type.String(),
   message: Type.Optional(Type.String()),
   problem: Type.Optional(Type.Unknown()),
+  /** With round_planned and round_closed on redeeming: the round the key's card is for. */
+  round: Type.Optional(Literals(['regular', 'runoff'] as const)),
 })

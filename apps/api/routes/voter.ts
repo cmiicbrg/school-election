@@ -111,8 +111,10 @@ export async function voterRoutes(app: FastifyInstance, { db, config, limiter = 
         limiter.end(request.ip)
       }
     }
+    // Not now: the card's own round has not begun or is over. Which round the card is for, as it is
+    // printed on it, lets the page tell a first-round card in the runoff from a closed election.
     if (found.roundId === null || found.phase === null || !found.acceptsBallots) {
-      return reply.code(409).send({ error: found.roundState === 'closed' ? 'round_closed' : 'round_planned' })
+      return reply.code(409).send({ error: found.roundState === 'closed' ? 'round_closed' : 'round_planned', round: found.roundKind })
     }
     const round: VotingState = found.roundState === 'testing' ? 'testing' : 'open'
     request.voterSession.set('voter', { credentialId: found.credentialId, electionId: found.electionId, roundId: found.roundId, round, phase: found.phase, issuedAt: Date.now() })

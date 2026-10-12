@@ -3,13 +3,13 @@
 // the contest's ruleset and its number of candidates, and the sentence for
 // every answer of the voter API. Free of the DOM, so node:test checks them.
 
-import { activeSlots, formatKey, normalizeKey, offersNo, parseKey, RULESETS, type Contest, type KeyProblem } from '@school-election/election-core'
+import { activeSlots, formatKey, normalizeKey, offersNo, parseKey, RULESETS, type Contest, type KeyProblem, type RoundKind } from '@school-election/election-core'
 import { VoterError, type VoterCandidate, type VoterContest } from './voter-api.ts'
 
 /** What is wrong with a code as typed, before it is sent: the API would say the same. */
 export const KEY_HINTS: Readonly<Record<KeyProblem, string>> = {
   length: 'Der Code hat 20 Zeichen. Bitte vergleichen Sie Ihre Eingabe mit der Stimmkarte.',
-  symbol: 'Ein Zeichen passt nicht: Ein Code besteht aus Ziffern und Großbuchstaben ohne I, L, O und U.',
+  symbol: 'Ein Zeichen kommt in Codes nicht vor: Ein Code hat Ziffern und Buchstaben, aber kein U. Bitte vergleichen Sie Ihre Eingabe mit der Stimmkarte.',
   check: 'Da ist ein Tippfehler. Bitte vergleichen Sie Ihre Eingabe mit der Stimmkarte.',
 }
 
@@ -26,11 +26,13 @@ export function groupedKey(input: string): string {
 
 export const GENERAL_MESSAGE = 'Das hat nicht geklappt. Bitte versuchen Sie es noch einmal.'
 
+const NOT_BEGUN = 'Die Stimmabgabe hat noch nicht begonnen. Bitte versuchen Sie es später noch einmal.'
+
 /** A sentence for every refusal of the voter API, by its code. */
 export const VOTER_MESSAGES: Readonly<Record<string, string>> = {
   unknown_key: 'Diesen Code gibt es nicht. Bitte vergleichen Sie Ihre Eingabe mit der Stimmkarte.',
   invalid_key: KEY_HINTS.check,
-  round_planned: 'Die Stimmabgabe hat noch nicht begonnen. Bitte versuchen Sie es später noch einmal.',
+  round_planned: NOT_BEGUN,
   round_closed: 'Die Stimmabgabe ist beendet. Es können keine Stimmen mehr abgegeben werden.',
   rate_limited: 'Zu viele Versuche. Bitte warten Sie einen Moment und versuchen Sie es dann noch einmal.',
   no_session: 'Ihre Zeit ist abgelaufen. Bitte geben Sie den Code noch einmal ein.',
@@ -42,10 +44,25 @@ export const VOTER_MESSAGES: Readonly<Record<string, string>> = {
   request_failed: GENERAL_MESSAGE,
 }
 
-/** The sentence for an error: a refused code by its problem, any other refusal by its code, anything else the general one. */
+type NotNow = 'round_planned' | 'round_closed'
+
+/** A card whose Wahlgang does not take votes now, by the Wahlgang printed on it: a 1. Wahlgang card in the runoff is over, not the runoff. */
+export const WRONG_ROUND: Readonly<Record<RoundKind, Readonly<Record<NotNow, string>>>> = {
+  regular: {
+    round_planned: NOT_BEGUN,
+    round_closed: 'Der 1. Wahlgang ist beendet; diese Stimmkarte gilt nicht mehr. Für eine Stichwahl gibt es eigene Stimmkarten.',
+  },
+  runoff: {
+    round_planned: 'Das ist eine Stichwahl-Stimmkarte. Sie gilt erst, wenn die Stichwahl beginnt.',
+    round_closed: 'Die Stichwahl ist beendet. Es können keine Stimmen mehr abgegeben werden.',
+  },
+}
+
+/** The sentence for an error: a refused code by its problem or its card's Wahlgang, any other refusal by its code, anything else the general one. */
 export function messageFor(error: unknown): string {
   if (!(error instanceof VoterError)) return GENERAL_MESSAGE
   if (error.code === 'invalid_key' && isKeyProblem(error.problem)) return KEY_HINTS[error.problem]
+  if ((error.code === 'round_planned' || error.code === 'round_closed') && error.round !== undefined) return WRONG_ROUND[error.round][error.code]
   return VOTER_MESSAGES[error.code] ?? GENERAL_MESSAGE
 }
 
@@ -89,6 +106,20 @@ export function candidateName(candidate: Pick<VoterCandidate, 'surname' | 'given
 export function remainingText(remaining: number): string {
   if (remaining === 0) return 'Sie haben in allen Wahlen abgestimmt.'
   return remaining === 1 ? 'Noch 1 Wahl offen.' : `Noch ${remaining} Wahlen offen.`
+}
+
+/** After a ballot is cast: for which Wahl, and what is left. */
+export function castText(title: string, remaining: number): string {
+  return `Stimme für „${title}“ abgegeben. ${remainingText(remaining)}`
+}
+
+/** A candidate chosen in a second row moved there: where they are now, and that the row they left is empty. */
+export function movedText(name: string, to: number, from: number): string {
+  return `${name} steht jetzt in der Zeile mit ${pointsDative(to)}; die Zeile mit ${pointsDative(from)} ist leer.`
+}
+
+function pointsDative(points: number): string {
+  return points === 1 ? '1 Punkt' : `${points} Punkten`
 }
 
 /** "1 von 2 Zeilen ist leer", "2 von 3 Zeilen sind leer". */

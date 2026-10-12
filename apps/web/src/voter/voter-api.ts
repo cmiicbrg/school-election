@@ -5,7 +5,7 @@
 // sends the browser to the sign-in page: a voter's 401 is no_session, the
 // page's own business, back to the code.
 
-import type { RulesetId } from '@school-election/election-core'
+import type { RoundKind, RulesetId } from '@school-election/election-core'
 import { withBase } from '../lib/base.ts'
 
 export interface VoterCandidate {
@@ -32,6 +32,8 @@ export interface VoterElection {
   title: string
   /** The election, or the teacher's test. */
   round: 'open' | 'testing'
+  /** The Wahlgang the key votes in, as its card names it. */
+  roundKind: RoundKind
   contests: VoterContest[]
   /** Contests the key has not voted in yet. */
   remaining: number
@@ -62,12 +64,15 @@ export class VoterError extends Error {
   readonly status: number
   readonly code: string
   readonly problem: unknown
+  /** With a refused key whose Wahlgang does not take votes now: the Wahlgang its card is for. */
+  readonly round: RoundKind | undefined
 
-  constructor(status: number, code: string, problem?: unknown) {
+  constructor(status: number, code: string, problem?: unknown, round?: RoundKind) {
     super(code)
     this.status = status
     this.code = code
     this.problem = problem
+    this.round = round
   }
 }
 
@@ -106,9 +111,10 @@ async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
   return response.json() as Promise<T>
 }
 
-/** The API's error body: its code and, where it says more, the problem. */
+/** The API's error body: its code and, where it says more, the problem or the card's Wahlgang. */
 export function refusalOf(status: number, payload: unknown): VoterError {
   const body = typeof payload === 'object' && payload !== null ? payload as Record<string, unknown> : {}
   const code = typeof body.error === 'string' && body.error !== '' ? body.error : 'request_failed'
-  return new VoterError(status, code, body.problem)
+  const round = body.round === 'regular' || body.round === 'runoff' ? body.round : undefined
+  return new VoterError(status, code, body.problem, round)
 }

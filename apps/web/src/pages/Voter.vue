@@ -3,7 +3,8 @@
 // comes from the fragment (voter/bootstrap.ts, before the router) or is
 // typed; the page redeems it once, shows the election and the contests the
 // key may vote in, one ballot at a time with a review before it is sent,
-// and says when everything is cast. The steps live in this component's
+// and says when everything is cast, and a code that has cast everything
+// before goes straight there. The steps live in this component's
 // state, never in the URL; a flag in sessionStorage, never a key, lets a
 // reload resume the session. The client of its own (voter/voter-api.ts)
 // sends nobody to the sign-in page: a voter's 401 is back to the code.
@@ -18,6 +19,7 @@
 
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import LineIcon from '../components/LineIcon.vue'
 import { usePageTitle } from '../lib/page-title.ts'
 import { toSend } from '../voter/ballot-state.ts'
 import { pendingKey } from '../voter/bootstrap.ts'
@@ -35,7 +37,8 @@ type Step
     | { kind: 'list' }
     | { kind: 'ballot', contest: VoterContest, initial?: VoterBallot }
     | { kind: 'review', contest: VoterContest, ballot: VoterBallot }
-    | { kind: 'done' }
+    // Everything cast: just now, or before this code was entered (used).
+    | { kind: 'done', used: boolean, ballots: number }
 
 /** Set from redemption until the session ends, so that a reload resumes it; never a key. */
 const FLAG = 'voter'
@@ -47,9 +50,12 @@ const election = ref<VoterElection | null>(null)
 usePageTitle(() => 'Stimmabgabe')
 const message = ref<string | null>(null)
 const busy = ref(false)
+/** The contest whose ballot was just cast, for the list's status; any other step forgets it. */
+const justCast = ref<string | null>(null)
 
 function go(next: Step, note: string | null = null): void {
   message.value = note
+  justCast.value = null
   step.value = next
 }
 
@@ -159,7 +165,8 @@ async function resume(): Promise<void> {
 
 function arrived(known: VoterElection): void {
   election.value = known
-  go({ kind: 'list' })
+  if (known.contests.length > 0 && known.remaining === 0) go({ kind: 'done', used: true, ballots: known.contests.length })
+  else go({ kind: 'list' })
 }
 
 function open(contest: VoterContest): void {
@@ -201,9 +208,10 @@ async function cast(contest: VoterContest, ballot: VoterBallot, confirmInvalid: 
     markDone(contest, answer.remaining)
     if (answer.done) {
       flag(false)
-      go({ kind: 'done' })
+      go({ kind: 'done', used: false, ballots: election.value?.contests.length ?? 1 })
     } else {
       go({ kind: 'list' })
+      justCast.value = contest.title
     }
   } catch (err) {
     if (stale(mine)) return
@@ -250,72 +258,138 @@ function end(): void {
 </script>
 
 <template>
-  <main
-    ref="root"
-    class="voter"
-  >
-    <output
-      v-if="step.kind === 'loading'"
-      class="status muted"
+  <div class="voter">
+    <p class="voter-brand">
+      <span class="brand-mark"><LineIcon
+        name="ballot"
+        :size="18"
+      /></span>
+      Schulwahl
+    </p>
+    <main
+      ref="root"
+      class="voter-card"
     >
-      Einen Moment …
-    </output>
-    <KeyEntry
-      v-else-if="step.kind === 'code'"
-      :message="message"
-      :busy="busy"
-      @submit="enqueue"
-    />
-    <ContestList
-      v-else-if="step.kind === 'list' && election"
-      :election="election"
-      :message="message"
-      :busy="busy"
-      @open="open"
-      @end="end"
-    />
-    <SlotBallot
-      v-else-if="step.kind === 'ballot'"
-      :key="step.contest.id"
-      :contest="step.contest"
-      :initial="step.initial"
-      @review="toReview"
-      @back="toList"
-    />
-    <ReviewStep
-      v-else-if="step.kind === 'review'"
-      :contest="step.contest"
-      :ballot="step.ballot"
-      :busy="busy"
-      :message="message"
-      @submit="submit"
-      @correct="correct"
-    />
-    <section
-      v-else-if="step.kind === 'done'"
-      aria-labelledby="voter-heading"
-    >
-      <h1
-        id="voter-heading"
-        tabindex="-1"
+      <output
+        v-if="step.kind === 'loading'"
+        class="status muted"
       >
-        Danke!
-      </h1>
-      <p>Ihre Stimme ist abgegeben. Sie können diese Seite jetzt schließen.</p>
-    </section>
-  </main>
+        Einen Moment …
+      </output>
+      <KeyEntry
+        v-else-if="step.kind === 'code'"
+        :message="message"
+        :busy="busy"
+        @submit="enqueue"
+      />
+      <ContestList
+        v-else-if="step.kind === 'list' && election"
+        :election="election"
+        :message="message"
+        :busy="busy"
+        :cast="justCast"
+        @open="open"
+        @end="end"
+      />
+      <SlotBallot
+        v-else-if="step.kind === 'ballot'"
+        :key="step.contest.id"
+        :contest="step.contest"
+        :initial="step.initial"
+        @review="toReview"
+        @back="toList"
+      />
+      <ReviewStep
+        v-else-if="step.kind === 'review'"
+        :contest="step.contest"
+        :ballot="step.ballot"
+        :busy="busy"
+        :message="message"
+        @submit="submit"
+        @correct="correct"
+      />
+      <section
+        v-else-if="step.kind === 'done'"
+        aria-labelledby="voter-heading"
+      >
+        <h1
+          id="voter-heading"
+          tabindex="-1"
+        >
+          {{ step.used ? 'Schon abgestimmt' : 'Danke!' }}
+        </h1>
+        <template v-if="step.used">
+          <p>Mit dieser Stimmkarte wurde in allen Wahlen schon abgestimmt.</p>
+          <p
+            v-if="message"
+            class="message error"
+            role="alert"
+          >
+            {{ message }}
+          </p>
+          <div class="actions">
+            <button
+              type="button"
+              class="secondary"
+              :disabled="busy"
+              @click="end"
+            >
+              Anderen Code eingeben
+            </button>
+          </div>
+        </template>
+        <template v-else>
+          <p class="thanks">
+            <LineIcon
+              name="check"
+              :size="22"
+            />
+            {{ step.ballots > 1 ? 'Ihre Stimmen sind abgegeben.' : 'Ihre Stimme ist abgegeben.' }}
+          </p>
+          <p>Diese Stimmkarte ist damit verbraucht. Sie können diese Seite jetzt schließen.</p>
+        </template>
+      </section>
+    </main>
+  </div>
 </template>
 
 <style scoped>
+/* The shared look: the app's mark above a white card on the grey ground. */
 .voter {
+  min-height: 100vh;
+  padding: 16px;
+  background: var(--page);
+}
+
+.voter-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 36rem;
+  margin: 0 auto 12px;
+  font-weight: 600;
+}
+
+.voter-card {
   max-width: 36rem;
   margin: 0 auto;
-  padding: 16px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--paper);
 }
 
 .status {
   display: block;
   margin: 0 0 10px;
+}
+
+.thanks {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ok);
+  font-weight: 600;
 }
 
 .voter :deep(h1:focus) {
@@ -329,5 +403,20 @@ function end(): void {
 
 .voter :deep(button) {
   min-height: 44px;
+}
+
+/* On a phone the card takes the width, and its buttons each take a line. */
+@media (width <= 600px) {
+  .voter {
+    padding: 12px;
+  }
+
+  .voter-card {
+    padding: 16px;
+  }
+
+  .voter :deep(.actions button) {
+    flex: 1 1 100%;
+  }
 }
 </style>

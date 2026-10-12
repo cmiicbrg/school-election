@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // One contest's ballot: the candidates with their pictures, and one row per
 // active slot with its points, its function and a choice among the
-// candidates; a candidate chosen in a second row moves there. A contest
+// candidates; a candidate chosen in a second row moves there, and the
+// ballot's one status says so, beside how many get no points. A contest
 // with a single candidate asks "Ja" or "Nein" instead. The state is
 // ballot-state.ts's; "Prüfen" hands the ballot up as it stands, which the
 // review step classifies, and "Korrigieren" brings it back here as it was.
@@ -9,7 +10,7 @@
 import { computed, ref } from 'vue'
 import { fromBallot, place, pool, rankingOf, rowOf, type BallotState } from './ballot-state.ts'
 import { pictureUrl, type VoterBallot, type VoterContest } from './voter-api.ts'
-import { candidateName, pointsLabel, slotRows, yesOrNo } from './voter-rules.ts'
+import { candidateName, movedText, pointsLabel, slotRows, yesOrNo } from './voter-rules.ts'
 
 const props = defineProps<{
   contest: VoterContest
@@ -36,10 +37,22 @@ const morePeopleThanRows = computed(() => props.contest.candidates.length > rows
 const state = ref<BallotState>(fromBallot(props.contest, props.initial))
 const choice = ref<Choice>(initialChoice(props.initial))
 const unranked = computed(() => pool(props.contest, state.value).length)
+/** The last choice moved a candidate out of another row: where they are now. */
+const moved = ref<string | null>(null)
 
 function choose(rank: number, event: Event): void {
   const value = (event.target as HTMLSelectElement).value
-  state.value = place(state.value, rank, value === '' ? null : value)
+  const candidateId = value === '' ? null : value
+  const from = candidateId === null ? undefined : rowOf(state.value, candidateId)
+  state.value = place(state.value, rank, candidateId)
+  moved.value = from === undefined || from === rank ? null : movedNote(candidateId, rank, from)
+}
+
+function movedNote(candidateId: string | null, to: number, from: number): string | null {
+  const candidate = props.contest.candidates.find((entry) => entry.id === candidateId)
+  const toRow = rows.value[to - 1]
+  const fromRow = rows.value[from - 1]
+  return candidate && toRow && fromRow ? movedText(candidateName(candidate), toRow.points, fromRow.points) : null
 }
 
 /** Where a candidate stands on the ballot as it is filled. */
@@ -158,11 +171,12 @@ function review(): void {
           </option>
         </select>
       </div>
-      <output
-        v-if="morePeopleThanRows"
-        class="status muted"
-      >
-        Ohne Punkte: {{ unranked }}
+      <output class="status">
+        <span v-if="moved">{{ moved }}</span>
+        <span
+          v-if="morePeopleThanRows"
+          class="muted"
+        >Ohne Punkte: {{ unranked }}</span>
       </output>
     </div>
     <div class="actions">
@@ -188,6 +202,10 @@ function review(): void {
 .status {
   display: block;
   margin: 0 0 10px;
+}
+
+.status > span {
+  display: block;
 }
 
 .candidates > li {

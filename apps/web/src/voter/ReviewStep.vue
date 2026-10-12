@@ -2,8 +2,8 @@
 // What would be sent, row by row, and election-core's say about it: a valid
 // vote goes with "Abgeben"; an invalid one, rows left empty, says so, counts
 // for nobody, and goes only with the voter's checkbox and the button that
-// says what it does; "Nein" goes as it is. "Korrigieren" returns to the
-// ballot as it was.
+// says what it does; "Nein" goes as it is. Either is final, and the step
+// says so. "Korrigieren" returns to the ballot as it was.
 
 import { computed, ref } from 'vue'
 import { review } from './ballot-state.ts'
@@ -96,6 +96,9 @@ const lines = computed(() => {
       >
       Ich gebe meine Stimme absichtlich ungültig ab.
     </label>
+    <p class="final">
+      Nach dem Abgeben lässt sich die Stimme nicht mehr ändern.
+    </p>
     <div class="actions">
       <button
         v-if="verdict.kind === 'invalid'"
@@ -156,6 +159,11 @@ const lines = computed(() => {
   width: 1.4rem;
   height: 1.4rem;
   margin-top: 2px;
+}
+
+.final {
+  margin: 12px 0 4px;
+  color: var(--ink2);
 }
 
 .actions button {
