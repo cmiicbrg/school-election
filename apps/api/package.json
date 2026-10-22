@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@fastify/helmet": "13.2.0",
-    "@fastify/oauth2": "8.3.1",
+    "@fastify/oauth2": "8.3.2",
     "@fastify/rate-limit": "11.2.1",
     "@fastify/secure-session": "8.4.1",
     "@fastify/static": "10.1.6",
