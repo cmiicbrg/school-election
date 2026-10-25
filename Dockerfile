@@ -12,7 +12,7 @@
 # Every workspace's package.json is copied before `npm ci`: the lockfile
 # covers all of them, and npm ci refuses a workspace it cannot find.
 
-FROM docker.io/library/node:26.12.0-trixie-slim@sha256:0d1e33586362bb9e608c4e751e7a9e7edb55c9ac11461ed5666af696cc461dd4 AS deps
+FROM docker.io/library/node:26.12.1-trixie-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/election-core/package.json packages/election-core/
@@ -27,7 +27,7 @@ COPY packages/election-core packages/election-core
 COPY apps/web apps/web
 RUN npm run build --workspace apps/web
 
-FROM docker.io/library/node:26.12.0-trixie-slim@sha256:0d1e33586362bb9e608c4e751e7a9e7edb55c9ac11461ed5666af696cc461dd4 AS prod-deps
+FROM docker.io/library/node:26.12.1-trixie-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec AS prod-deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/election-core/package.json packages/election-core/
@@ -36,7 +36,7 @@ COPY apps/web/package.json apps/web/
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev --no-audit --no-fund --ignore-scripts
 
-FROM docker.io/library/node:26.12.0-trixie-slim@sha256:0d1e33586362bb9e608c4e751e7a9e7edb55c9ac11461ed5666af696cc461dd4 AS runtime
+FROM docker.io/library/node:26.12.1-trixie-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
