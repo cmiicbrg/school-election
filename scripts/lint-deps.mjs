@@ -78,7 +78,9 @@ export function findFloats(pkg) {
 const digest = /@sha256:[0-9a-f]{64}$/
 // A parser directive: `# key=value` in the leading comments of a
 // Dockerfile; whitespace before the `#` is ignored, as for any comment.
-const directive = /^\s*#\s*([a-z]+)\s*=\s*(\S+)\s*$/i
+// BuildKit takes a syntax directive's first word as the frontend's image
+// and passes the rest to it, so the first word is the one to check.
+const directive = /^\s*#\s*([a-z]+)\s*=\s*(\S+)(?:\s.*)?$/i
 
 /** The frontend a Dockerfile's `# syntax=` directive names without a digest, or undefined. */
 export function unpinnedSyntax(dockerfile) {

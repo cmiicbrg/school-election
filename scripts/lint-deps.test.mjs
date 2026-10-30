@@ -80,6 +80,8 @@ test('a Dockerfile frontend must name a digest, and only a directive at the top 
   assert.equal(unpinnedSyntax('# The image.\n# syntax=docker/dockerfile:1.7\nFROM node'), undefined, 'after a comment it is a comment')
   assert.equal(unpinnedSyntax('\n# syntax=docker/dockerfile:1.7\nFROM node'), undefined, 'after a blank line it is a comment')
   assert.equal(unpinnedSyntax('  # syntax=docker/dockerfile:1\nFROM node'), 'docker/dockerfile:1', 'whitespace before the # counts as none')
+  assert.equal(unpinnedSyntax('# syntax=docker/dockerfile:1 # the frontend\nFROM node'), 'docker/dockerfile:1', 'words after the image')
+  assert.equal(unpinnedSyntax(`# syntax=docker/dockerfile:1@${digest} --flag\nFROM node`), undefined)
 })
 
 test('every buildx setup must run BuildKit from an image with a digest', () => {
