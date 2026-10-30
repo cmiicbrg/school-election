@@ -15,9 +15,13 @@
 // Admin sign-out only drops the cookie in that browser; a copied cookie
 // stays valid until it expires. The lifetime is therefore short and
 // absolute, counted from sign-in.
+//
+// The admin session counts only beside the binding cookie of the browser it
+// was started in (ADMIN_BIND_COOKIE below): under a base path its cookie is
+// __Secure-, which other hosts of the same site can plant.
 
-import { hkdfSync } from 'node:crypto'
-import type { FastifyInstance } from 'fastify'
+import { createHash, hkdfSync } from 'node:crypto'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import secureSession, { type Session } from '@fastify/secure-session'
 import type { Config } from '../config.ts'
 import type { GlobalRole } from '../lib/auth.ts'
@@ -35,6 +39,33 @@ export function adminSessionCookie(basePath: string): string {
 }
 /** A school day, however active the session is. */
 export const ADMIN_SESSION_SECONDS = 8 * 60 * 60
+
+/**
+ * The binding cookie: random, set at the start of a sign-in, and __Host-, so
+ * only this host can set it, at the path / that __Host- requires. The admin
+ * session carries its digest and counts only beside it. Under a base path
+ * the session cookie is __Secure-, and any host of the same site may set a
+ * __Secure- cookie for the whole domain, at a longer path the browser sends
+ * first: a teacher could plant their own session, or their own sign-in in
+ * progress, in a colleague's browser. Its digest is not that browser's, so
+ * it reads as none. At the root the session cookie is __Host- already; the
+ * binding holds there too, so both run the same code.
+ */
+export const ADMIN_BIND_COOKIE = '__Host-admin-bind'
+/** 32 random bytes, base64url. */
+export const ADMIN_BIND_VALUE = /^[\w-]{43}$/
+
+/** What the session carries of a binding cookie's value. */
+export function bindDigest(value: string): string {
+  return createHash('sha256').update(value).digest('base64url')
+}
+
+/** Whether the admin session was started in this browser: it carries the digest of this browser's binding cookie. */
+export function adminSessionBound(request: FastifyRequest): boolean {
+  const value = request.cookies[ADMIN_BIND_COOKIE]
+  const bind = request.adminSession.get('bind')
+  return typeof value === 'string' && ADMIN_BIND_VALUE.test(value) && typeof bind === 'string' && bind === bindDigest(value)
+}
 
 /** Who signed in; set by the sign-in callback only. */
 export interface SessionUser {
@@ -57,6 +88,8 @@ export interface PendingSignIn {
 export interface AdminSessionData {
   user: SessionUser
   signIn: PendingSignIn
+  /** bindDigest() of the browser's binding cookie; set with the pending sign-in. */
+  bind: string
 }
 
 declare module 'fastify' {

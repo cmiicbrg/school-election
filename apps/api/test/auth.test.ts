@@ -4,13 +4,13 @@ import { randomBytes } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import { callerOf, requireGlobalRole, requireSession } from '../lib/auth.ts'
 import { createDatabase, type Database } from '../lib/db.ts'
-import { ADMIN_SESSION_COOKIE, ADMIN_SESSION_SECONDS, type SessionUser } from '../plugins/session.ts'
+import { ADMIN_BIND_COOKIE, ADMIN_SESSION_COOKIE, ADMIN_SESSION_SECONDS, adminSessionCookie, bindDigest, type SessionUser } from '../plugins/session.ts'
 import { buildTestApp, ORIGIN, stubDatabase } from './helpers/app.ts'
 import { createTestDatabase, DB } from './helpers/db.ts'
 import { secretFile, TENANT_ID } from './helpers/env.ts'
-import { STATE_COOKIE } from '../lib/entra.ts'
+import { SIGN_IN_SECONDS, STATE_COOKIE } from '../lib/entra.ts'
 import { CookieJar, ISSUER, startFakeEntra, type AuthorizeOptions, type FakeEntra } from './helpers/fake-entra.ts'
-import { ANNA } from './helpers/personas.ts'
+import { ANNA, BERND, claimsOf } from './helpers/personas.ts'
 
 const sameOrigin = { 'sec-fetch-site': 'same-origin' }
 const VERIFIER_COOKIE = '__Host-oauth2-code-verifier'
@@ -101,6 +101,8 @@ test('login sends the browser to the tenant with state and nonce, without PKCE, 
   assert.equal(state?.value, params.state)
   assert.ok(!cookies.has(VERIFIER_COOKIE))
   assert.ok(cookies.has(ADMIN_SESSION_COOKIE), 'the pending sign-in is sealed into the session cookie')
+  const bind = cookies.get(ADMIN_BIND_COOKIE)
+  assert.deepEqual([bind?.path, bind?.secure, bind?.httpOnly, bind?.sameSite, bind?.maxAge], ['/', true, true, 'Lax', SIGN_IN_SECONDS + ADMIN_SESSION_SECONDS], 'the session is bound to this browser')
   assert.ok(!res.body.includes(params.nonce ?? '-'))
   assert.deepEqual(s.entra.requests, [])
 })
@@ -169,6 +171,9 @@ test('under a base path, sign-in lives below it: the redirect URI, the cookies a
   const state = login.cookies.find((cookie) => cookie.name === '__Secure-oauth2-redirect-state')
   assert.deepEqual([state?.path, state?.secure, state?.httpOnly, state?.sameSite], ['/wahl/api/auth', true, true, 'Lax'])
   assert.ok(!login.cookies.some((cookie) => cookie.name === STATE_COOKIE || cookie.name === ADMIN_SESSION_COOKIE))
+  // The binding cookie is __Host- under a path too: it is set at /.
+  const bind = login.cookies.find((cookie) => cookie.name === ADMIN_BIND_COOKIE)
+  assert.deepEqual([bind?.path, bind?.secure, bind?.httpOnly, bind?.sameSite], ['/', true, true, 'Lax'])
   const callback = new URL(s.entra.authorize(String(login.headers.location), {}), ORIGIN)
   assert.equal(callback.pathname, '/wahl/api/auth/callback')
   const res = await s.app.inject({ method: 'GET', url: callback.pathname + callback.search, headers: { cookie: jar.header() } })
@@ -181,10 +186,74 @@ test('under a base path, sign-in lives below it: the redirect URI, the cookies a
   assert.equal((await s.app.inject({ method: 'GET', url: '/wahl/api/test/teacher-only', headers: { cookie: jar.header() } })).statusCode, 200)
   // The root is not this app's.
   assert.equal((await s.app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie: jar.header() } })).statusCode, 404)
+  // Signing in again keeps the browser's binding cookie: a second instance
+  // of the app on the host may have set it, and a new one would sign that out.
+  const again = await s.app.inject({ method: 'GET', url: '/wahl/api/auth/login', headers: { cookie: jar.header() } })
+  assert.equal(again.cookies.find((cookie) => cookie.name === ADMIN_BIND_COOKIE)?.value, bind?.value)
   // A return path outside the base path, or of the API, falls back to the app's start page.
   for (const returnTo of ['/admin', '/wahlen/neu', '/wahl/api/auth/logout', '//evil.example']) {
     assert.equal((await signIn(s, new CookieJar(), { returnTo })).headers.location, '/wahl/', returnTo)
   }
+})
+
+test('under a base path, a session or a sign-in planted from another host of the site is not this browser\'s and counts as none', DB, async (t) => {
+  // Any host of the same site can set a __Secure- cookie for the whole
+  // domain, at a longer path, which the browser then sends first. A teacher
+  // controlling such a host plants their own session cookie in a
+  // colleague's browser: Bernd's, in Anna's.
+  const s = await setup(t, { basePath: '/wahl' })
+  const name = adminSessionCookie('/wahl')
+  const cookieOf = (jar: CookieJar, cookie: string) => `${cookie}=${encodeURIComponent(jar.values.get(cookie) ?? '')}`
+  const meWith = (cookie: string) => s.app.inject({ method: 'GET', url: '/wahl/api/auth/me', headers: { cookie } })
+  const bernd = new CookieJar()
+  assert.equal((await signIn(s, bernd, { claims: claimsOf(BERND) })).statusCode, 303)
+  const planted = cookieOf(bernd, name)
+  assert.equal((await meWith(`${planted}; ${cookieOf(bernd, ADMIN_BIND_COOKIE)}`)).statusCode, 200, 'in Bernd\'s browser')
+
+  // Anna signed out, with the binding cookie of an earlier visit, or none.
+  const visit = new CookieJar()
+  visit.update(await s.app.inject({ method: 'GET', url: '/wahl/api/auth/login' }))
+  const visited = cookieOf(visit, ADMIN_BIND_COOKIE)
+  assert.equal((await meWith(planted)).statusCode, 204, 'without a binding cookie')
+  assert.equal((await meWith(`${planted}; ${visited}`)).statusCode, 204, 'beside Anna\'s binding cookie')
+  assert.equal((await s.app.inject({ method: 'GET', url: '/wahl/api/test/teacher-only', headers: { cookie: `${planted}; ${visited}` } })).statusCode, 401)
+  // Planted at the login's path, it is emptied there, not bound to Anna's
+  // browser: the session the login writes back carries no one.
+  const rebind = new CookieJar()
+  rebind.values.set(ADMIN_BIND_COOKIE, visit.values.get(ADMIN_BIND_COOKIE) ?? '')
+  const relogin = await s.app.inject({ method: 'GET', url: '/wahl/api/auth/login', headers: { cookie: `${planted}; ${visited}` } })
+  assert.equal(relogin.statusCode, 302)
+  rebind.update(relogin)
+  assert.notEqual(rebind.values.get(name), undefined, 'the login wrote a session')
+  assert.equal((await meWith(rebind.header())).statusCode, 204, 'and it is nobody\'s')
+
+  // Anna signed in: the planted cookie comes first and shadows hers. She
+  // is signed out by it, never Bernd.
+  const anna = new CookieJar()
+  assert.equal((await signIn(s, anna, { claims: claimsOf(ANNA) })).statusCode, 303)
+  const own = `${cookieOf(anna, name)}; ${cookieOf(anna, ADMIN_BIND_COOKIE)}`
+  assert.equal((await meWith(own)).json<{ displayName: string }>().displayName, ANNA.name)
+  assert.equal((await meWith(`${planted}; ${own}`)).statusCode, 204)
+
+  // A sign-in Bernd started, planted with its state cookie, and Anna's
+  // browser sent to the callback with Bernd's code: refused before the code
+  // is redeemed, and nothing of it written back as Anna's.
+  const started = new CookieJar()
+  const login = await s.app.inject({ method: 'GET', url: '/wahl/api/auth/login' })
+  started.update(login)
+  const callback = new URL(s.entra.authorize(String(login.headers.location), { claims: claimsOf(BERND) }), ORIGIN)
+  const plantedSignIn = `${cookieOf(started, name)}; ${cookieOf(started, '__Secure-oauth2-redirect-state')}`
+  const users = await appUsers(s.db)
+  const redeemed = s.entra.requests.filter((request) => request.startsWith('POST')).length
+  const logged = s.logs().length
+  const res = await s.app.inject({ method: 'GET', url: callback.pathname + callback.search, headers: { cookie: `${plantedSignIn}; ${visited}` } })
+  assert.equal(res.statusCode, 401)
+  assert.match(s.logs().slice(logged), /"code":"session_not_bound".*"msg":"sign-in refused"/)
+  assert.ok(!res.cookies.some((cookie) => cookie.name === name), 'no session cookie written')
+  assert.equal(s.entra.requests.filter((request) => request.startsWith('POST')).length, redeemed)
+  assert.deepEqual(await appUsers(s.db), users)
+  // In the browser that started it, the sign-in still completes.
+  assert.equal((await s.app.inject({ method: 'GET', url: callback.pathname + callback.search, headers: { cookie: started.header() } })).statusCode, 303)
 })
 
 test('every failed check ends without a session and without an app_user row', DB, async (t) => {
@@ -211,6 +280,7 @@ test('every failed check ends without a session and without an app_user row', DB
     ['no code', 'no_code', { beforeCallback: (callback) => callback.searchParams.delete('code') }],
     ['an error from Entra', 'no_code', { beforeCallback: (callback) => callback.searchParams.set('error', 'access_denied') }],
     ['no pending sign-in', 'no_pending_sign_in', { dropCookie: ADMIN_SESSION_COOKIE }],
+    ['a pending sign-in without this browser\'s binding cookie', 'session_not_bound', { dropCookie: ADMIN_BIND_COOKIE }],
   ]
   for (const [name, reason, options] of cases) {
     const jar = new CookieJar()
@@ -229,7 +299,7 @@ test('every failed check ends without a session and without an app_user row', DB
   }
   assert.deepEqual(await appUsers(s.db), [])
   // A missing or forged state, a missing code, an Entra error and a missing
-  // pending sign-in never reach the token endpoint.
+  // or unbound pending sign-in never reach the token endpoint.
   assert.equal(s.entra.requests.filter((request) => request.startsWith('POST')).length, 12)
   const log = s.logs()
   assert.ok(s.entra.issued.length > 0)
@@ -348,9 +418,18 @@ test('when Entra sends the browser back with sso_reload, the retry asks for the 
   assert.equal((await me(s.app, jar)).statusCode, 200)
 })
 
-/** A session cookie as the app would seal it. */
-function sealed(app: FastifyInstance, data: Record<string, unknown>): string {
+/** The binding cookie of the browser these sealed sessions belong to. */
+const BIND = randomBytes(32).toString('base64url')
+const BOUND = `${ADMIN_BIND_COOKIE}=${BIND}`
+
+/** A session cookie as the app would seal it with exactly `data`. */
+function sessionCookie(app: FastifyInstance, data: Record<string, unknown>): string {
   return `${ADMIN_SESSION_COOKIE}=${encodeURIComponent(app.encodeSecureSession(app.createSecureSession(data), 'adminSession'))}`
+}
+
+/** A session as the app would seal it at sign-in, bound to BIND, with BIND's cookie beside it. */
+function sealed(app: FastifyInstance, data: Record<string, unknown>): string {
+  return `${sessionCookie(app, { bind: bindDigest(BIND), ...data })}; ${BOUND}`
 }
 
 const user = (issuedAt = Date.now()): SessionUser => ({ id: '0d3b5a0e-6a43-4c1b-9f5e-3d2c1b0a9f8e', displayName: 'Maria Muster', roles: ['teacher'], issuedAt })
@@ -367,7 +446,7 @@ test('a sealed session is accepted only as issued, by this key, within its lifet
   const valid = sealed(app, { user: user() })
   assert.equal((await get(valid)).statusCode, 200)
 
-  const value = decodeURIComponent(valid.slice(ADMIN_SESSION_COOKIE.length + 1))
+  const value = decodeURIComponent(sessionCookie(app, { bind: bindDigest(BIND), user: user() }).slice(ADMIN_SESSION_COOKIE.length + 1))
   const [cipher = '', nonce = ''] = value.split(';')
   const flipped = cipher.slice(0, 10) + (cipher[10] === 'A' ? 'B' : 'A') + cipher.slice(11)
   for (const [name, forged] of [
@@ -376,8 +455,15 @@ test('a sealed session is accepted only as issued, by this key, within its lifet
     ['without nonce', cipher],
     ['garbage', 'x'],
   ] as const) {
-    assert.equal((await get(`${ADMIN_SESSION_COOKIE}=${encodeURIComponent(forged)}`)).statusCode, 204, name)
+    assert.equal((await get(`${ADMIN_SESSION_COOKIE}=${encodeURIComponent(forged)}; ${BOUND}`)).statusCode, 204, name)
   }
+
+  // Only in the browser it was started in.
+  const session = sessionCookie(app, { bind: bindDigest(BIND), user: user() })
+  assert.equal((await get(session)).statusCode, 204, 'without the binding cookie')
+  assert.equal((await get(`${session}; ${ADMIN_BIND_COOKIE}=${randomBytes(32).toString('base64url')}`)).statusCode, 204, 'beside another browser\'s binding cookie')
+  assert.equal((await get(`${sessionCookie(app, { user: user() })}; ${BOUND}`)).statusCode, 204, 'a session without a binding')
+  assert.equal((await get(`${sessionCookie(app, { bind: bindDigest('short'), user: user() })}; ${ADMIN_BIND_COOKIE}=short`)).statusCode, 204, 'a binding value the app never sets')
 
   const other = await buildTestApp({ SESSION_KEY_FILE: secretFile('other-session-key', randomBytes(32).toString('hex')) })
   t.after(() => other.app.close())
