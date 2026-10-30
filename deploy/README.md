@@ -178,7 +178,7 @@ To update at once instead of waiting for the night, `podman auto-update`. To see
 
 A major version is the one update that is done by hand. It comes with a release note that says what to do; for a PostgreSQL major that is a dump and restore of the data volume. Change `v1` to `v2` in both unit files under `~/.config/containers/systemd/`, then `systemctl --user daemon-reload` and `podman auto-update`. If a release note says the unit files themselves changed, fetch them again from that release as in Host above; that is rare.
 
-Migrations only go forward. Going back to an older release works only if it has the same migrations; otherwise restore a backup taken before the update. A release that fixes a vulnerability always brings a migration, so a host never goes back behind it: should the registry ever serve an older `v1`, its migrator refuses the database, the unit does not start, and `podman auto-update` rolls back to the release that ran.
+Migrations only go forward. Going back to an older release works only if it has the same migrations; otherwise restore a backup taken before the update. A release that fixes a vulnerability in the app always brings a migration, so a host never goes back to an app behind it: should the registry ever serve an older `v1`, its migrator refuses the database, the unit does not start, and `podman auto-update` rolls back to the release that ran. The PostgreSQL image has no such floor; the app checks its settings at every start.
 
 ## Reboots
 

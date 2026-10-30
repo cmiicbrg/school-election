@@ -30,7 +30,7 @@ docker build -t school-election:local .
 docker run --rm -p 127.0.0.1:3000:3000 school-election:local
 ```
 
-A release is a `v<major>.<minor>.<patch>` tag; pushing it publishes the app and its PostgreSQL image to `ghcr.io/cmiicbrg/school-election` and `ghcr.io/cmiicbrg/school-election-postgres`, under the release tag and the line tag `v1`, which deployments follow and pick up with their nightly update. A release that fixes a vulnerability carries a migration, so that no deployment goes back behind it ([`SECURITY.md`](SECURITY.md)).
+A release is a `v<major>.<minor>.<patch>` tag; pushing it publishes the app and its PostgreSQL image to `ghcr.io/cmiicbrg/school-election` and `ghcr.io/cmiicbrg/school-election-postgres`, under the release tag and the line tag `v1`, which deployments follow and pick up with their nightly update. A release that fixes a vulnerability in the app carries a migration, so that no deployment goes back to an app behind it; the PostgreSQL image has no such floor ([`SECURITY.md`](SECURITY.md)).
 
 ## Verifying an export
 
