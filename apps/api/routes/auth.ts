@@ -90,6 +90,10 @@ export async function authRoutes(app: FastifyInstance, { config, db, entraAuthor
     const existing = request.cookies[ADMIN_BIND_COOKIE]
     const bind = existing !== undefined && ADMIN_BIND_VALUE.test(existing) ? existing : randomBytes(32).toString('base64url')
     void reply.setCookie(ADMIN_BIND_COOKIE, bind, { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: SIGN_IN_SECONDS + ADMIN_SESSION_SECONDS })
+    // A session not started in this browser, planted from another host of
+    // the site, is emptied, not bound: bound here, its user would become
+    // this browser's.
+    if (!adminSessionBound(request)) request.adminSession.regenerate()
     request.adminSession.set('bind', bindDigest(bind))
     request.adminSession.set('signIn', { nonce, returnTo: safeReturnTo(request.query.returnTo, config.basePath), startedAt: Date.now() })
     const interactive = request.query.sso_reload === 'true'

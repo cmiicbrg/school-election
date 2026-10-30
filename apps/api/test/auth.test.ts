@@ -217,6 +217,15 @@ test('under a base path, a session or a sign-in planted from another host of the
   assert.equal((await meWith(planted)).statusCode, 204, 'without a binding cookie')
   assert.equal((await meWith(`${planted}; ${visited}`)).statusCode, 204, 'beside Anna\'s binding cookie')
   assert.equal((await s.app.inject({ method: 'GET', url: '/wahl/api/test/teacher-only', headers: { cookie: `${planted}; ${visited}` } })).statusCode, 401)
+  // Planted at the login's path, it is emptied there, not bound to Anna's
+  // browser: the session the login writes back carries no one.
+  const rebind = new CookieJar()
+  rebind.values.set(ADMIN_BIND_COOKIE, visit.values.get(ADMIN_BIND_COOKIE) ?? '')
+  const relogin = await s.app.inject({ method: 'GET', url: '/wahl/api/auth/login', headers: { cookie: `${planted}; ${visited}` } })
+  assert.equal(relogin.statusCode, 302)
+  rebind.update(relogin)
+  assert.notEqual(rebind.values.get(name), undefined, 'the login wrote a session')
+  assert.equal((await meWith(rebind.header())).statusCode, 204, 'and it is nobody\'s')
 
   // Anna signed in: the planted cookie comes first and shadows hers. She
   // is signed out by it, never Bernd.
