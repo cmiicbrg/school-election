@@ -1,6 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { findFloats, isPinned, unpinnedBuildkit, unpinnedSyntax } from './lint-deps.mjs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { dockerfiles, findFloats, isPinned, unpinnedBuildkit, unpinnedSyntax } from './lint-deps.mjs'
 
 const sha = '0123456789abcdef0123456789abcdef01234567'
 
@@ -97,4 +100,18 @@ test('every buildx setup must run BuildKit from an image with a digest', () => {
   assert.deepEqual(unpinnedBuildkit(steps('      - uses: docker/build-push-action@abc')), [], 'no buildx setup')
   assert.deepEqual(unpinnedBuildkit(steps(setup, '        with:', `          # was image=moby/buildkit@${digest}`, '          driver-opts: image=moby/buildkit:latest')), [4], 'a pin in a comment does not count')
   assert.deepEqual(unpinnedBuildkit(steps(setup, '        with:', '          driver-opts: image=moby/buildkit:latest', `          endpoint: image=moby/buildkit@${digest}`)), [4], 'a pin in another input does not count')
+  assert.deepEqual(unpinnedBuildkit(steps('      -    uses: docker/setup-buildx-action@abc # v4')), [4], 'more whitespace after the dash')
+  assert.deepEqual(unpinnedBuildkit(steps('      -   name: Buildx', '          uses: docker/setup-buildx-action@abc # v4', '          with:', '            driver-opts: image=moby/buildkit:latest')), [5], 'more whitespace after the dash of a named step')
+  assert.deepEqual(unpinnedBuildkit(steps('      -    uses: docker/setup-buildx-action@abc # v4', '           with:', `             driver-opts: image=moby/buildkit@${digest}`)), [])
+})
+
+test('every Dockerfile is found, in hidden directories too, but not in git, dependencies or build output', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'lint-deps-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const files = ['Dockerfile', 'deploy/postgres/Dockerfile', '.devcontainer/Dockerfile', 'tools/web.Dockerfile', 'tools/Dockerfile.dev', '.git/Dockerfile', 'node_modules/x/Dockerfile', 'dist/Dockerfile', 'coverage/Dockerfile', 'tools/Dockerfile-notes.md']
+  for (const file of files) {
+    mkdirSync(join(root, file, '..'), { recursive: true })
+    writeFileSync(join(root, file), 'FROM scratch\n')
+  }
+  assert.deepEqual(dockerfiles(root).map((path) => path.slice(root.length + 1)).sort(), ['.devcontainer/Dockerfile', 'Dockerfile', 'deploy/postgres/Dockerfile', 'tools/Dockerfile.dev', 'tools/web.Dockerfile'])
 })

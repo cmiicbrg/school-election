@@ -100,11 +100,12 @@ export function unpinnedBuildkit(workflow) {
   const indentOf = (line) => line.search(/\S/)
   const unpinned = []
   lines.forEach((line, index) => {
-    if (!/^\s*(?:- )?uses:\s*['"]?docker\/setup-buildx-action@/.test(line)) return
-    // The step is the list item holding this line: from its `- ` to the
+    // YAML takes any whitespace after a sequence's dash.
+    if (!/^\s*(?:-\s+)?uses:\s*['"]?docker\/setup-buildx-action@/.test(line)) return
+    // The step is the list item holding this line: from its dash to the
     // next line indented no deeper than that dash.
     let start = index
-    while (start > 0 && !/^\s*- /.test(lines[start])) start -= 1
+    while (start > 0 && !/^\s*-\s/.test(lines[start])) start -= 1
     const dash = indentOf(lines[start])
     let end = start + 1
     while (end < lines.length && (indentOf(lines[end]) === -1 || indentOf(lines[end]) > dash)) end += 1
@@ -129,11 +130,11 @@ function driverOpts(step) {
   return [step[key].replace(/^\s*driver-opts:/, ''), ...block].join('\n')
 }
 
-/** Every Dockerfile below `dir`, skipping dependencies, build output and dot-directories. */
-function dockerfiles(dir) {
+/** Every Dockerfile below `dir`, hidden directories included, skipping git's own, dependencies and build output. */
+export function dockerfiles(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name)
-    if (entry.isDirectory()) return entry.name.startsWith('.') || ['node_modules', 'dist', 'coverage'].includes(entry.name) ? [] : dockerfiles(path)
+    if (entry.isDirectory()) return ['.git', 'node_modules', 'dist', 'coverage'].includes(entry.name) ? [] : dockerfiles(path)
     return /^Dockerfile(?:\..+)?$|\.Dockerfile$/.test(entry.name) ? [path] : []
   })
 }
