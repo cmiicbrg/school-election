@@ -1,0 +1,7 @@
+-- No change to the schema. From the release that brings this file on, an
+-- admin session counts only in the browser it was started in
+-- (ADMIN_BIND_COOKIE, apps/api/plugins/session.ts); before it, another
+-- host of the site could plant a session under a base path. A release
+-- that fixes a vulnerability carries a migration, so that the migrator of
+-- an earlier release refuses the database and no host goes back behind the
+-- fix, even when the registry serves an earlier signed v1 (SECURITY.md).
