@@ -79,6 +79,7 @@ test('a Dockerfile frontend must name a digest, and only a directive at the top 
   assert.equal(unpinnedSyntax('# The image.\nFROM node'), undefined, 'no directive')
   assert.equal(unpinnedSyntax('# The image.\n# syntax=docker/dockerfile:1.7\nFROM node'), undefined, 'after a comment it is a comment')
   assert.equal(unpinnedSyntax('\n# syntax=docker/dockerfile:1.7\nFROM node'), undefined, 'after a blank line it is a comment')
+  assert.equal(unpinnedSyntax('  # syntax=docker/dockerfile:1\nFROM node'), 'docker/dockerfile:1', 'whitespace before the # counts as none')
 })
 
 test('every buildx setup must run BuildKit from an image with a digest', () => {
@@ -92,4 +93,6 @@ test('every buildx setup must run BuildKit from an image with a digest', () => {
   assert.deepEqual(unpinnedBuildkit(steps('      - name: Buildx', '        uses: docker/setup-buildx-action@abc # v4')), [5])
   assert.deepEqual(unpinnedBuildkit(steps(setup, '', '      # A comment.', '      - uses: docker/metadata-action@abc', '        with:', `          driver-opts: image=moby/buildkit@${digest}`)), [4], 'a pin in the next step does not count')
   assert.deepEqual(unpinnedBuildkit(steps('      - uses: docker/build-push-action@abc')), [], 'no buildx setup')
+  assert.deepEqual(unpinnedBuildkit(steps(setup, '        with:', `          # was image=moby/buildkit@${digest}`, '          driver-opts: image=moby/buildkit:latest')), [4], 'a pin in a comment does not count')
+  assert.deepEqual(unpinnedBuildkit(steps(setup, '        with:', '          driver-opts: image=moby/buildkit:latest', `          endpoint: image=moby/buildkit@${digest}`)), [4], 'a pin in another input does not count')
 })

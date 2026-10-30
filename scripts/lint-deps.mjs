@@ -76,8 +76,9 @@ export function findFloats(pkg) {
 // reads it, so both decide what gets signed; a tag can be moved under a
 // release, a digest cannot.
 const digest = /@sha256:[0-9a-f]{64}$/
-// A parser directive: `# key=value` in the leading comments of a Dockerfile.
-const directive = /^#\s*([a-z]+)\s*=\s*(\S+)\s*$/i
+// A parser directive: `# key=value` in the leading comments of a
+// Dockerfile; whitespace before the `#` is ignored, as for any comment.
+const directive = /^\s*#\s*([a-z]+)\s*=\s*(\S+)\s*$/i
 
 /** The frontend a Dockerfile's `# syntax=` directive names without a digest, or undefined. */
 export function unpinnedSyntax(dockerfile) {
@@ -105,10 +106,25 @@ export function unpinnedBuildkit(workflow) {
     const dash = indentOf(lines[start])
     let end = start + 1
     while (end < lines.length && (indentOf(lines[end]) === -1 || indentOf(lines[end]) > dash)) end += 1
-    const step = lines.slice(start, end).join('\n')
-    if (!/\bdriver-opts:/.test(step) || !/\bimage=\S+@sha256:[0-9a-f]{64}\b/.test(step)) unpinned.push(index + 1)
+    // Comments say nothing about what runs: an old pin in one must not pass.
+    const step = lines.slice(start, end).map((text) => text.replace(/(^|\s)#.*$/, '$1'))
+    if (!/(?:^|[\s,'"])image=\S+@sha256:[0-9a-f]{64}\b/.test(driverOpts(step))) unpinned.push(index + 1)
   })
   return unpinned
+}
+
+/** The value of a step's `driver-opts` input, inline or as a block below the key; empty without one. */
+function driverOpts(step) {
+  const key = step.findIndex((text) => /^\s*driver-opts:/.test(text))
+  if (key === -1) return ''
+  const indent = step[key].search(/\S/)
+  const block = []
+  for (const text of step.slice(key + 1)) {
+    const at = text.search(/\S/)
+    if (at !== -1 && at <= indent) break
+    block.push(text)
+  }
+  return [step[key].replace(/^\s*driver-opts:/, ''), ...block].join('\n')
 }
 
 /** Every Dockerfile below `dir`, skipping dependencies, build output and dot-directories. */
