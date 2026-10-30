@@ -9,6 +9,18 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { verifyExport } from '../lib/export-verify.ts'
 
+/**
+ * A value for the terminal: every control character (C0, newline, carriage
+ * return and tab included, DEL, C1), every format character (bidirectional
+ * overrides, zero-width characters) and the line and paragraph separators
+ * as a \u escape. The checks quote the file's titles and names, and the
+ * file may be a tampered one: written raw, an escape sequence in a title
+ * could move the cursor, hide what follows or overwrite the digest above
+ * with another, and a separator or an override could break or reorder a
+ * line where a viewer honours it.
+ */
+const printable = (text: string): string => text.replaceAll(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, (char) => String.raw`\u${(char.codePointAt(0) ?? 0).toString(16).padStart(4, '0')}`)
+
 const [file] = process.argv.slice(2)
 if (!file) {
   console.error('usage: npm run verify -- <export.json>')
@@ -19,10 +31,10 @@ let bytes: Buffer
 try {
   bytes = readFileSync(file)
 } catch (err) {
-  console.error(`cannot read ${file}: ${err instanceof Error ? err.message : String(err)}`)
+  console.error(printable(`cannot read ${file}: ${err instanceof Error ? err.message : String(err)}`))
   process.exit(2)
 }
-console.log(`file:   ${file}`)
+console.log(`file:   ${printable(file)}`)
 console.log(`bytes:  ${bytes.length}`)
 console.log(`sha256: ${createHash('sha256').update(bytes).digest('hex')}`)
 
@@ -34,6 +46,6 @@ try {
   process.exit(1)
 }
 const report = verifyExport(parsed)
-for (const check of report.checks) console.log(`${check.ok ? 'ok  ' : 'FAIL'} ${check.name}: ${check.detail}`)
+for (const check of report.checks) console.log(`${check.ok ? 'ok  ' : 'FAIL'} ${printable(check.name)}: ${printable(check.detail)}`)
 console.log(report.ok ? `OK: every check passed (${report.checks.length})` : `FAILED: ${report.checks.filter((check) => !check.ok).length} of ${report.checks.length} checks`)
 process.exit(report.ok ? 0 : 1)

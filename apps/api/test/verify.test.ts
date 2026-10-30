@@ -5,6 +5,7 @@
 import { test, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -282,4 +283,32 @@ test('the script verifies a file from a checkout, with no database and no server
   assert.match(good.stdout, /OK: every check passed/)
   await assert.rejects(run(process.execPath, [script, bad], { env }), (err: { code?: number, stdout?: string }) => err.code === 1 && /FAIL ballots: regular round/.test(err.stdout ?? '') && /FAILED: 1 of/.test(err.stdout ?? ''))
   await assert.rejects(run(process.execPath, [script], { env }), (err: { code?: number }) => err.code === 2)
+})
+
+test('the script prints the file\'s strings with their control characters escaped, so a crafted title cannot rewrite the terminal', DB, async (t) => {
+  const x = await prepared(t)
+  const { document } = await exportedElection(x)
+  const dir = await mkdtemp(path.join(tmpdir(), 'school-election-export-'))
+  const script = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../scripts/verify.ts')
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/DATABASE|PG|SESSION|ENTRA/.test(key)))
+  const run = promisify(execFile)
+  const verify = async (titled: (title: string) => string): Promise<{ code: number, stdout: string }> => {
+    const file = path.join(dir, `${randomUUID()}.json`)
+    const changed = clone(document)
+    changed.election.title = titled(changed.election.title)
+    for (const contest of changed.contests) contest.title = titled(contest.title)
+    await writeFile(file, JSON.stringify(changed))
+    return run(process.execPath, [script, file], { env }).then(({ stdout }) => ({ code: 0, stdout }), (err: { code: number, stdout: string }) => ({ code: err.code, stdout: err.stdout }))
+  }
+  // Clear the screen, go up a line, return to its start, write a verdict;
+  // set the clipboard (OSC 52); hide what follows, as C1 CSI; reverse what
+  // follows (RLO), and a line separator.
+  const sequences = '\u001b[2J\u001b[1A\rOK: every check passed\u001b]52;c;cHduZWQ=\u0007\u009b8m\n\t\u007f\u202e\u2028'
+  const plain = await verify((title) => `${title} plain`)
+  const crafted = await verify((title) => `${title}${sequences}`)
+  assert.doesNotMatch(crafted.stdout, /(?!\n)[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u, 'no control, format or separator character but the line ends')
+  assert.match(crafted.stdout, /\\u001b\[2J\\u001b\[1A\\u000dOK: every check passed\\u001b\]52;c;cHduZWQ=\\u0007\\u009b8m\\u000a\\u0009\\u007f\\u202e\\u2028/)
+  assert.equal(crafted.code, plain.code)
+  assert.equal(crafted.stdout.split('\n').length, plain.stdout.split('\n').length, 'one line per check, as for a plain title')
+  assert.equal(crafted.stdout.trimEnd().split('\n').at(-1), plain.stdout.trimEnd().split('\n').at(-1), 'the same verdict')
 })
