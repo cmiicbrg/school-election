@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { findFloats, isPinned } from './lint-deps.mjs'
+import { findFloats, isPinned, unpinnedBuildkit, unpinnedSyntax } from './lint-deps.mjs'
 
 const sha = '0123456789abcdef0123456789abcdef01234567'
 
@@ -68,4 +68,28 @@ test('findFloats reports every floating entry with its section', () => {
       { section: 'devDependencies', name: 'c', range: '^2.0.0' },
     ],
   )
+})
+
+const digest = `sha256:${'0123456789abcdef'.repeat(4)}`
+
+test('a Dockerfile frontend must name a digest, and only a directive at the top counts', () => {
+  assert.equal(unpinnedSyntax('# syntax=docker/dockerfile:1.7\n#\n# The image.\nFROM node'), 'docker/dockerfile:1.7')
+  assert.equal(unpinnedSyntax('# check=skip=all\n# SYNTAX = docker/dockerfile:1\nFROM node'), 'docker/dockerfile:1', 'any directive in the run, in any case')
+  assert.equal(unpinnedSyntax(`# syntax=docker/dockerfile:1.7@${digest}\nFROM node`), undefined)
+  assert.equal(unpinnedSyntax('# The image.\nFROM node'), undefined, 'no directive')
+  assert.equal(unpinnedSyntax('# The image.\n# syntax=docker/dockerfile:1.7\nFROM node'), undefined, 'after a comment it is a comment')
+  assert.equal(unpinnedSyntax('\n# syntax=docker/dockerfile:1.7\nFROM node'), undefined, 'after a blank line it is a comment')
+})
+
+test('every buildx setup must run BuildKit from an image with a digest', () => {
+  const steps = (...lines) => ['jobs:', '  image:', '    steps:', ...lines, '      - uses: docker/build-push-action@abc # v7', '        with:', '          push: false'].join('\n')
+  const setup = '      - uses: docker/setup-buildx-action@abc # v4'
+  assert.deepEqual(unpinnedBuildkit(steps(setup)), [4], 'the default image, a tag')
+  assert.deepEqual(unpinnedBuildkit(steps(setup, '        with:', '          driver-opts: image=moby/buildkit:v0.33.1')), [4], 'a tag alone')
+  assert.deepEqual(unpinnedBuildkit(steps(setup, '        with:', `          driver-opts: image=moby/buildkit:v0.33.1@${digest}`)), [])
+  assert.deepEqual(unpinnedBuildkit(steps(setup, '        with:', '          driver-opts: |', `            image=moby/buildkit:v0.33.1@${digest}`, '            network=host')), [], 'a list of options')
+  assert.deepEqual(unpinnedBuildkit(steps('      - name: Buildx', '        uses: docker/setup-buildx-action@abc # v4', '        with:', `          driver-opts: image=moby/buildkit@${digest}`)), [], 'uses: below a name')
+  assert.deepEqual(unpinnedBuildkit(steps('      - name: Buildx', '        uses: docker/setup-buildx-action@abc # v4')), [5])
+  assert.deepEqual(unpinnedBuildkit(steps(setup, '', '      # A comment.', '      - uses: docker/metadata-action@abc', '        with:', `          driver-opts: image=moby/buildkit@${digest}`)), [4], 'a pin in the next step does not count')
+  assert.deepEqual(unpinnedBuildkit(steps('      - uses: docker/build-push-action@abc')), [], 'no buildx setup')
 })

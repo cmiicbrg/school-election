@@ -11,7 +11,7 @@ apps/web/                 Vue 3 + Vite SPA
 apps/api/migrations/      the v1 baseline and forward-only migrations on top of it, applied by apps/api/scripts/migrate.ts
 apps/api/scripts/verify.ts  the offline verifier of an export (npm run verify -- <file>): no server, no database
 e2e/                      Playwright journeys against the real server: harness, support, specs (playwright.config.ts at the root)
-scripts/lint-deps.mjs     exact-pin check across all workspaces
+scripts/lint-deps.mjs     pin check: exact versions in every workspace, digests for the Dockerfiles' frontend and the workflows' BuildKit
 scripts/postgres.sh       PostgreSQL with the settings the API requires (CI and development)
 deploy/                   the deployment: Quadlet units, the PostgreSQL image, the nightly-update guard, the .env example, the proxy example (nginx) and the operator guide; generic, example.org placeholders only
 docs/design.md            design decisions; update it with the behaviour it describes
@@ -49,7 +49,7 @@ These take precedence over convenience:
 ## Conventions
 
 - Dependencies are pinned exactly; Dependabot lands bumps, and the automerge workflow holds them for a one-day quarantine.
-- GitHub Actions are pinned by commit SHA with the version in a comment. The base image is pinned by tag and digest.
+- GitHub Actions are pinned by commit SHA with the version in a comment. The base image is pinned by tag and digest, and so is BuildKit, which runs the image builds (`driver-opts` of the buildx setup in both workflows); the Dockerfiles name no frontend of their own (`# syntax=`), so BuildKit's built-in one reads them. Dependabot does not see the BuildKit pin: it is bumped by hand. `lint:deps` refuses either without a digest.
 - CI runs on pull requests to `main`; a push to `main` runs the tests again for the SonarQube analysis of the default branch and warms the image cache. SonarQube's properties are in `sonar-project.properties`, its coverage the lcov file of `npm run test:coverage`. Images are published to GHCR only on `v*` tags.
 - `apps/api/migrations/0001_baseline.sql` is the schema of version 1. A change after it is a new migration on top, never an edit of an applied one. `apps/api/test/db/upgrade.test.ts` applies the baseline, loads the fixture of a finalized election (`apps/api/test/fixtures/upgrade/0001.sql`) and applies every later migration on top; a migration that creates tables adds a fixture of its own.
 - The lifecycle's windows (what may change in which state, which state follows which) live in election-core's guards, asked by the route and again by `changeElection` under the election's lock. Triggers keep only what the stored data must satisfy whoever writes it: the vote-once rules, the write-only ballot box and the seal, a round's transitions, the immutability of snapshots, lots, declared outcomes and a final election, and the shape of a runoff box and a lot. A trigger that restates a guard is not added.

@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-#
 # One image: the API, which also serves the built web app from apps/web/dist.
 #
 #   deps      — full dependency tree for building the web app.
@@ -11,6 +9,10 @@
 #
 # Every workspace's package.json is copied before `npm ci`: the lockfile
 # covers all of them, and npm ci refuses a workspace it cannot find.
+#
+# No `# syntax=` line: the built-in frontend of the BuildKit the workflows
+# pin by digest reads this file, so no frontend pulled by a movable tag
+# decides what is built (npm run lint:deps checks both).
 
 FROM docker.io/library/node:26.12.1-trixie-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec AS deps
 WORKDIR /app
