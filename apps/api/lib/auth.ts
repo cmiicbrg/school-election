@@ -13,7 +13,7 @@
 //   409  allowed, but not in the election's current state.
 
 import type { FastifyReply, FastifyRequest, HookHandlerDoneFunction } from 'fastify'
-import { ADMIN_SESSION_SECONDS, type SessionUser } from '../plugins/session.ts'
+import { ADMIN_SESSION_SECONDS, adminSessionBound, type SessionUser } from '../plugins/session.ts'
 
 /**
  * Global roles come from the app-role claim of the ID token, through this
@@ -29,10 +29,10 @@ export function isGlobalRole(value: unknown): value is GlobalRole {
   return GLOBAL_ROLES.includes(value as GlobalRole)
 }
 
-/** The signed-in caller, or undefined. A session past its lifetime, or without a sign-in time, counts as none. */
+/** The signed-in caller, or undefined. A session past its lifetime, without a sign-in time, or not bound to this browser counts as none. */
 export function currentUser(request: FastifyRequest, now = Date.now()): SessionUser | undefined {
   const user = request.adminSession.get('user')
-  if (!user || !withinSeconds(user.issuedAt, ADMIN_SESSION_SECONDS, now)) return undefined
+  if (!user || !withinSeconds(user.issuedAt, ADMIN_SESSION_SECONDS, now) || !adminSessionBound(request)) return undefined
   return user
 }
 

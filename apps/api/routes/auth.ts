@@ -13,7 +13,10 @@
 // replayed callback gets nowhere: the state must match the state cookie, the
 // code is redeemed only with the client secret, and the ID token must carry
 // the nonce from the sealed session; state and nonce are set in this browser
-// by the login that started this sign-in, and used once.
+// by the login that started this sign-in, and used once. The login also
+// binds the session to this browser (ADMIN_BIND_COOKIE in
+// plugins/session.ts), so a sign-in started elsewhere and planted here is
+// refused, and so is a session.
 
 import { randomBytes } from 'node:crypto'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
@@ -27,6 +30,7 @@ import { registerEntra, SIGN_IN_SECONDS, SignInError } from '../lib/entra.ts'
 import { bindInvitations } from '../lib/members.ts'
 import { safeReturnTo } from '../lib/return-to.ts'
 import { ErrorResponse, StrictObject } from '../lib/schemas/common.ts'
+import { ADMIN_BIND_COOKIE, ADMIN_BIND_VALUE, ADMIN_SESSION_SECONDS, adminSessionBound, bindDigest } from '../plugins/session.ts'
 
 export interface AuthRoutesOptions {
   config: Config
@@ -79,6 +83,14 @@ export async function authRoutes(app: FastifyInstance, { config, db, entraAuthor
     schema: { querystring: LoginQuery, response: { '4xx': ErrorResponse } },
   }, async (request, reply) => {
     const nonce = randomBytes(32).toString('base64url')
+    // The binding cookie this host set before is kept: a second instance of
+    // the app under another path of the host shares it, and a new one would
+    // sign that out.
+    // It lasts as long as a session started within the sign-in's time.
+    const existing = request.cookies[ADMIN_BIND_COOKIE]
+    const bind = existing !== undefined && ADMIN_BIND_VALUE.test(existing) ? existing : randomBytes(32).toString('base64url')
+    void reply.setCookie(ADMIN_BIND_COOKIE, bind, { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: SIGN_IN_SECONDS + ADMIN_SESSION_SECONDS })
+    request.adminSession.set('bind', bindDigest(bind))
     request.adminSession.set('signIn', { nonce, returnTo: safeReturnTo(request.query.returnTo, config.basePath), startedAt: Date.now() })
     const interactive = request.query.sso_reload === 'true'
     return reply.redirect(await entra.authorizationUrl(request, reply, nonce, interactive), 302)
@@ -98,6 +110,11 @@ export async function authRoutes(app: FastifyInstance, { config, db, entraAuthor
     }
     const session = request.adminSession
     const pending = session.get('signIn')
+    // A sign-in started in another browser and planted in this one: refused,
+    // and left as it is, so nothing of it is written back as this browser's.
+    if (pending && !adminSessionBound(request)) {
+      return refuse(request, reply, new SignInError('session_not_bound'))
+    }
     if (pending) session.set('signIn', undefined)
     if (!pending || !withinSeconds(pending.startedAt, SIGN_IN_SECONDS)) {
       return refuse(request, reply, new SignInError('no_pending_sign_in'))
