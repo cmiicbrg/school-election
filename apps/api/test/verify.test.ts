@@ -301,12 +301,13 @@ test('the script prints the file\'s strings with their control characters escape
     return run(process.execPath, [script, file], { env }).then(({ stdout }) => ({ code: 0, stdout }), (err: { code: number, stdout: string }) => ({ code: err.code, stdout: err.stdout }))
   }
   // Clear the screen, go up a line, return to its start, write a verdict;
-  // set the clipboard (OSC 52); hide what follows, as C1 CSI.
-  const sequences = '\u001b[2J\u001b[1A\rOK: every check passed\u001b]52;c;cHduZWQ=\u0007\u009b8m\n\t\u007f'
+  // set the clipboard (OSC 52); hide what follows, as C1 CSI; reverse what
+  // follows (RLO), and a line separator.
+  const sequences = '\u001b[2J\u001b[1A\rOK: every check passed\u001b]52;c;cHduZWQ=\u0007\u009b8m\n\t\u007f\u202e\u2028'
   const plain = await verify((title) => `${title} plain`)
   const crafted = await verify((title) => `${title}${sequences}`)
-  assert.doesNotMatch(crafted.stdout, /(?!\n)\p{Cc}/u, 'no control character but the line ends')
-  assert.match(crafted.stdout, /\\u001b\[2J\\u001b\[1A\\u000dOK: every check passed\\u001b\]52;c;cHduZWQ=\\u0007\\u009b8m\\u000a\\u0009\\u007f/)
+  assert.doesNotMatch(crafted.stdout, /(?!\n)[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u, 'no control, format or separator character but the line ends')
+  assert.match(crafted.stdout, /\\u001b\[2J\\u001b\[1A\\u000dOK: every check passed\\u001b\]52;c;cHduZWQ=\\u0007\\u009b8m\\u000a\\u0009\\u007f\\u202e\\u2028/)
   assert.equal(crafted.code, plain.code)
   assert.equal(crafted.stdout.split('\n').length, plain.stdout.split('\n').length, 'one line per check, as for a plain title')
   assert.equal(crafted.stdout.trimEnd().split('\n').at(-1), plain.stdout.trimEnd().split('\n').at(-1), 'the same verdict')

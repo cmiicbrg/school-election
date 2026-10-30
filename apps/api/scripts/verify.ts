@@ -11,12 +11,15 @@ import { verifyExport } from '../lib/export-verify.ts'
 
 /**
  * A value for the terminal: every control character (C0, newline, carriage
- * return and tab included, DEL, C1) as a \u escape. The checks quote the
- * file's titles and names, and the file may be a tampered one: written raw,
- * an escape sequence in a title could move the cursor, hide what follows or
- * overwrite the digest above with another.
+ * return and tab included, DEL, C1), every format character (bidirectional
+ * overrides, zero-width characters) and the line and paragraph separators
+ * as a \u escape. The checks quote the file's titles and names, and the
+ * file may be a tampered one: written raw, an escape sequence in a title
+ * could move the cursor, hide what follows or overwrite the digest above
+ * with another, and a separator or an override could break or reorder a
+ * line where a viewer honours it.
  */
-const printable = (text: string): string => text.replaceAll(/\p{Cc}/gu, (char) => `\\u${(char.codePointAt(0) ?? 0).toString(16).padStart(4, '0')}`)
+const printable = (text: string): string => text.replaceAll(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, (char) => String.raw`\u${(char.codePointAt(0) ?? 0).toString(16).padStart(4, '0')}`)
 
 const [file] = process.argv.slice(2)
 if (!file) {
