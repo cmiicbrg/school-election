@@ -39,6 +39,14 @@ test('an applied migration that was edited or removed stops the run', DB, async 
   await assert.rejects(run(db.ownerUrl, MIGRATIONS_DIR), (err: Error) => err instanceof MigrationError && /9001_second.sql is missing/.test(err.message))
 })
 
+test('a migration that is only a comment applies, and the migrations without it then refuse the database: no host goes back behind a release that carries one', DB, async (t) => {
+  const db = await createTestDatabase(t, { migrated: false })
+  const dir = await migrationsWith({ '9001_floor.sql': '-- v9.9.9 fixes a vulnerability; no host goes back behind it.\n' })
+  assert.deepEqual(await run(db.ownerUrl, dir), [...REAL, '9001_floor.sql'])
+  await assert.rejects(run(db.ownerUrl, MIGRATIONS_DIR), (err: Error) => err instanceof MigrationError && /9001_floor.sql is missing/.test(err.message))
+  assert.deepEqual(await run(db.ownerUrl, dir), [], 'the release that carries it still starts')
+})
+
 test('a new migration that sorts before an applied one is refused', DB, async (t) => {
   const db = await createTestDatabase(t, { migrated: false })
   const dir = await migrationsWith({ '9002_third.sql': 'create table third (id int);' })
