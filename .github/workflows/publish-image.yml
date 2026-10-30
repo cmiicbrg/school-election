@@ -53,7 +53,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # BuildKit runs the build and pushes with the job's package token, and
+      # its built-in frontend reads the Dockerfiles, which name none of
+      # their own: pinned by tag and digest like every image, so a moved
+      # tag cannot change what gets signed. Dependabot does not see this
+      # pin; it is bumped by hand, here and in ci.yml (npm run lint:deps
+      # refuses one without a digest).
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=docker.io/moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
 
       - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: app

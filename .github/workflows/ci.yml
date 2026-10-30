@@ -45,7 +45,8 @@ jobs:
       - run: npm ci --ignore-scripts
 
       # The aggregate script: ESLint, markdownlint, lint:deps (exact pins in
-      # every workspace) and typecheck.
+      # every workspace, digests for the Dockerfiles' frontend and the
+      # workflows' BuildKit) and typecheck.
       - run: npm run lint
 
   # Everything the Node pipeline cannot see: the Dockerfile, the deployment
@@ -258,7 +259,11 @@ jobs:
         with:
           persist-credentials: false
 
+      # The BuildKit the release builds with (publish-image.yml), pinned the
+      # same way and bumped with it.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=docker.io/moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
 
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:

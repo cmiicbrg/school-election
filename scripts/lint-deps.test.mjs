@@ -1,6 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { findFloats, isPinned } from './lint-deps.mjs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { dockerfiles, findFloats, isPinned, unpinnedBuildkit, unpinnedSyntax } from './lint-deps.mjs'
 
 const sha = '0123456789abcdef0123456789abcdef01234567'
 
@@ -68,4 +71,47 @@ test('findFloats reports every floating entry with its section', () => {
       { section: 'devDependencies', name: 'c', range: '^2.0.0' },
     ],
   )
+})
+
+const digest = `sha256:${'0123456789abcdef'.repeat(4)}`
+
+test('a Dockerfile frontend must name a digest, and only a directive at the top counts', () => {
+  assert.equal(unpinnedSyntax('# syntax=docker/dockerfile:1.7\n#\n# The image.\nFROM node'), 'docker/dockerfile:1.7')
+  assert.equal(unpinnedSyntax('# check=skip=all\n# SYNTAX = docker/dockerfile:1\nFROM node'), 'docker/dockerfile:1', 'any directive in the run, in any case')
+  assert.equal(unpinnedSyntax(`# syntax=docker/dockerfile:1.7@${digest}\nFROM node`), undefined)
+  assert.equal(unpinnedSyntax('# The image.\nFROM node'), undefined, 'no directive')
+  assert.equal(unpinnedSyntax('# The image.\n# syntax=docker/dockerfile:1.7\nFROM node'), undefined, 'after a comment it is a comment')
+  assert.equal(unpinnedSyntax('\n# syntax=docker/dockerfile:1.7\nFROM node'), undefined, 'after a blank line it is a comment')
+  assert.equal(unpinnedSyntax('  # syntax=docker/dockerfile:1\nFROM node'), 'docker/dockerfile:1', 'whitespace before the # counts as none')
+  assert.equal(unpinnedSyntax('# syntax=docker/dockerfile:1 # the frontend\nFROM node'), 'docker/dockerfile:1', 'words after the image')
+  assert.equal(unpinnedSyntax(`# syntax=docker/dockerfile:1@${digest} --flag\nFROM node`), undefined)
+})
+
+test('every buildx setup must run BuildKit from an image with a digest', () => {
+  const steps = (...lines) => ['jobs:', '  image:', '    steps:', ...lines, '      - uses: docker/build-push-action@abc # v7', '        with:', '          push: false'].join('\n')
+  const setup = '      - uses: docker/setup-buildx-action@abc # v4'
+  assert.deepEqual(unpinnedBuildkit(steps(setup)), [4], 'the default image, a tag')
+  assert.deepEqual(unpinnedBuildkit(steps(setup, '        with:', '          driver-opts: image=moby/buildkit:v0.33.1')), [4], 'a tag alone')
+  assert.deepEqual(unpinnedBuildkit(steps(setup, '        with:', `          driver-opts: image=moby/buildkit:v0.33.1@${digest}`)), [])
+  assert.deepEqual(unpinnedBuildkit(steps(setup, '        with:', '          driver-opts: |', `            image=moby/buildkit:v0.33.1@${digest}`, '            network=host')), [], 'a list of options')
+  assert.deepEqual(unpinnedBuildkit(steps('      - name: Buildx', '        uses: docker/setup-buildx-action@abc # v4', '        with:', `          driver-opts: image=moby/buildkit@${digest}`)), [], 'uses: below a name')
+  assert.deepEqual(unpinnedBuildkit(steps('      - name: Buildx', '        uses: docker/setup-buildx-action@abc # v4')), [5])
+  assert.deepEqual(unpinnedBuildkit(steps(setup, '', '      # A comment.', '      - uses: docker/metadata-action@abc', '        with:', `          driver-opts: image=moby/buildkit@${digest}`)), [4], 'a pin in the next step does not count')
+  assert.deepEqual(unpinnedBuildkit(steps('      - uses: docker/build-push-action@abc')), [], 'no buildx setup')
+  assert.deepEqual(unpinnedBuildkit(steps(setup, '        with:', `          # was image=moby/buildkit@${digest}`, '          driver-opts: image=moby/buildkit:latest')), [4], 'a pin in a comment does not count')
+  assert.deepEqual(unpinnedBuildkit(steps(setup, '        with:', '          driver-opts: image=moby/buildkit:latest', `          endpoint: image=moby/buildkit@${digest}`)), [4], 'a pin in another input does not count')
+  assert.deepEqual(unpinnedBuildkit(steps('      -    uses: docker/setup-buildx-action@abc # v4')), [4], 'more whitespace after the dash')
+  assert.deepEqual(unpinnedBuildkit(steps('      -   name: Buildx', '          uses: docker/setup-buildx-action@abc # v4', '          with:', '            driver-opts: image=moby/buildkit:latest')), [5], 'more whitespace after the dash of a named step')
+  assert.deepEqual(unpinnedBuildkit(steps('      -    uses: docker/setup-buildx-action@abc # v4', '           with:', `             driver-opts: image=moby/buildkit@${digest}`)), [])
+})
+
+test('every Dockerfile is found, in hidden directories too, but not in git, dependencies or build output', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'lint-deps-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const files = ['Dockerfile', 'deploy/postgres/Dockerfile', '.devcontainer/Dockerfile', 'tools/web.Dockerfile', 'tools/Dockerfile.dev', '.git/Dockerfile', 'node_modules/x/Dockerfile', 'dist/Dockerfile', 'coverage/Dockerfile', 'tools/Dockerfile-notes.md']
+  for (const file of files) {
+    mkdirSync(join(root, file, '..'), { recursive: true })
+    writeFileSync(join(root, file), 'FROM scratch\n')
+  }
+  assert.deepEqual(dockerfiles(root).map((path) => path.slice(root.length + 1)).sort(), ['.devcontainer/Dockerfile', 'Dockerfile', 'deploy/postgres/Dockerfile', 'tools/Dockerfile.dev', 'tools/web.Dockerfile'])
 })

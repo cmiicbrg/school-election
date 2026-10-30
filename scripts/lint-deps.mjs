@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-// Fail the build if any package.json in the repository carries floating
-// dependency ranges. Every dep must be pinned to an exact version;
-// Dependabot is configured to land bumps as separate PRs.
+// Fail the build if anything the repository builds with floats: a
+// dependency range in a package.json, a Dockerfile frontend (`# syntax=`)
+// or the BuildKit image a workflow builds with, named without a digest.
+// Every dep must be pinned to an exact version; Dependabot is configured
+// to land bumps as separate PRs.
 //
 // Checks the root package.json and every workspace it lists, because a
 // floating range in apps/api or apps/web resolves just as silently as one
@@ -13,9 +15,9 @@
 // workspace: specifiers carrying an exact version (or workspace:*),
 // and git specifiers pinned to a commit.
 
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 
 export const sections = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']
 
@@ -70,6 +72,73 @@ export function findFloats(pkg) {
   return floats
 }
 
+// BuildKit runs the image builds and the frontend a Dockerfile names
+// reads it, so both decide what gets signed; a tag can be moved under a
+// release, a digest cannot.
+const digest = /@sha256:[0-9a-f]{64}$/
+// A parser directive: `# key=value` in the leading comments of a
+// Dockerfile; whitespace before the `#` is ignored, as for any comment.
+// BuildKit takes a syntax directive's first word as the frontend's image
+// and passes the rest to it, so the first word is the one to check.
+const directive = /^\s*#\s*([a-z]+)\s*=\s*(\S+)(?:\s.*)?$/i
+
+/** The frontend a Dockerfile's `# syntax=` directive names without a digest, or undefined. */
+export function unpinnedSyntax(dockerfile) {
+  // Directives count only at the very top: the first line that is not one
+  // (a comment, a blank line, an instruction) ends them.
+  for (const line of dockerfile.split(/\r?\n/)) {
+    const match = directive.exec(line)
+    if (!match) return undefined
+    if (match[1].toLowerCase() === 'syntax' && !digest.test(match[2])) return match[2]
+  }
+  return undefined
+}
+
+/** The line numbers of a workflow's docker/setup-buildx-action steps that run BuildKit from an image without a digest. */
+export function unpinnedBuildkit(workflow) {
+  const lines = workflow.split(/\r?\n/)
+  const indentOf = (line) => line.search(/\S/)
+  const unpinned = []
+  lines.forEach((line, index) => {
+    // YAML takes any whitespace after a sequence's dash.
+    if (!/^\s*(?:-\s+)?uses:\s*['"]?docker\/setup-buildx-action@/.test(line)) return
+    // The step is the list item holding this line: from its dash to the
+    // next line indented no deeper than that dash.
+    let start = index
+    while (start > 0 && !/^\s*-\s/.test(lines[start])) start -= 1
+    const dash = indentOf(lines[start])
+    let end = start + 1
+    while (end < lines.length && (indentOf(lines[end]) === -1 || indentOf(lines[end]) > dash)) end += 1
+    // Comments say nothing about what runs: an old pin in one must not pass.
+    const step = lines.slice(start, end).map((text) => text.replace(/(^|\s)#.*$/, '$1'))
+    if (!/(?:^|[\s,'"])image=\S+@sha256:[0-9a-f]{64}\b/.test(driverOpts(step))) unpinned.push(index + 1)
+  })
+  return unpinned
+}
+
+/** The value of a step's `driver-opts` input, inline or as a block below the key; empty without one. */
+function driverOpts(step) {
+  const key = step.findIndex((text) => /^\s*driver-opts:/.test(text))
+  if (key === -1) return ''
+  const indent = step[key].search(/\S/)
+  const block = []
+  for (const text of step.slice(key + 1)) {
+    const at = text.search(/\S/)
+    if (at !== -1 && at <= indent) break
+    block.push(text)
+  }
+  return [step[key].replace(/^\s*driver-opts:/, ''), ...block].join('\n')
+}
+
+/** Every Dockerfile below `dir`, hidden directories included, skipping git's own, dependencies and build output. */
+export function dockerfiles(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) return ['.git', 'node_modules', 'dist', 'coverage'].includes(entry.name) ? [] : dockerfiles(path)
+    return /^Dockerfile(?:\..+)?$|\.Dockerfile$/.test(entry.name) ? [path] : []
+  })
+}
+
 function readPackage(dir) {
   return JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
 }
@@ -93,11 +162,26 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       console.error(`  ${join(dir, 'package.json')} ${f.section} > ${f.name}: ${f.range}`)
     }
   }
+  if (failed) console.error('\nReplace with exact versions; Dependabot will land bumps.')
 
-  if (failed) {
-    console.error('\nReplace with exact versions; Dependabot will land bumps.')
-    process.exit(1)
+  const files = dockerfiles(root)
+  const workflowsDir = join(root, '.github', 'workflows')
+  const workflows = readdirSync(workflowsDir).filter((name) => /\.ya?ml$/.test(name)).map((name) => join(workflowsDir, name))
+  const builds = [
+    ...files.flatMap((file) => {
+      const frontend = unpinnedSyntax(readFileSync(file, 'utf8'))
+      return frontend === undefined ? [] : [`  ${relative(root, file)}: # syntax=${frontend}`]
+    }),
+    ...workflows.flatMap((file) => unpinnedBuildkit(readFileSync(file, 'utf8')).map((line) => `  ${relative(root, file)}:${line}: docker/setup-buildx-action without driver-opts: image=<image>@sha256:<digest>`)),
+  ]
+  if (builds.length > 0) {
+    console.error(`${failed ? '\n' : ''}Build inputs named without a digest (project policy: pin everything):`)
+    for (const entry of builds) console.error(entry)
+    console.error('\nName BuildKit by tag and digest; leave the Dockerfile frontend to the built-in one, or pin it by digest.')
+    failed = true
   }
 
-  console.log(`All dependencies pinned in ${dirs.length} package.json files ✓`)
+  if (failed) process.exit(1)
+
+  console.log(`All dependencies pinned in ${dirs.length} package.json files, ${files.length} Dockerfiles and ${workflows.length} workflows ✓`)
 }
