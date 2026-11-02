@@ -14,7 +14,7 @@
 # pin by digest reads this file, so no frontend pulled by a movable tag
 # decides what is built (npm run lint:deps checks both).
 
-FROM docker.io/library/node:26.12.1-trixie-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec AS deps
+FROM docker.io/library/node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/election-core/package.json packages/election-core/
@@ -29,7 +29,7 @@ COPY packages/election-core packages/election-core
 COPY apps/web apps/web
 RUN npm run build --workspace apps/web
 
-FROM docker.io/library/node:26.12.1-trixie-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec AS prod-deps
+FROM docker.io/library/node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS prod-deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/election-core/package.json packages/election-core/
@@ -38,7 +38,7 @@ COPY apps/web/package.json apps/web/
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev --no-audit --no-fund --ignore-scripts
 
-FROM docker.io/library/node:26.12.1-trixie-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec AS runtime
+FROM docker.io/library/node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
