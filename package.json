@@ -35,7 +35,7 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "@playwright/test": "1.64.1",
+    "@playwright/test": "1.65.0",
     "@stylistic/eslint-plugin": "5.10.0",
     "@types/node": "26.6.6",
     "@types/pngjs": "6.0.5",
@@ -47,6 +47,6 @@
     "pngjs": "7.0.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.1",
-    "vue-eslint-parser": "10.4.1"
+    "vue-eslint-parser": "10.4.2"
   }
 }
