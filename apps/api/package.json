@@ -22,10 +22,10 @@
     "@fastify/static": "10.1.10",
     "@school-election/election-core": "1.0.0",
     "fastify": "5.12.8",
-    "jose": "6.2.15",
+    "jose": "6.2.16",
     "pg": "8.23.1",
     "sharp": "0.35.5",
-    "typebox": "1.4.5"
+    "typebox": "1.4.6"
   },
   "devDependencies": {
     "@types/pg": "8.23.1"
