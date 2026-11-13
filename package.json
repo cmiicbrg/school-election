@@ -40,13 +40,13 @@
     "@types/node": "26.6.6",
     "@types/pngjs": "6.0.5",
     "eslint": "10.14.0",
-    "eslint-plugin-vue": "10.12.0",
+    "eslint-plugin-vue": "10.12.1",
     "globals": "17.14.0",
     "jsqr": "1.4.0",
     "markdownlint-cli2": "0.24.0",
     "pngjs": "7.0.0",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.72.1",
+    "typescript-eslint": "8.72.2",
     "vue-eslint-parser": "10.4.2"
   }
 }
