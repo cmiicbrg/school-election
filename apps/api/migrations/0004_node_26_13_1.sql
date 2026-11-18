@@ -1,0 +1,7 @@
+-- No change to the schema. From the release that brings this file on, the
+-- app image runs on Node.js 26.13.1, a security release that fixes, among
+-- others, CVE-2026-123864 (tls,http: nested parser execution from empty
+-- writes) and updates llhttp and undici. A release that fixes a
+-- vulnerability carries a migration, so that the migrator of an earlier
+-- release refuses the database and no host goes back behind the fix, even
+-- when the registry serves an earlier signed v1 (SECURITY.md).
