@@ -179,7 +179,8 @@ export interface FinalOutcome {
 /** The declared outcome of every contest of a final election, by contest; empty before finalization. */
 export async function finalOutcomes(client: pg.ClientBase, electionId: string): Promise<Map<string, FinalOutcome>> {
   const { rows } = await client.query<{ contest_id: string, outcome: Outcome, tally_version: number, app_version: string, git_sha: string }>(
-    'select contest_id, outcome, tally_version, app_version, git_sha from final_outcome where election_id = $1', [electionId],
+    'select contest_id, outcome, tally_version, app_version, git_sha from final_outcome where election_id = $1',
+    [electionId],
   )
   return new Map(rows.map((row) => [row.contest_id, { contestId: row.contest_id, outcome: row.outcome, tallyVersion: row.tally_version, appVersion: row.app_version, gitSha: row.git_sha }]))
 }

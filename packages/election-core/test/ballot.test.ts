@@ -45,8 +45,16 @@ test('an unknown candidate is rejected', () => {
 test('anything but the two ballot forms is malformed, the former blank form included', () => {
   const c = contest(3)
   for (const input of [
-    undefined, null, 'c1', 42, [], ['c1', 'c2', 'c3'],
-    {}, { kind: 'yes' }, { kind: 'blank' }, { kind: 'Ranking', ranking: ['c1', 'c2', 'c3'] },
+    undefined,
+    null,
+    'c1',
+    42,
+    [],
+    ['c1', 'c2', 'c3'],
+    {},
+    { kind: 'yes' },
+    { kind: 'blank' },
+    { kind: 'Ranking', ranking: ['c1', 'c2', 'c3'] },
     { ranking: ['c1', 'c2', 'c3'] },
   ]) {
     assert.deepEqual(rejection(c, input), { kind: 'malformed', reason: 'unknown-form' }, JSON.stringify(input))

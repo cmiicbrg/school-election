@@ -19,8 +19,18 @@ const RUNOFF_CLOSED: Lifecycle = { election: 'active', regular: 'closed', runoff
 const FINAL: Lifecycle = { election: 'final', regular: 'closed', runoff: null }
 
 const NOTHING: RunRules = {
-  startTest: false, endTest: false, open: false, closeRegular: false, activateRunoff: false, closeRunoff: false,
-  recordLot: false, finalize: false, exportFile: false, turnoutOf: null, showTestResult: false, showResult: false,
+  startTest: false,
+  endTest: false,
+  open: false,
+  closeRegular: false,
+  activateRunoff: false,
+  closeRunoff: false,
+  recordLot: false,
+  finalize: false,
+  exportFile: false,
+  turnoutOf: null,
+  showTestResult: false,
+  showResult: false,
 }
 
 test('the owner: a rehearsal and the opening while prepared, the close while open, the runoff and the lots after the close, finalizing and the export while no round is open', () => {
@@ -39,7 +49,11 @@ test('a co-admin runs the rounds and records lots but never finalizes; a witness
     const owner = runRules(lifecycle, OWNER)
     assert.deepEqual(runRules(lifecycle, ADMIN), { ...owner, finalize: false }, lifecycle.regular)
     assert.deepEqual(runRules(lifecycle, WITNESS), {
-      ...NOTHING, turnoutOf: owner.turnoutOf, showTestResult: owner.showTestResult, showResult: owner.showResult, exportFile: owner.exportFile,
+      ...NOTHING,
+      turnoutOf: owner.turnoutOf,
+      showTestResult: owner.showTestResult,
+      showResult: owner.showResult,
+      exportFile: owner.exportFile,
     }, lifecycle.regular)
   }
 })

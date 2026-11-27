@@ -179,7 +179,8 @@ test('a runtime role given more rights by hand is brought back down', DB, async 
   await withClient(db.ownerUrl, (c) => c.query('alter role school_election_app createdb createrole replication bypassrls'))
   await run(db.ownerUrl)
   const { rows } = await withClient(db.ownerUrl, (c) => c.query<Record<string, boolean>>(
-    'select rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolcanlogin from pg_roles where rolname = $1', ['school_election_app'],
+    'select rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolcanlogin from pg_roles where rolname = $1',
+    ['school_election_app'],
   ))
   assert.deepEqual(rows[0], { rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false, rolbypassrls: false, rolcanlogin: true })
 })

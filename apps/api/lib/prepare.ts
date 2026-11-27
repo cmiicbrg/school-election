@@ -23,18 +23,18 @@ import type { Database } from './db.ts'
 import { Refusal, type ElectionAccess } from './election-access.ts'
 
 /** What stops an election from being prepared. */
-export type Problem
-  = | { kind: 'no-contests' }
-    | { kind: 'no-voter-groups' }
-    | { kind: 'contest-without-candidates', contestId: string }
-    | { kind: 'contest-without-voter-groups', contestId: string }
-    | { kind: 'voter-group-without-contests', voterGroupId: string }
+export type Problem =
+  | { kind: 'no-contests' }
+  | { kind: 'no-voter-groups' }
+  | { kind: 'contest-without-candidates', contestId: string }
+  | { kind: 'contest-without-voter-groups', contestId: string }
+  | { kind: 'voter-group-without-contests', voterGroupId: string }
 
 /** What a formal election usually has: a co-admin, two witnesses who have signed in, no open invitations. */
-export type Warning
-  = | { kind: 'no-co-admin' }
-    | { kind: 'too-few-witnesses', witnesses: number }
-    | { kind: 'pending-invitations', count: number }
+export type Warning =
+  | { kind: 'no-co-admin' }
+  | { kind: 'too-few-witnesses', witnesses: number }
+  | { kind: 'pending-invitations', count: number }
 
 export interface Summary {
   voterGroups: { id: string, name: string, contests: { id: string, title: string }[] }[]
@@ -54,10 +54,10 @@ export interface StaleBatch {
   keys: number
 }
 
-export type PrepareResult
-  = | { prepared: true, summary: Summary, warnings: Warning[] }
-    | { prepared: false, problems: Problem[] }
-    | { prepared: false, problems: [], staleBatches: StaleBatch[] }
+export type PrepareResult =
+  | { prepared: true, summary: Summary, warnings: Warning[] }
+  | { prepared: false, problems: Problem[] }
+  | { prepared: false, problems: [], staleBatches: StaleBatch[] }
 
 /** The summary, its warnings and what blocks preparing, for the configuration as it is. */
 export async function readPreparation(db: Pick<Database, 'query'>, electionId: string): Promise<Preparation> {

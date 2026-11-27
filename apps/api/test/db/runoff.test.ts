@@ -36,7 +36,8 @@ async function closedFirstRound(s: Setup): Promise<void> {
 
 async function runoffBox(s: Setup, roundId: string): Promise<{ id: string, runoff_pair: string[] }> {
   const { rows: [box] } = await withClient(s.ownerUrl, (client) => client.query<{ id: string, runoff_pair: string[] }>(
-    'select id, runoff_pair from round_contest where round_id = $1', [roundId],
+    'select id, runoff_pair from round_contest where round_id = $1',
+    [roundId],
   ))
   return box ?? assert.fail('no runoff box')
 }
@@ -97,7 +98,8 @@ test('where the first round elected, nothing needs a runoff; a pair on a regular
   const s = await setup(t)
   // A regular box with a pair, while the round is planned and a box could otherwise be added.
   await withClient(s.ownerUrl, (client) => assert.rejects(
-    client.query(`insert into round_contest (election_id, round_id, contest_id, runoff_pair) values ($1, $2, $3, $4)`, [ELECTION, ROUND, CONTEST, [PAULA, QUIRIN]]), refusedBy,
+    client.query(`insert into round_contest (election_id, round_id, contest_id, runoff_pair) values ($1, $2, $3, $4)`, [ELECTION, ROUND, CONTEST, [PAULA, QUIRIN]]),
+    refusedBy,
   ))
   await openDirectly(s.ownerUrl)
   assert.deepEqual(await cast(s, s.credentialIds[0] ?? '', ranking([PAULA, QUIRIN])), { cast: true })

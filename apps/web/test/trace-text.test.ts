@@ -36,7 +36,9 @@ test('a comparison names the figures, who advances and why, and who is tied', ()
 
 test('the figures of a round as a table: a column per active slot, a row per candidate in contest order', () => {
   const statistics: ContestStatistics = {
-    validBallots: 4, noBallots: 0, invalidBallots: 0,
+    validBallots: 4,
+    noBallots: 0,
+    invalidBallots: 0,
     candidates: [{ candidateId: 'p', firstPlaces: 2, rankCounts: [2, 0, 2], points: 20 }, { candidateId: 'q', firstPlaces: 1, rankCounts: [1, 2, 1], points: 20 }, { candidateId: 'r', firstPlaces: 1, rankCounts: [1, 2, 1], points: 20 }],
   }
   const table = statisticsTable('at-school-speaker-v1', statistics, NAMES)

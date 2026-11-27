@@ -31,14 +31,14 @@ import SlotBallot from '../voter/SlotBallot.vue'
 import { castBallot, contests, endSession, redeem, VoterError, type VoterBallot, type VoterContest, type VoterElection } from '../voter/voter-api.ts'
 import { keyHint, messageFor } from '../voter/voter-rules.ts'
 
-type Step
-  = | { kind: 'loading' }
-    | { kind: 'code' }
-    | { kind: 'list' }
-    | { kind: 'ballot', contest: VoterContest, initial?: VoterBallot }
-    | { kind: 'review', contest: VoterContest, ballot: VoterBallot }
+type Step =
+  | { kind: 'loading' }
+  | { kind: 'code' }
+  | { kind: 'list' }
+  | { kind: 'ballot', contest: VoterContest, initial?: VoterBallot }
+  | { kind: 'review', contest: VoterContest, ballot: VoterBallot }
     // Everything cast: just now, or before this code was entered (used).
-    | { kind: 'done', used: boolean, ballots: number }
+  | { kind: 'done', used: boolean, ballots: number }
 
 /** Set from redemption until the session ends, so that a reload resumes it; never a key. */
 const FLAG = 'voter'

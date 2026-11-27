@@ -61,12 +61,31 @@ test('a genuine export passes every check, and the report names them', DB, async
   assert.equal(report.ok, true)
   const names = report.checks.map((check) => check.name)
   for (const expected of [
-    'format', 'ballots: regular round, Schulsprecher/in', 'digest: regular round, Schulsprecher/in', 'result: regular round, Schulsprecher/in', 'outcome at close: regular round, Schulsprecher/in',
-    'ballots: runoff round, Schulsprecher/in', 'digest: runoff round, Schulsprecher/in', 'result: runoff round, Schulsprecher/in', 'outcome at close: runoff round, Schulsprecher/in',
-    'rows: regular round, Schulsprecher/in', 'order: regular round, Schulsprecher/in', 'snapshots: one per box',
-    'outcome: Schulsprecher/in', 'outcomes: one per contest', 'audit chain of this election', 'audit chain', 'audit chain as exported',
-    'event for the close of the regular round', 'event for the close of the runoff round', 'event for the activation of the runoff',
-    'event for the result: regular round, Schulsprecher/in', 'event for the result: runoff round, Schulsprecher/in', 'no key', 'finalization', 'lifecycle',
+    'format',
+    'ballots: regular round, Schulsprecher/in',
+    'digest: regular round, Schulsprecher/in',
+    'result: regular round, Schulsprecher/in',
+    'outcome at close: regular round, Schulsprecher/in',
+    'ballots: runoff round, Schulsprecher/in',
+    'digest: runoff round, Schulsprecher/in',
+    'result: runoff round, Schulsprecher/in',
+    'outcome at close: runoff round, Schulsprecher/in',
+    'rows: regular round, Schulsprecher/in',
+    'order: regular round, Schulsprecher/in',
+    'snapshots: one per box',
+    'outcome: Schulsprecher/in',
+    'outcomes: one per contest',
+    'audit chain of this election',
+    'audit chain',
+    'audit chain as exported',
+    'event for the close of the regular round',
+    'event for the close of the runoff round',
+    'event for the activation of the runoff',
+    'event for the result: regular round, Schulsprecher/in',
+    'event for the result: runoff round, Schulsprecher/in',
+    'no key',
+    'finalization',
+    'lifecycle',
   ]) {
     assert.ok(names.includes(expected), `${expected} among ${names.join('; ')}`)
   }

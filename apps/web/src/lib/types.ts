@@ -155,9 +155,9 @@ export interface AuditEvent {
   hash: string
 }
 
-export type AuditChain
-  = | { valid: true, length: number, head: string | null }
-    | { valid: false, length: number, index: number, problem: string }
+export type AuditChain =
+  | { valid: true, length: number, head: string | null }
+  | { valid: false, length: number, index: number, problem: string }
 
 export interface AuditLog {
   events: AuditEvent[]

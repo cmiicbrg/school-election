@@ -52,12 +52,9 @@ test('every answer of the voter API has its sentence; anything else gets the gen
 test('a card whose Wahlgang takes no votes now hears which Wahlgang it is for: a 1. Wahlgang card in the runoff is over, a runoff card early is not yet valid', () => {
   assert.equal(refusalOf(409, { error: 'round_closed', round: 'regular' }).round, 'regular')
   assert.equal(refusalOf(409, { error: 'round_closed', round: 'second' }).round, undefined, 'only the two Wahlgänge')
-  assert.equal(messageFor(refusalOf(409, { error: 'round_closed', round: 'regular' })),
-    'Der 1. Wahlgang ist beendet; diese Stimmkarte gilt nicht mehr. Für eine Stichwahl gibt es eigene Stimmkarten.')
-  assert.equal(messageFor(refusalOf(409, { error: 'round_planned', round: 'runoff' })),
-    'Das ist eine Stichwahl-Stimmkarte. Sie gilt erst, wenn die Stichwahl beginnt.')
-  assert.equal(messageFor(refusalOf(409, { error: 'round_closed', round: 'runoff' })),
-    'Die Stichwahl ist beendet. Es können keine Stimmen mehr abgegeben werden.')
+  assert.equal(messageFor(refusalOf(409, { error: 'round_closed', round: 'regular' })), 'Der 1. Wahlgang ist beendet; diese Stimmkarte gilt nicht mehr. Für eine Stichwahl gibt es eigene Stimmkarten.')
+  assert.equal(messageFor(refusalOf(409, { error: 'round_planned', round: 'runoff' })), 'Das ist eine Stichwahl-Stimmkarte. Sie gilt erst, wenn die Stichwahl beginnt.')
+  assert.equal(messageFor(refusalOf(409, { error: 'round_closed', round: 'runoff' })), 'Die Stichwahl ist beendet. Es können keine Stimmen mehr abgegeben werden.')
   assert.equal(messageFor(refusalOf(409, { error: 'round_planned', round: 'regular' })), VOTER_MESSAGES.round_planned)
   assert.equal(WRONG_ROUND.regular.round_planned, VOTER_MESSAGES.round_planned)
   // Without the card's Wahlgang, as a session's refusal comes: the words of the code alone.
@@ -66,7 +63,9 @@ test('a card whose Wahlgang takes no votes now hears which Wahlgang it is for: a
 
 test('the rows of a ballot are the active slots: four candidates show four, seven show six, one shows Ja/Nein', () => {
   assert.deepEqual(slotRows(contest('at-school-speaker-v1', 3)).map((row) => [row.rank, row.points, row.label]), [
-    [1, 6, 'Schulsprecher/in'], [2, 5, '1. Stellvertretung Schulsprecher/in'], [3, 4, '2. Stellvertretung Schulsprecher/in'],
+    [1, 6, 'Schulsprecher/in'],
+    [2, 5, '1. Stellvertretung Schulsprecher/in'],
+    [3, 4, '2. Stellvertretung Schulsprecher/in'],
   ])
   assert.deepEqual(slotRows(contest('at-school-speaker-v1', 4)).map((row) => row.points), [6, 5, 4, 3])
   assert.deepEqual(slotRows(contest('at-school-speaker-v1', 7)).map((row) => row.points), [6, 5, 4, 3, 2, 1])

@@ -11,11 +11,24 @@ test('names are stored in NFC, trimmed, with single spaces', () => {
 
 test('candidates are ordered by surname, then given name, in German collation', () => {
   const names = [
-    name('Zöhrer', 'Anna'), name('Österreicher', 'Max'), name('Ofner', 'Lisa'), name('Müller', 'Anna'),
-    name('Müller', 'Andreas'), name('Muller', 'Zoe'), name('Abel', 'Zoe'), name('Äbel', 'Anna'),
+    name('Zöhrer', 'Anna'),
+    name('Österreicher', 'Max'),
+    name('Ofner', 'Lisa'),
+    name('Müller', 'Anna'),
+    name('Müller', 'Andreas'),
+    name('Muller', 'Zoe'),
+    name('Abel', 'Zoe'),
+    name('Äbel', 'Anna'),
   ]
   assert.deepEqual(names.toSorted(compareCandidates).map((n) => `${n.surname} ${n.givenName}`), [
-    'Abel Zoe', 'Äbel Anna', 'Muller Zoe', 'Müller Andreas', 'Müller Anna', 'Ofner Lisa', 'Österreicher Max', 'Zöhrer Anna',
+    'Abel Zoe',
+    'Äbel Anna',
+    'Muller Zoe',
+    'Müller Andreas',
+    'Müller Anna',
+    'Ofner Lisa',
+    'Österreicher Max',
+    'Zöhrer Anna',
   ])
 })
 

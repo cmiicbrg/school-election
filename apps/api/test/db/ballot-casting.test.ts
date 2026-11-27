@@ -151,7 +151,8 @@ test('a vote that waited for the seal is refused, not told that it voted before'
     // The vote waits for the row the seal holds; then the seal commits.
     for (let attempt = 0; ; attempt++) {
       const { rows } = await withClient(s.ownerUrl, (client) => client.query<{ waiting: boolean }>(
-        `select wait_event_type = 'Lock' as waiting from pg_stat_activity where pid = $1`, [voterPid],
+        `select wait_event_type = 'Lock' as waiting from pg_stat_activity where pid = $1`,
+        [voterPid],
       ))
       if (rows[0]?.waiting) break
       assert.ok(attempt < 100, 'the vote blocks on the seal')

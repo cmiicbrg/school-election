@@ -72,7 +72,14 @@ async function prepared(t: TestContext): Promise<Setup> {
     return fn(client, await accessOf(s, id, person))
   })
   return {
-    s, anna, wanda, id, school, klasse, g1a, g2b,
+    s,
+    anna,
+    wanda,
+    id,
+    school,
+    klasse,
+    g1a,
+    g2b,
     issue: (person, voterGroupId, roundKind, count) => as(person, (client, access) => issueBatch(client, access, { voterGroupId, roundKind, count })),
     replace: (person, batchId) => as(person, (client, access) => replaceBatch(client, access, batchId)),
     read: (person, batchId) => as(person, (client, access) => readBatchKeys(client, access, batchId)),

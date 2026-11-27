@@ -69,7 +69,8 @@ test('a lot for the runoff entry: required, recorded once by someone who runs ro
   assert.deepEqual(after.lots.map((lot) => [lot.lotId, lot.candidates, lot.drawn, lot.reason, lot.actorName]), [[entryLot.id, entryLot.candidates, [renate, quirin], drawn.reason, 'Carla Kollegin']])
   assert.deepEqual((await auditActions(x.anna, x.id)).slice(-1), ['lot.recorded'])
   const { rows: [event] } = await withClient(x.s.ownerUrl, (client) => client.query<{ metadata: Record<string, unknown>, actor_name: string }>(
-    `select metadata, actor_name from audit_event where election_id = $1 and action = 'lot.recorded'`, [x.id],
+    `select metadata, actor_name from audit_event where election_id = $1 and action = 'lot.recorded'`,
+    [x.id],
   ))
   assert.deepEqual(event?.metadata, { contest: x.contest.id, lotId: entryLot.id, candidates: entryLot.candidates.join(','), order: `${renate},${quirin}`, reason: drawn.reason })
   assert.equal(event?.actor_name, 'Carla Kollegin')
@@ -95,7 +96,9 @@ test('a lot for the runoff entry: required, recorded once by someone who runs ro
   assert.equal(positionsLot.reason, 'positions')
   assert.deepEqual([[...positionsLot.candidates].sort(), positionsLot.positions], [[paula, quirin].sort(), ['school-speaker-deputy-1', 'school-speaker-deputy-2']])
   assert.deepEqual(pending.outcome.positions?.slice(0, 3).map((position) => [position.function, position.candidateId, position.basis]), [
-    ['school-speaker', renate, 'runoff'], ['school-speaker-deputy-1', null, 'lot-pending'], ['school-speaker-deputy-2', null, 'lot-pending'],
+    ['school-speaker', renate, 'runoff'],
+    ['school-speaker-deputy-1', null, 'lot-pending'],
+    ['school-speaker-deputy-2', null, 'lot-pending'],
   ])
   // Ids in upper case, as a UUID may be written: the same lot, the same candidates.
   const second = { contestId: x.contest.id.toUpperCase(), lotId: positionsLot.id, order: [quirin.toUpperCase(), paula.toUpperCase()], reason: 'Zweites Los, Stellvertretung' }

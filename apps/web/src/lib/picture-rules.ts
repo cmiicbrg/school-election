@@ -73,9 +73,9 @@ export function filesOf<F>(transfer: TransferLike<F> | null | undefined): F[] {
   return fromItems.length > 0 ? fromItems : Array.from(transfer.files ?? [])
 }
 
-export type Picked<F>
-  = | { kind: 'none' }
-    | { kind: 'file', file: F, others: number }
+export type Picked<F> =
+  | { kind: 'none' }
+  | { kind: 'file', file: F, others: number }
 
 /** The first picture among the files, else the first file (which is then refused as no picture); and how many were left. */
 export function pickFile<F extends FileLike>(files: readonly F[]): Picked<F> {

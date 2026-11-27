@@ -47,7 +47,8 @@ async function seed(): Promise<Seeded> {
   const { rows: [election] } = await owner.query<{ id: string }>(`insert into election (title) values ('Lasttest ' || now()::text) returning id`)
   const electionId = election!.id
   const { rows: [contest] } = await owner.query<{ id: string }>(
-    `insert into contest (election_id, title, ruleset_id) values ($1, 'Klassensprecher/in', 'at-representative-v1') returning id`, [electionId],
+    `insert into contest (election_id, title, ruleset_id) values ($1, 'Klassensprecher/in', 'at-representative-v1') returning id`,
+    [electionId],
   )
   const { rows: candidates } = await owner.query<{ id: string }>(
     `insert into candidate (election_id, contest_id, surname, given_name)
@@ -58,11 +59,13 @@ async function seed(): Promise<Seeded> {
   await owner.query('insert into voter_group_contest (election_id, voter_group_id, contest_id) values ($1, $2, $3)', [electionId, group!.id, contest!.id])
   const { rows: [round] } = await owner.query<{ id: string }>(`insert into round (election_id, kind) values ($1, 'regular') returning id`, [electionId])
   const { rows: [box] } = await owner.query<{ id: string }>(
-    'insert into round_contest (election_id, round_id, contest_id) values ($1, $2, $3) returning id', [electionId, round!.id, contest!.id],
+    'insert into round_contest (election_id, round_id, contest_id) values ($1, $2, $3) returning id',
+    [electionId, round!.id, contest!.id],
   )
   await owner.query(`update election set state = 'prepared' where id = $1`, [electionId])
   const { rows: [batch] } = await owner.query<{ id: string }>(
-    `insert into credential_batch (election_id, voter_group_id, round_kind) values ($1, $2, 'regular') returning id`, [electionId, group!.id],
+    `insert into credential_batch (election_id, voter_group_id, round_kind) values ($1, $2, 'regular') returning id`,
+    [electionId, group!.id],
   )
   await owner.query('insert into credential (election_id, batch_id, key) select $1, $2, k from unnest($3::text[]) as k', [electionId, batch!.id, keys])
   await owner.query('insert into credential_entitlement (election_id, credential_id, round_contest_id) select election_id, id, $2 from credential where batch_id = $1', [batch!.id, box!.id])

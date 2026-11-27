@@ -51,25 +51,25 @@ export const LIFECYCLE_ACTIONS = [
 export type LifecycleAction = typeof LIFECYCLE_ACTIONS[number]
 
 /** Why the lifecycle refuses an action or a change. */
-export type LifecycleRefusal
-  = | 'election-final' // nothing changes once the election is final
-    | 'not-draft' // only a draft can change its structure or be prepared
-    | 'not-prepared' // a draft has no keys and cannot open
-    | 'voting-started' // the round in question has opened
-    | 'round-planned' // the round has not opened yet
-    | 'round-open' // the round is open
-    | 'round-closed' // the round has closed
-    | 'round-testing' // the round is in test mode: end the test first
-    | 'no-runoff' // no runoff round has been activated
-    | 'runoff-activated' // the runoff round exists already
+export type LifecycleRefusal =
+  | 'election-final' // nothing changes once the election is final
+  | 'not-draft' // only a draft can change its structure or be prepared
+  | 'not-prepared' // a draft has no keys and cannot open
+  | 'voting-started' // the round in question has opened
+  | 'round-planned' // the round has not opened yet
+  | 'round-open' // the round is open
+  | 'round-closed' // the round has closed
+  | 'round-testing' // the round is in test mode: end the test first
+  | 'no-runoff' // no runoff round has been activated
+  | 'runoff-activated' // the runoff round exists already
 
-export type Verdict
-  = | { readonly ok: true }
-    | { readonly ok: false, readonly refusal: LifecycleRefusal }
+export type Verdict =
+  | { readonly ok: true }
+  | { readonly ok: false, readonly refusal: LifecycleRefusal }
 
-export type Transition
-  = | { readonly ok: true, readonly next: Lifecycle }
-    | { readonly ok: false, readonly refusal: LifecycleRefusal }
+export type Transition =
+  | { readonly ok: true, readonly next: Lifecycle }
+  | { readonly ok: false, readonly refusal: LifecycleRefusal }
 
 const ALLOWED: Verdict = { ok: true }
 

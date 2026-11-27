@@ -160,7 +160,8 @@ test('and through the runoff: fresh keys, one choice between the pair, a seal of
   const [box] = runoff.contests
   assert.ok(box)
   const first = await db.tx((client) => castBallot(client, {
-    credentialId: scenario.tracked, roundContestId: box.boxId,
+    credentialId: scenario.tracked,
+    roundContestId: box.boxId,
     contest: { id: box.contestId, rulesetId: 'single-choice-v1', candidateIds: box.candidateIds },
     ballot: ranking(box, box.candidateIds[0] ?? ''),
   }))

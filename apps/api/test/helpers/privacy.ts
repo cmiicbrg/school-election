@@ -438,7 +438,8 @@ export async function assertUnlinkable(scenario: PrivacyScenario): Promise<void>
     // lands on follows from the rows' sizes (a page that is full for a
     // long row still takes a short one later).
     const ballots = await client.query<Placed>(
-      'select b.ctid::text as tid, row_number() over (order by b.id)::int as rank from ballot b where b.round_contest_id = any($1) order by b.ctid', [boxes],
+      'select b.ctid::text as tid, row_number() over (order by b.id)::int as rank from ballot b where b.round_contest_id = any($1) order by b.ctid',
+      [boxes],
     )
     const expected = scenario.credentialIds.length * boxes.length
     assert.equal(ballots.rows.length, expected, 'every voter cast a ballot in every contest')
@@ -451,7 +452,8 @@ export async function assertUnlinkable(scenario: PrivacyScenario): Promise<void>
     // did. Of the pairs of neighbours on disk, next to none were cast one
     // after the other.
     const entitlements = await client.query<{ credential_id: string, round_contest_id: string }>(
-      'select credential_id, round_contest_id from credential_entitlement where round_contest_id = any($1) order by ctid', [boxes],
+      'select credential_id, round_contest_id from credential_entitlement where round_contest_id = any($1) order by ctid',
+      [boxes],
     )
     assert.equal(entitlements.rows.length, expected)
     assert.equal(scenario.castOrder.length, expected, 'the votes were cast through voteInterleaved')

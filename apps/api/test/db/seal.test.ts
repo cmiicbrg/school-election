@@ -61,7 +61,8 @@ async function untilBlocked(ownerUrl: string, pids: number[]): Promise<void> {
   await withClient(ownerUrl, async (client) => {
     for (let attempt = 0; attempt < 100; attempt++) {
       const { rows } = await client.query<{ n: number }>(
-        `select count(*)::int as n from pg_stat_activity where pid = any($1) and wait_event_type = 'Lock'`, [pids],
+        `select count(*)::int as n from pg_stat_activity where pid = any($1) and wait_event_type = 'Lock'`,
+        [pids],
       )
       if (rows[0]?.n === pids.length) return
       await sleep(50)
@@ -228,7 +229,8 @@ test('a ballot or a second seal that waits for a seal in progress finds the roun
   await withClient(ownerUrl, async (client) => {
     assert.equal((await client.query('select 1 from ballot_box')).rowCount, 0, 'nothing is staged in the closed round')
     const { rows: [round] } = await client.query<{ state: string, versions: number }>(
-      `select state, (select count(*)::int from credential_entitlement) as versions from round where id = $1`, [ROUND],
+      `select state, (select count(*)::int from credential_entitlement) as versions from round where id = $1`,
+      [ROUND],
     )
     assert.deepEqual(round, { state: 'closed', versions: 3 })
   })

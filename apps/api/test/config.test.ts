@@ -41,8 +41,7 @@ test('PUBLIC_URL must be https, except on loopback', () => {
 })
 
 test('PUBLIC_URL is an origin, or an origin with a path of plain segments, and nothing else', () => {
-  for (const value of ['https://wahl.example.org/?a=1', 'https://wahl.example.org/wahl?', 'https://wahl.example.org/wahl#x', 'https://user:pw@wahl.example.org', 'wahl.example.org', 'ftp://wahl.example.org',
-    'https://www.example.org/wahl//', 'https://www.example.org/wahl%20x', 'https://www.example.org/v1.2']) {
+  for (const value of ['https://wahl.example.org/?a=1', 'https://wahl.example.org/wahl?', 'https://wahl.example.org/wahl#x', 'https://user:pw@wahl.example.org', 'wahl.example.org', 'ftp://wahl.example.org', 'https://www.example.org/wahl//', 'https://www.example.org/wahl%20x', 'https://www.example.org/v1.2']) {
     assert.throws(() => loadConfig({ ...base, PUBLIC_URL: value }), ConfigError, value)
   }
   const root = loadConfig({ ...base, PUBLIC_URL: 'https://wahl.example.org/' })

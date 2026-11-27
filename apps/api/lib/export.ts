@@ -51,16 +51,19 @@ interface BoxRow {
 /** The export of the election, read inside the transaction that holds the election's lock. */
 export async function buildExport(client: pg.ClientBase, electionId: string, build: BuildInfo, now: Date = new Date()): Promise<BuiltExport> {
   const { rows: [election] } = await client.query<{ id: string, title: string, description: string, state: ElectionState }>(
-    'select id, title, description, state from election where id = $1', [electionId],
+    'select id, title, description, state from election where id = $1',
+    [electionId],
   )
   if (!election) throw new Error('the election is gone')
   const { rows: rounds } = await client.query<RoundRow>(
-    `select id, kind, state from round where election_id = $1 order by (kind = 'regular') desc, kind`, [electionId],
+    `select id, kind, state from round where election_id = $1 order by (kind = 'regular') desc, kind`,
+    [electionId],
   )
   const configuration = await readConfiguration(client, electionId)
   const { rows: batches } = await client.query<{ id: string, voter_group_id: string, round_kind: RoundKind, state: string, keys: number }>(
     `select b.id, b.voter_group_id, b.round_kind, b.state, b.keys
-       from ${BATCHES_WITH_KEYS} b where b.election_id = $1 order by b.round_kind, b.state, b.id`, [electionId],
+       from ${BATCHES_WITH_KEYS} b where b.election_id = $1 order by b.round_kind, b.state, b.id`,
+    [electionId],
   )
   const exportedRounds = await exportRounds(client, electionId, rounds, configuration)
   const outcomes = rounds.some((round) => round.kind === 'regular' && round.state === 'closed') ? await contestOutcomes(client, electionId) : []
@@ -125,7 +128,8 @@ async function exportRounds(client: pg.ClientBase, electionId: string, rounds: r
   )
   const closedBoxes = boxes.filter((box) => rounds.some((round) => round.id === box.round_id && round.state === 'closed')).map((box) => box.id)
   const { rows: ballots } = await client.query<BallotRow & { round_contest_id: string }>(
-    'select round_contest_id, kind, ranking from ballot where round_contest_id = any($1)', [closedBoxes],
+    'select round_contest_id, kind, ranking from ballot where round_contest_id = any($1)',
+    [closedBoxes],
   )
   return rounds.map((round) => ({
     kind: round.kind,
@@ -154,7 +158,8 @@ async function exportSnapshots(client: pg.ClientBase, electionId: string, config
   const { rows } = await client.query<{ contest_id: string, kind: RoundKind, input_sha256: string, tally_version: number, app_version: string, git_sha: string, result: unknown, outcome: unknown }>(
     `select rc.contest_id, r.kind, s.input_sha256, s.tally_version, s.app_version, s.git_sha, s.result, s.outcome
        from result_snapshot s join round_contest rc on rc.id = s.round_contest_id join round r on r.id = rc.round_id
-      where s.election_id = $1`, [electionId],
+      where s.election_id = $1`,
+    [electionId],
   )
   return configuration.contests.flatMap((contest) => (['regular', 'runoff'] as const).flatMap((kind) =>
     rows.filter((row) => row.contest_id === contest.id && row.kind === kind).map((row) => ({

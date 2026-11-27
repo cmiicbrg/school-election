@@ -76,14 +76,14 @@ export function normalizeKey(input: string): string {
     .replaceAll(/[IL]/g, '1')
 }
 
-export type KeyProblem
-  = | 'length' // not 20 symbols
-    | 'symbol' // a character outside the alphabet, such as U
-    | 'check' // a typo: the check symbol does not match
+export type KeyProblem =
+  | 'length' // not 20 symbols
+  | 'symbol' // a character outside the alphabet, such as U
+  | 'check' // a typo: the check symbol does not match
 
-export type ParsedKey
-  = | { readonly ok: true, readonly key: string }
-    | { readonly ok: false, readonly problem: KeyProblem }
+export type ParsedKey =
+  | { readonly ok: true, readonly key: string }
+  | { readonly ok: false, readonly problem: KeyProblem }
 
 /** Normalises the input and checks that it is a well-formed key with a matching check symbol. */
 export function parseKey(input: string): ParsedKey {

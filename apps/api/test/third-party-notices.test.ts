@@ -17,8 +17,18 @@ const notice = readFileSync(path.join(NOTICES, 'README.md'), 'utf8')
 
 // sharp.versions names the libraries by their short names; the notice by the names their projects use.
 const NAMES: Record<string, string> = {
-  archive: 'libarchive', exif: 'libexif', ffi: 'libffi', heif: 'libheif', imagequant: 'libimagequant', png: 'libpng',
-  rsvg: 'librsvg', tiff: 'libtiff', uhdr: 'libultrahdr', vips: 'libvips', webp: 'libwebp', xml2: 'libxml2',
+  archive: 'libarchive',
+  exif: 'libexif',
+  ffi: 'libffi',
+  heif: 'libheif',
+  imagequant: 'libimagequant',
+  png: 'libpng',
+  rsvg: 'librsvg',
+  tiff: 'libtiff',
+  uhdr: 'libultrahdr',
+  vips: 'libvips',
+  webp: 'libwebp',
+  xml2: 'libxml2',
 }
 
 test('the notice names the libvips package and every library in it at the installed versions', () => {

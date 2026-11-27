@@ -83,7 +83,9 @@ test('what a lot is for: the runoff entry with the seats and who is in already, 
 
 test('the counts of a round and the first places, highest first; the votes of a single choice', () => {
   const statistics: ContestStatistics = {
-    validBallots: 4, noBallots: 0, invalidBallots: 1,
+    validBallots: 4,
+    noBallots: 0,
+    invalidBallots: 1,
     candidates: [{ candidateId: 'p', firstPlaces: 1, rankCounts: [1, 2, 1], points: 20 }, { candidateId: 'q', firstPlaces: 2, rankCounts: [2, 1, 1], points: 20 }, { candidateId: 'r', firstPlaces: 1, rankCounts: [1, 1, 2], points: 20 }],
   }
   assert.equal(countsLine(statistics), '5 Stimmen, davon 1 ungültig.')
@@ -95,7 +97,9 @@ test('the counts of a round and the first places, highest first; the votes of a 
 
 test('the first places as figures for bars, highest first, or the votes of a single choice; none without a valid ballot', () => {
   const statistics: ContestStatistics = {
-    validBallots: 4, noBallots: 0, invalidBallots: 0,
+    validBallots: 4,
+    noBallots: 0,
+    invalidBallots: 0,
     candidates: [{ candidateId: 'q', firstPlaces: 1, rankCounts: [1, 3], points: 5 }, { candidateId: 'p', firstPlaces: 3, rankCounts: [3, 1], points: 7 }],
   }
   assert.deepEqual(firstPlaceFigures('at-representative-v1', statistics), { label: 'Erste Stellen', rows: [{ candidateId: 'p', figure: 3 }, { candidateId: 'q', figure: 1 }] })

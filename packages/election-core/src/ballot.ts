@@ -51,17 +51,17 @@ export interface CastBallot {
 
 // Errors carry positions and counts, never candidate ids: a rejected ballot
 // may end up in a log line or an HTTP response, and its content must not.
-export type BallotError
-  = | { readonly kind: 'malformed', readonly reason: 'unknown-form' | 'not-an-array' | 'invalid-entry' }
-    | { readonly kind: 'no-not-offered' }
-    | { readonly kind: 'inactive-slot', readonly activeSlots: number, readonly entries: number }
-    | { readonly kind: 'incomplete', readonly activeSlots: number, readonly filled: number }
-    | { readonly kind: 'unknown-candidate', readonly position: number }
-    | { readonly kind: 'duplicate-candidate', readonly position: number }
+export type BallotError =
+  | { readonly kind: 'malformed', readonly reason: 'unknown-form' | 'not-an-array' | 'invalid-entry' }
+  | { readonly kind: 'no-not-offered' }
+  | { readonly kind: 'inactive-slot', readonly activeSlots: number, readonly entries: number }
+  | { readonly kind: 'incomplete', readonly activeSlots: number, readonly filled: number }
+  | { readonly kind: 'unknown-candidate', readonly position: number }
+  | { readonly kind: 'duplicate-candidate', readonly position: number }
 
-export type BallotResult
-  = | { readonly ok: true, readonly ballot: CastBallot }
-    | { readonly ok: false, readonly error: BallotError }
+export type BallotResult =
+  | { readonly ok: true, readonly ballot: CastBallot }
+  | { readonly ok: false, readonly error: BallotError }
 
 /** The ballot slots of a contest. Throws if the contest itself is invalid. */
 export function contestSlots(contest: Contest): readonly Slot[] {
