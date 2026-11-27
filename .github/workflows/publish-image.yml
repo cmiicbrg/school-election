@@ -109,7 +109,7 @@ jobs:
       # signatures only under cosign's classic tags (sha256-<digest>.sig),
       # not in the bundles cosign 3 stores by default. So every manifest of
       # the index is signed, in the classic format.
-      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+      - uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
 
       - name: Sign the images
         env:
