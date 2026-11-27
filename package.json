@@ -48,5 +48,10 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.73.0",
     "vue-eslint-parser": "10.4.2"
+  },
+  "overrides": {
+    "eslint-plugin-vue": {
+      "@stylistic/eslint-plugin": "$@stylistic/eslint-plugin"
+    }
   }
 }
