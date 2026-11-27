@@ -110,7 +110,9 @@ test('a teacher defines and prepares a combined school, department and class ele
   // The regular round, planned, with one ballot box per contest.
   const boxes = async () => withClient(s.ownerUrl, async (client) => (await client.query<{ round: string, state: string, contest: string }>(
     `select r.id as round, r.state, rc.contest_id as contest from round r join round_contest rc on rc.round_id = r.id
-      where r.election_id = $1 and r.kind = 'regular' order by rc.contest_id`, [id])).rows)
+      where r.election_id = $1 and r.kind = 'regular' order by rc.contest_id`,
+    [id],
+  )).rows)
   const before = await boxes()
   assert.deepEqual(before.map((b) => b.contest), [it.id, klasse.id, school.id].sort())
   assert.ok(before.every((b) => b.state === 'planned' && b.round === before[0]?.round))
@@ -180,13 +182,33 @@ test('candidates are listed by surname, then given name, in German collation; na
   const steps = setup(anna, id)
   const contest = await steps.contest('Schulsprecher/in', 'at-school-speaker-v1')
   for (const [surname, givenName] of [
-    ['Zöhrer', 'Anna'], ['Österreicher', 'Max'], ['Ofner', 'Lisa'], ['Oberhuber', 'Tom'], ['Müller', 'Anna'], ['Muller', 'Anna'],
-    ['Mueller', 'Anna'], ['Müller', 'Andreas'], ['van Dyk', 'Ida'], ['Strauß', 'Eva'], ['Strauss', 'Eva'], ['Ja', ''],
+    ['Zöhrer', 'Anna'],
+    ['Österreicher', 'Max'],
+    ['Ofner', 'Lisa'],
+    ['Oberhuber', 'Tom'],
+    ['Müller', 'Anna'],
+    ['Muller', 'Anna'],
+    ['Mueller', 'Anna'],
+    ['Müller', 'Andreas'],
+    ['van Dyk', 'Ida'],
+    ['Strauß', 'Eva'],
+    ['Strauss', 'Eva'],
+    ['Ja', ''],
   ] as const) await steps.candidate(contest.id, surname, givenName)
   const listed = (await steps.configuration()).contests[0]?.candidates.map((c) => `${c.surname}, ${c.givenName}`)
   assert.deepEqual(listed, [
-    'Ja, ', 'Mueller, Anna', 'Muller, Anna', 'Müller, Andreas', 'Müller, Anna', 'Oberhuber, Tom', 'Ofner, Lisa', 'Österreicher, Max',
-    'Strauss, Eva', 'Strauß, Eva', 'van Dyk, Ida', 'Zöhrer, Anna',
+    'Ja, ',
+    'Mueller, Anna',
+    'Muller, Anna',
+    'Müller, Andreas',
+    'Müller, Anna',
+    'Oberhuber, Tom',
+    'Ofner, Lisa',
+    'Österreicher, Max',
+    'Strauss, Eva',
+    'Strauß, Eva',
+    'van Dyk, Ida',
+    'Zöhrer, Anna',
   ])
 
   const base = `/api/elections/${id}`
@@ -375,8 +397,17 @@ test('ids in uppercase work as in lowercase; titles are cleaned; a description i
 
   const events = await auditEvents(anna, id.id)
   assert.deepEqual(events.map((e) => e.action), [
-    'election.created', 'contest.created', 'voter-group.created', 'candidate.added', 'contest.updated', 'voter-group.renamed',
-    'candidate.renamed', 'candidate.picture-set', 'election.updated', 'candidate.added', 'candidate.removed',
+    'election.created',
+    'contest.created',
+    'voter-group.created',
+    'candidate.added',
+    'contest.updated',
+    'voter-group.renamed',
+    'candidate.renamed',
+    'candidate.picture-set',
+    'election.updated',
+    'candidate.added',
+    'candidate.removed',
   ])
   assert.deepEqual(events[0]?.metadata, { title: 'Wahl 2026' })
   assert.deepEqual(events.find((e) => e.action === 'candidate.renamed')?.metadata, { candidate: candidate.id, surname: 'Huber', givenName: 'LENA' })

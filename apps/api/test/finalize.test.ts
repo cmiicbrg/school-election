@@ -74,12 +74,14 @@ test('the owner finalizes once the regular round has closed and no round is open
   assert.deepEqual((await auditActions(x.anna, x.id)).slice(-2), ['credential-batch.voided', 'election.finalized'])
   await withClient(x.s.ownerUrl, async (client) => {
     const { rows: [event] } = await client.query<{ metadata: Record<string, unknown>, actor_name: string }>(
-      `select metadata, actor_name from audit_event where election_id = $1 and action = 'election.finalized'`, [x.id],
+      `select metadata, actor_name from audit_event where election_id = $1 and action = 'election.finalized'`,
+      [x.id],
     )
     assert.deepEqual(event?.metadata, { reason: 'Ergebnis festgestellt; die Stichwahl findet nicht statt, da die Kandidatin zurückgezogen hat.', resolved: 0, unresolved: 1 })
     assert.equal(event?.actor_name, 'Anna Lehrerin')
     const { rows: stored } = await client.query<{ contest_id: string, kind: string, tally_version: number, app_version: string, git_sha: string }>(
-      'select contest_id, kind, tally_version, app_version, git_sha from final_outcome where election_id = $1', [x.id],
+      'select contest_id, kind, tally_version, app_version, git_sha from final_outcome where election_id = $1',
+      [x.id],
     )
     assert.deepEqual(stored, [{ contest_id: x.contest.id, kind: 'runoff-required', tally_version: TALLY_VERSION, app_version: 'dev', git_sha: 'unknown' }])
     const { rows: batches } = await client.query<{ round_kind: string, state: string }>('select round_kind, state from credential_batch where election_id = $1 order by round_kind', [x.id])
@@ -130,7 +132,8 @@ test('with the runoff held: the runoff batch stays as it is, the outcome is fina
   assert.equal(result.contests[0]?.outcome.kind, 'final')
   assert.equal(result.contests[0]?.outcome.positions?.[0]?.candidateId, paula)
   const { rows: [event] } = await withClient(x.s.ownerUrl, (client) => client.query<{ metadata: Record<string, unknown> }>(
-    `select metadata from audit_event where election_id = $1 and action = 'election.finalized'`, [x.id],
+    `select metadata from audit_event where election_id = $1 and action = 'election.finalized'`,
+    [x.id],
   ))
   assert.deepEqual([event?.metadata.resolved, event?.metadata.unresolved], [1, 0])
   const { rows: batches } = await withClient(x.s.ownerUrl, (client) => client.query<{ state: string }>('select state from credential_batch where election_id = $1', [x.id]))

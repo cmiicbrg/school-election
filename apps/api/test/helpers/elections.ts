@@ -128,7 +128,8 @@ export const ACTOR = { tid: '6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b', oid: 'a00000
  */
 export async function accessAs(ownerUrl: string, electionId: string, role: ElectionRole): Promise<ElectionAccess> {
   const row = await withClient(ownerUrl, async (client) => (await client.query<{ state: ElectionState, regular: RoundState | null, runoff: RoundState | null }>(
-    `select e.state, ${ROUND_STATE_COLUMNS} from election e ${ROUND_STATE_JOINS} where e.id = $1`, [electionId],
+    `select e.state, ${ROUND_STATE_COLUMNS} from election e ${ROUND_STATE_JOINS} where e.id = $1`,
+    [electionId],
   )).rows[0])
   if (!row) throw new Error(`no election ${electionId}`)
   return { electionId, role, lifecycle: lifecycleOf(row.state, row), actor: ACTOR }

@@ -15,14 +15,14 @@ import type { CommitteeReason, LotDecision, LotRequest, Position, TraceStep } fr
 export const OUTCOME_KINDS = ['final', 'lot-required', 'runoff-required', 'tie', 'committee-decision'] as const
 export type OutcomeKind = typeof OUTCOME_KINDS[number]
 
-export type Outcome
-  = | { readonly kind: 'final', readonly positions: readonly Position[], readonly trace: readonly TraceStep[] }
+export type Outcome =
+  | { readonly kind: 'final', readonly positions: readonly Position[], readonly trace: readonly TraceStep[] }
     // `positions` is empty while the runoff entry is open.
-    | { readonly kind: 'lot-required', readonly lots: readonly LotRequest[], readonly positions: readonly Position[], readonly trace: readonly TraceStep[] }
-    | { readonly kind: 'runoff-required', readonly runoffCandidates: readonly [string, string], readonly trace: readonly TraceStep[] }
+  | { readonly kind: 'lot-required', readonly lots: readonly LotRequest[], readonly positions: readonly Position[], readonly trace: readonly TraceStep[] }
+  | { readonly kind: 'runoff-required', readonly runoffCandidates: readonly [string, string], readonly trace: readonly TraceStep[] }
     // A runoff tie, settled manually outside the software.
-    | { readonly kind: 'tie', readonly candidates: readonly string[], readonly trace: readonly TraceStep[] }
-    | { readonly kind: 'committee-decision', readonly reason: CommitteeReason, readonly trace: readonly TraceStep[] }
+  | { readonly kind: 'tie', readonly candidates: readonly string[], readonly trace: readonly TraceStep[] }
+  | { readonly kind: 'committee-decision', readonly reason: CommitteeReason, readonly trace: readonly TraceStep[] }
 
 /**
  * Why a set of lot decisions was refused: a second decision for one lot, an
@@ -33,9 +33,9 @@ export interface LotDecisionError {
   readonly lotId: string
 }
 
-export type Resolution
-  = | { readonly ok: true, readonly outcome: Outcome }
-    | { readonly ok: false, readonly error: LotDecisionError }
+export type Resolution =
+  | { readonly ok: true, readonly outcome: Outcome }
+  | { readonly ok: false, readonly error: LotDecisionError }
 
 class RefusedDecision extends Error {
   readonly refusal: LotDecisionError

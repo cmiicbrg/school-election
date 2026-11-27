@@ -75,8 +75,18 @@ test('the runtime role may rewrite the two tables with dead rows of the votes, r
             pg_has_role('school_election_app', 'pg_checkpoint', 'MEMBER') as checkpoint`,
   ))
   assert.deepEqual(rights, {
-    ballot_box: true, credential_entitlement: true, ballot: false, credential: false, read_outcomes: true, write_outcomes: false,
-    blockers: true, flush: true, finalize: true, switch_wal: false, ls_waldir: false, checkpoint: false,
+    ballot_box: true,
+    credential_entitlement: true,
+    ballot: false,
+    credential: false,
+    read_outcomes: true,
+    write_outcomes: false,
+    blockers: true,
+    flush: true,
+    finalize: true,
+    switch_wal: false,
+    ls_waldir: false,
+    checkpoint: false,
   })
   await s.db.query('vacuum full ballot_box')
   await assert.rejects(s.db.query('checkpoint'), (err) => sqlState(err) === '42501')

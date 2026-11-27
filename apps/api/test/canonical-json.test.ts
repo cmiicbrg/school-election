@@ -23,8 +23,7 @@ test('arrays keep their order, and scalars are written as JSON writes them', () 
   assert.equal(canonicalJson([3, 1, 2]), '[3,1,2]')
   assert.equal(canonicalJson([]), '[]')
   assert.equal(canonicalJson({}), '{}')
-  assert.equal(canonicalJson([null, true, false, 0, -1, Number.MAX_SAFE_INTEGER, Number.MIN_SAFE_INTEGER]),
-    '[null,true,false,0,-1,9007199254740991,-9007199254740991]')
+  assert.equal(canonicalJson([null, true, false, 0, -1, Number.MAX_SAFE_INTEGER, Number.MIN_SAFE_INTEGER]), '[null,true,false,0,-1,9007199254740991,-9007199254740991]')
   assert.equal(canonicalJson(-0), '0')
   const text = 'quote " backslash \\ newline \n tab \t control \u0001 umlaut ä emoji \u{1F600}'
   assert.equal(canonicalJson(text), JSON.stringify(text))

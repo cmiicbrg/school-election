@@ -113,7 +113,8 @@ test('the runoff: activated with the pair on fresh keys, voted through the voter
 
   assert.deepEqual((await auditActions(x.anna, x.id)).slice(-7), ['round.opened', 'round.closed', 'result.computed', 'runoff.pair', 'runoff.activated', 'round.closed', 'result.computed'])
   const { rows: events } = await withClient(x.s.ownerUrl, (client) => client.query<{ action: string, metadata: Record<string, unknown> }>(
-    `select action, metadata from audit_event where election_id = $1 and action in ('runoff.pair', 'runoff.activated', 'round.closed', 'result.computed') order by seq`, [x.id],
+    `select action, metadata from audit_event where election_id = $1 and action in ('runoff.pair', 'runoff.activated', 'round.closed', 'result.computed') order by seq`,
+    [x.id],
   ))
   assert.deepEqual(events.map((event) => [event.action, event.metadata]).slice(2), [
     ['runoff.pair', { contest: x.contest.id, first: paula, second: quirin }],

@@ -47,9 +47,9 @@ export interface StoredPicture {
 /** Why an upload was refused, as the API answers it (422, or 413 for picture_too_large). */
 export type PictureRefusal = 'picture_format' | 'picture_unreadable' | 'picture_too_large'
 
-export type PictureResult
-  = | { ok: true, picture: StoredPicture }
-    | { ok: false, refusal: PictureRefusal }
+export type PictureResult =
+  | { ok: true, picture: StoredPicture }
+  | { ok: false, refusal: PictureRefusal }
 
 const refused = (refusal: PictureRefusal): PictureResult => ({ ok: false, refusal })
 

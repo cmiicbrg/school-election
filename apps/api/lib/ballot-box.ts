@@ -33,9 +33,9 @@ export interface CastInput {
  */
 export type CastRefusal = 'not-entitled' | 'already-voted' | 'wrong-contest' | 'refused'
 
-export type CastResult
-  = | { cast: true }
-    | { cast: false, reason: CastRefusal }
+export type CastResult =
+  | { cast: true }
+  | { cast: false, reason: CastRefusal }
 
 /**
  * Casts the ballot inside the caller's transaction: uses the entitlement up

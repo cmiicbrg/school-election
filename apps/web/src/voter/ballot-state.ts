@@ -48,10 +48,10 @@ export function rankingOf(state: BallotState): RankingBallot {
   return { kind: 'ranking', ranking: [...state.slots] }
 }
 
-export type Review
-  = | { kind: 'valid' }
-    | { kind: 'invalid', empty: number, of: number }
-    | { kind: 'no' }
+export type Review =
+  | { kind: 'valid' }
+  | { kind: 'invalid', empty: number, of: number }
+  | { kind: 'no' }
 
 /**
  * What election-core says about the ballot to be sent: a valid vote, an

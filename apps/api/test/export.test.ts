@@ -60,7 +60,8 @@ test('every member exports once the regular round has closed and no round is ope
   assert.equal(document.outcomes[0]?.outcome.kind, 'runoff-required')
   assert.deepEqual((await auditActions(x.anna, x.id)).slice(-1), ['export.generated'])
   const { rows: [event] } = await withClient(x.s.ownerUrl, (client) => client.query<{ metadata: Record<string, unknown> }>(
-    `select metadata from audit_event where election_id = $1 and action = 'export.generated'`, [x.id],
+    `select metadata from audit_event where election_id = $1 and action = 'export.generated'`,
+    [x.id],
   ))
   assert.deepEqual(event?.metadata, { sha256: first.headers['x-export-sha256'], bytes: Buffer.byteLength(first.body, 'utf8') })
 

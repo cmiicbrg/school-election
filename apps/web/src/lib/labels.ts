@@ -67,17 +67,17 @@ export const MEMBER_STATUS_LABELS = {
 } as const
 
 /** What blocks preparing, as the API reports it (apps/api/lib/prepare.ts). */
-export type Problem
-  = | { kind: 'no-contests' }
-    | { kind: 'no-voter-groups' }
-    | { kind: 'contest-without-candidates', contestId: string }
-    | { kind: 'contest-without-voter-groups', contestId: string }
-    | { kind: 'voter-group-without-contests', voterGroupId: string }
+export type Problem =
+  | { kind: 'no-contests' }
+  | { kind: 'no-voter-groups' }
+  | { kind: 'contest-without-candidates', contestId: string }
+  | { kind: 'contest-without-voter-groups', contestId: string }
+  | { kind: 'voter-group-without-contests', voterGroupId: string }
 
-export type Warning
-  = | { kind: 'no-co-admin' }
-    | { kind: 'too-few-witnesses', witnesses: number }
-    | { kind: 'pending-invitations', count: number }
+export type Warning =
+  | { kind: 'no-co-admin' }
+  | { kind: 'too-few-witnesses', witnesses: number }
+  | { kind: 'pending-invitations', count: number }
 
 /** The names the message needs: contests by id and groups by id. */
 export interface Names {

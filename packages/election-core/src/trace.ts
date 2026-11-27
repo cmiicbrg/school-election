@@ -56,20 +56,20 @@ export interface Position {
   readonly basis: 'majority' | 'runoff' | 'points' | 'lot' | 'lot-pending' | 'vacant' | 'votes'
 }
 
-export type TraceStep
+export type TraceStep =
   // The ballots of one contest: the start of each round's derivation.
-  = | { readonly step: 'count', readonly contestId: string, readonly ballotsCast: number, readonly validBallots: number, readonly noBallots: number, readonly invalidBallots: number }
+  | { readonly step: 'count', readonly contestId: string, readonly ballotsCast: number, readonly validBallots: number, readonly noBallots: number, readonly invalidBallots: number }
     // More than half of the valid ballots: `required` first places at least.
-    | { readonly step: 'majority', readonly required: number, readonly elected: string | null }
+  | { readonly step: 'majority', readonly required: number, readonly elected: string | null }
     // `seats` places among `values`, highest first: `advancing` take places
     // outright, `tied` share the value at the boundary and do not all fit.
-    | { readonly step: 'compare', readonly basis: 'first-places' | 'points' | 'votes', readonly seats: number, readonly values: readonly CandidateValue[], readonly advancing: readonly string[], readonly tied: readonly string[] }
-    | { readonly step: 'runoff', readonly candidates: readonly [string, string] }
+  | { readonly step: 'compare', readonly basis: 'first-places' | 'points' | 'votes', readonly seats: number, readonly values: readonly CandidateValue[], readonly advancing: readonly string[], readonly tied: readonly string[] }
+  | { readonly step: 'runoff', readonly candidates: readonly [string, string] }
     // Deputy and other positions by first-round points, without the principal.
-    | { readonly step: 'positions', readonly excluded: string, readonly values: readonly CandidateValue[] }
-    | { readonly step: 'lot-required', readonly lot: LotRequest }
-    | { readonly step: 'lot-applied', readonly lotId: string, readonly order: readonly string[] }
-    | { readonly step: 'committee-decision', readonly reason: CommitteeReason }
+  | { readonly step: 'positions', readonly excluded: string, readonly values: readonly CandidateValue[] }
+  | { readonly step: 'lot-required', readonly lot: LotRequest }
+  | { readonly step: 'lot-applied', readonly lotId: string, readonly order: readonly string[] }
+  | { readonly step: 'committee-decision', readonly reason: CommitteeReason }
 
 export function countStep(contestId: string, statistics: ContestStatistics): TraceStep {
   const { validBallots, noBallots, invalidBallots } = statistics
