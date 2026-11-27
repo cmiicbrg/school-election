@@ -1,0 +1,9 @@
+-- No change to the schema. From the release that brings this file on, the
+-- app image runs on @fastify/static 10.1.12, which fixes CVE-2026-130811
+-- (GHSA-7533-p376-8gg5, information disclosure of denied dotfiles via
+-- directory listing), and on @fastify/rate-limit 11.3.0, which fixes
+-- CVE-2026-133312 (GHSA-24mh-2vvh-5r45, failed-login limit bypass via a race
+-- condition). A release that fixes a vulnerability carries a migration, so
+-- that the migrator of an earlier release refuses the database and no host
+-- goes back behind the fix, even when the registry serves an earlier signed
+-- v1 (SECURITY.md).
