@@ -170,7 +170,7 @@ nginx only terminates TLS, forwards and logs. Do not add security headers or acc
 
 ## Updates
 
-Updates are automatic. Every release of this repository is tested with the whole suite and the browser journeys before it is tagged, published as `v1.x.y` and moves the `v1` tag of both images. `podman-auto-update.timer` runs nightly: it pulls a newer `v1` where there is one and restarts the unit, which for the app means the migrations first and then the new release; a start that fails is rolled back to the previous image. The drop-in installed above makes the timer skip a night while a round accepts ballots, so no update ever lands on an election day; it runs the night after.
+Updates are automatic. Every release of this repository is tested with the whole suite and the browser journeys before it is tagged, published as `v1.x.y` and moves the `v1` tag of both images, once both are signed and pull under the same policy a host has; a release older than the one `v1` carries is published under its own tag alone and leaves `v1` where it is. `podman-auto-update.timer` runs nightly: it pulls a newer `v1` where there is one and restarts the unit, which for the app means the migrations first and then the new release; a start that fails is rolled back to the previous image. The drop-in installed above makes the timer skip a night while a round accepts ballots, so no update ever lands on an election day; it runs the night after.
 
 Never restart or reboot by hand while a round is open: voting would stop, and a ballot on its way could fail. The health check's `busy` says whether one is.
 
