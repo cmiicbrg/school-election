@@ -58,7 +58,7 @@ jobs:
       postgres-digest: ${{ steps.build-postgres.outputs.digest }}
       line: ${{ steps.line.outputs.name }}
       line-moved: ${{ steps.line.outputs.move }}
-      line-current: ${{ steps.line.outputs.current }}
+      line-newer: ${{ steps.line.outputs.newer }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -178,32 +178,32 @@ jobs:
                 podman --storage-driver vfs pull --quiet "$image"
               done'
 
-      # The line never goes back: the release the line's app image carries
-      # now (the package's tags name it) must be older than this one, or
-      # the same (a re-run); otherwise the release tags are published and
-      # the line is left alone, said so in the summary.
+      # The line never goes back: it moves only to the highest release tag of
+      # its major the repository has, and so to a re-run of that release, but
+      # never to an older one. From git, not from the registry: a re-run that
+      # failed between its tags can leave the line on a digest that no longer
+      # carries its release tag, and a lookup there would read as no line at
+      # all. The job runs the tags in the order they were pushed (the
+      # concurrency group above), so a newer tag is published after this one.
       - name: Decide whether the line moves
         id: line
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           release="${GITHUB_REF_NAME}"
           line="v${release#v}"
           line="${line%%.*}"
-          # --slurp: one array over every page, so the first match is the first
-          # of all of them (gh's own --jq would run per page); jq is the runner's.
-          current="$(gh api --paginate --slurp "/users/${GITHUB_REPOSITORY_OWNER}/packages/container/school-election/versions?per_page=100" \
-            | jq -r --arg line "$line" '[.[][] | select(.metadata.container.tags | index($line)) | .metadata.container.tags[] | select(test("^v[0-9]+[.][0-9]+[.][0-9]+$"))] | first // empty')"
+          newest="$(git ls-remote --tags --refs origin "refs/tags/${line}.*" | sed 's|.*refs/tags/||' | grep -Ex 'v[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -n 1)"
           move=yes
-          if [ -n "$current" ] && [ "$current" != "$release" ] && [ "$(printf '%s\n%s\n' "$current" "$release" | sort -V | tail -n 1)" = "$current" ]; then
+          newer=""
+          if [ "$newest" != "$release" ]; then
             move=no
-            echo "The ${line} line carries ${current}, newer than ${release}: the release is published, the line stays." | tee -a "$GITHUB_STEP_SUMMARY"
+            newer="$newest"
+            echo "${newer} is a newer release of the ${line} line: ${release} is published under its own tag, and the line does not move back to it." | tee -a "$GITHUB_STEP_SUMMARY"
           fi
           {
             echo "move=${move}"
             echo "name=${line}"
-            echo "current=${current}"
+            echo "newer=${newer}"
           } >> "$GITHUB_OUTPUT"
 
       # Only now the tags a host can see: the release tag and the line tag,
@@ -252,7 +252,7 @@ jobs:
           POSTGRES_DIGEST: ${{ steps.build-postgres.outputs.digest }}
           MOVE_LINE: ${{ steps.line.outputs.move }}
           LINE: ${{ steps.line.outputs.name }}
-          LINE_CURRENT: ${{ steps.line.outputs.current }}
+          LINE_NEWER: ${{ steps.line.outputs.newer }}
         run: |
           set -euo pipefail
           {
@@ -261,7 +261,7 @@ jobs:
             if [ "$MOVE_LINE" = "yes" ]; then
               echo "Deployments follow the \`${LINE}\` line of both images (deploy/README.md) and pick this release up with their next nightly update."
             else
-              echo "The \`${LINE}\` line stays on ${LINE_CURRENT}, which is newer; a host runs this release only with \`${GITHUB_REF_NAME}\` in place of \`${LINE}\` in its unit files."
+              echo "The \`${LINE}\` line does not move to this release: ${LINE_NEWER} is newer. A host runs this release only with \`${GITHUB_REF_NAME}\` in place of \`${LINE}\` in its unit files."
             fi
             echo
             echo '```'
@@ -309,7 +309,7 @@ jobs:
           POSTGRES_DIGEST: ${{ needs.publish.outputs.postgres-digest }}
           LINE: ${{ needs.publish.outputs.line }}
           LINE_MOVED: ${{ needs.publish.outputs.line-moved }}
-          LINE_CURRENT: ${{ needs.publish.outputs.line-current }}
+          LINE_NEWER: ${{ needs.publish.outputs.line-newer }}
         run: |
           set -euo pipefail
           release="${GITHUB_REF_NAME}"
@@ -333,7 +333,7 @@ jobs:
             --tag="$release" --previous="$previous" \
             --app="${APP_IMAGE}:${release}@${APP_DIGEST}" \
             --postgres="${POSTGRES_IMAGE}:${release}@${POSTGRES_DIGEST}" \
-            --line="$LINE" --line-moved="$LINE_MOVED" --line-current="$LINE_CURRENT" \
+            --line="$LINE" --line-moved="$LINE_MOVED" --line-newer="$LINE_NEWER" \
             --migrations="$(migrations_at "$release")" --previous-migrations="$previous_migrations" \
             --repository="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" > notes.md
           echo "previous=${previous}" >> "$GITHUB_OUTPUT"

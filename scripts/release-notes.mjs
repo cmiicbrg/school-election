@@ -8,16 +8,17 @@
 // follow it.
 //
 // Usage: node scripts/release-notes.mjs --tag=v1.2.0 --previous=v1.1.0 --app=<image ref> --postgres=<image ref>
-//   --line=v1 --line-moved=yes|no --line-current=<tag> --migrations=<files> --previous-migrations=<files>
+//   --line=v1 --line-moved=yes|no --line-newer=<tag> --migrations=<files> --previous-migrations=<files>
 //   --repository=<url>
 // An image ref is `image:tag@sha256:…`, as the step summary writes it. The migrations are the file
-// names in apps/api/migrations at each tag, comma-separated. `line-current` is the release the line
-// carried before; it, `previous` and `previous-migrations` are empty for a first release.
+// names in apps/api/migrations at each tag, comma-separated. `line-newer` is the newer release of the
+// line when the line did not move, empty when it did; `previous` and `previous-migrations` are empty for
+// a first release.
 
 import { fileURLToPath } from 'node:url'
 
 /** The notes above GitHub's generated part, as Markdown. */
-export function releaseNotes({ tag, previous, images, line, lineMoved, lineCurrent, migrations, previousMigrations, repositoryUrl }) {
+export function releaseNotes({ tag, previous, images, line, lineMoved, lineNewer, migrations, previousMigrations, repositoryUrl }) {
   const guide = (anchor) => `${repositoryUrl}/blob/${tag}/deploy/README.md#${anchor}`
   // The first release of a major line: no host follows it yet, and the way back to the line before
   // is never the same database, since a PostgreSQL major comes only with an app major.
@@ -30,7 +31,7 @@ export function releaseNotes({ tag, previous, images, line, lineMoved, lineCurre
     images.postgres,
     '```',
     '',
-    lineSentence({ tag, previous, line, lineMoved, lineCurrent, newMajor, updatesUrl: guide('updates') }),
+    lineSentence({ tag, previous, line, lineMoved, lineNewer, newMajor, updatesUrl: guide('updates') }),
     '',
     '## Migrations',
     '',
@@ -50,8 +51,8 @@ export function releaseNotes({ tag, previous, images, line, lineMoved, lineCurre
 const code = (names) => names.map((name) => `\`${name}\``).join(', ')
 const major = (tag) => tag.split('.')[0]
 
-function lineSentence({ tag, previous, line, lineMoved, lineCurrent, newMajor, updatesUrl }) {
-  if (!lineMoved) return `The \`${line}\` line stays on ${lineCurrent}, which is newer; a host runs this release only with \`${tag}\` in place of \`${line}\` in its unit files.`
+function lineSentence({ tag, previous, line, lineMoved, lineNewer, newMajor, updatesUrl }) {
+  if (!lineMoved) return `The \`${line}\` line does not move to this release: ${lineNewer} is newer. A host runs this release only with \`${tag}\` in place of \`${line}\` in its unit files.`
   if (newMajor) return `The first release of the \`${line}\` line. Deployments following \`${major(previous)}\` stay on it: a major is the one update done by hand ([Updates](${updatesUrl})).`
   return `Deployments following the \`${line}\` line pick this release up with their next nightly update, never while a round accepts ballots ([Updates](${updatesUrl})).`
 }
@@ -64,7 +65,7 @@ function migrationLine({ previous, newMajor, migrations, previousMigrations, upd
   return `New since ${previous}: ${code(added)}. The migrator of an earlier release refuses a database this release has migrated, so a host does not go back behind it; the way back is the backup taken before the update ([Updates](${updatesUrl})).`
 }
 
-const FLAGS = new Set(['tag', 'previous', 'app', 'postgres', 'line', 'line-moved', 'line-current', 'migrations', 'previous-migrations', 'repository'])
+const FLAGS = new Set(['tag', 'previous', 'app', 'postgres', 'line', 'line-moved', 'line-newer', 'migrations', 'previous-migrations', 'repository'])
 const MIGRATION = /^\d{4}_[a-z0-9_]+\.sql$/
 
 /** A comma-separated list of migration file names; every name as the migrator's directory holds them. */
@@ -99,7 +100,7 @@ export function parseArgs(argv) {
   }
   for (const flag of FLAGS) if (!Object.hasOwn(values, flag)) throw new Error(`Missing: --${flag}`)
   if (!['yes', 'no'].includes(values['line-moved'])) throw new Error('--line-moved must be yes or no')
-  if (values['line-moved'] === 'no' && values['line-current'] === '') throw new Error('--line-current names the release the line stays on')
+  if (values['line-moved'] === 'no' && values['line-newer'] === '') throw new Error('--line-newer names the newer release of the line')
   const { migrations, previousMigrations } = migrationArgs(values)
   return {
     tag: values.tag,
@@ -107,7 +108,7 @@ export function parseArgs(argv) {
     images: { app: values.app, postgres: values.postgres },
     line: values.line,
     lineMoved: values['line-moved'] === 'yes',
-    lineCurrent: values['line-current'],
+    lineNewer: values['line-newer'],
     migrations,
     previousMigrations,
     repositoryUrl: values.repository,
