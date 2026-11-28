@@ -1,10 +1,11 @@
 name: Publish Image
 
-# A release: a v<major>.<minor>.<patch> tag on main, pushed by hand. It
-# publishes two images to GHCR, the app and its PostgreSQL
-# (deploy/postgres/Dockerfile), each under the release tag, an immutable
-# sha-<commit> tag and the floating line tag v<major>, which the
-# deployments follow (deploy/quadlet, deploy/README.md): a school's
+# A release: a v<major>.<minor>.<patch> tag on main, pushed by hand (the
+# repository's rulesets let only the maintainer create one, and the check
+# below refuses a tag off main). It publishes two images to GHCR, the app
+# and its PostgreSQL (deploy/postgres/Dockerfile), each under the release
+# tag, an immutable sha-<commit> tag and the floating line tag v<major>,
+# which the deployments follow (deploy/quadlet, deploy/README.md): a school's
 # podman-auto-update pulls the new v1 the night after. A v2 moves v2
 # alone. No `latest`: it would move across major lines. Each image is
 # signed with the repository's cosign key, which a host's policy requires
@@ -63,6 +64,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # Every branch, for the check that the tag is on main below.
+          fetch-depth: 0
 
       # Only a release tag, and only a plain one: a pre-release such as
       # v1.1.0-rc1 would move the v1 line too.
@@ -71,6 +74,21 @@ jobs:
           set -euo pipefail
           if [ "${GITHUB_REF_TYPE}" != "tag" ] || ! printf '%s' "${GITHUB_REF_NAME}" | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+'; then
             echo "Refusing to publish: expected a v<major>.<minor>.<patch> tag, got ${GITHUB_REF_TYPE} '${GITHUB_REF_NAME}'" >&2
+            exit 1
+          fi
+
+      # The repository-visible half of the tag rulesets (SECURITY.md,
+      # Residual risks): a release is a commit of main. The rulesets let
+      # only the maintainer create a v* tag and nobody move or delete one;
+      # this refuses a tag that points off main all the same, so a tag
+      # alone never publishes code main never carried. The checkout above
+      # fetched every branch for it (fetch-depth: 0).
+      - name: Verify the tag is on main
+        run: |
+          set -euo pipefail
+          git rev-parse --verify --quiet origin/main >/dev/null || { echo "Refusing to publish: origin/main is not in the checkout" >&2; exit 1; }
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "Refusing to publish: ${GITHUB_REF_NAME} (${GITHUB_SHA}) is not a commit of main" >&2
             exit 1
           fi
 
