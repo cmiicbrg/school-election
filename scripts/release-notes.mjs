@@ -75,6 +75,19 @@ function migrationList(flag, value) {
   return names
 }
 
+/** Both migration lists, refused when empty where a release has migrations or when the newer drops one. */
+function migrationArgs(values) {
+  const migrations = migrationList('migrations', values.migrations)
+  const previousMigrations = migrationList('previous-migrations', values['previous-migrations'])
+  if (migrations.length === 0) throw new Error('--migrations names no migration')
+  if (values.previous === '' && previousMigrations.length > 0) throw new Error('--previous-migrations without --previous')
+  if (values.previous !== '' && previousMigrations.length === 0) throw new Error('--previous-migrations names no migration')
+  // Migrations only go forward: one that the previous release had and this one lacks is a mistake upstream.
+  const dropped = previousMigrations.filter((name) => !migrations.includes(name))
+  if (dropped.length > 0) throw new Error(`Migrations of ${values.previous} missing from ${values.tag}: ${dropped.join(', ')}`)
+  return { migrations, previousMigrations }
+}
+
 /** The command line's `--flag=value` pairs, every flag given once; a stray argument or a missing flag is refused. */
 export function parseArgs(argv) {
   const values = {}
@@ -87,14 +100,7 @@ export function parseArgs(argv) {
   for (const flag of FLAGS) if (!Object.hasOwn(values, flag)) throw new Error(`Missing: --${flag}`)
   if (!['yes', 'no'].includes(values['line-moved'])) throw new Error('--line-moved must be yes or no')
   if (values['line-moved'] === 'no' && values['line-current'] === '') throw new Error('--line-current names the release the line stays on')
-  const migrations = migrationList('migrations', values.migrations)
-  const previousMigrations = migrationList('previous-migrations', values['previous-migrations'])
-  if (migrations.length === 0) throw new Error('--migrations names no migration')
-  if (values.previous === '' && previousMigrations.length > 0) throw new Error('--previous-migrations without --previous')
-  if (values.previous !== '' && previousMigrations.length === 0) throw new Error('--previous-migrations names no migration')
-  // Migrations only go forward: one that the previous release had and this one lacks is a mistake upstream.
-  const dropped = previousMigrations.filter((name) => !migrations.includes(name))
-  if (dropped.length > 0) throw new Error(`Migrations of ${values.previous} missing from ${values.tag}: ${dropped.join(', ')}`)
+  const { migrations, previousMigrations } = migrationArgs(values)
   return {
     tag: values.tag,
     previous: values.previous,
