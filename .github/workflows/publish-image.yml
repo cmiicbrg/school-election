@@ -9,10 +9,17 @@ name: Publish Image
 # alone. No `latest`: it would move across major lines. Each image is
 # signed with the repository's cosign key, which a host's policy requires
 # (deploy/policy.json), so an image that did not come through this
-# workflow is refused there. Then the release's notes go to a GitHub
-# Release on the tag (scripts/release-notes.mjs: the images with their
-# digests, the migrations new since the previous release, the pull
-# requests merged since it).
+# workflow is refused there.
+#
+# The order protects the line: the builds push the sha-<commit> tag alone,
+# which no host follows; the images are signed and pulled as a host pulls
+# them; only then do the release tag and the line tag go onto the verified
+# digests, the release tags first, the line tags last, both images in one
+# step. A failure before that leaves the line where it was, and the line
+# never moves back to an older release. Then the release's notes go to a
+# GitHub Release on the tag (scripts/release-notes.mjs: the images with
+# their digests, whether the line moved, the migrations new since the
+# previous release, the pull requests merged since it).
 
 'on':
   workflow_dispatch: {}
@@ -35,10 +42,23 @@ jobs:
     permissions:
       contents: read
       packages: write
-    # What the release job writes into the notes: the verified digests.
+    # One release at a time, in the order the tags were pushed, and every
+    # one of them: two runs interleaving could move the line to the older
+    # of the two, and the default queue of one would drop a tag pushed with
+    # two others. The guard before the line moves (below) refuses an older
+    # release too.
+    concurrency:
+      group: publish-images
+      cancel-in-progress: false
+      queue: max
+    # What the release job writes into the notes: the verified digests and
+    # the line's decision.
     outputs:
       app-digest: ${{ steps.build.outputs.digest }}
       postgres-digest: ${{ steps.build-postgres.outputs.digest }}
+      line: ${{ steps.line.outputs.name }}
+      line-moved: ${{ steps.line.outputs.move }}
+      line-newer: ${{ steps.line.outputs.newer }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -70,6 +90,10 @@ jobs:
         with:
           driver-opts: image=docker.io/moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
 
+      # The build pushes sha-<commit> alone; the release and line tags come
+      # after the images are verified ("Tag the verified images"). The
+      # version label names the release (it named the line, from the line
+      # tag, while that was among these).
       - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: app
         with:
@@ -77,8 +101,8 @@ jobs:
           flavor: latest=false
           tags: |
             type=sha,prefix=sha-
-            type=ref,event=tag
-            type=semver,pattern=v{{major}}
+          labels: |
+            org.opencontainers.image.version=${{ github.ref_name }}
 
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         id: build
@@ -98,8 +122,8 @@ jobs:
           flavor: latest=false
           tags: |
             type=sha,prefix=sha-
-            type=ref,event=tag
-            type=semver,pattern=v{{major}}
+          labels: |
+            org.opencontainers.image.version=${{ github.ref_name }}
 
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         id: build-postgres
@@ -154,6 +178,71 @@ jobs:
                 podman --storage-driver vfs pull --quiet "$image"
               done'
 
+      # The line never goes back: it moves only to the highest release tag of
+      # its major the repository has, and so to a re-run of that release, but
+      # never to an older one. From git, not from the registry: a re-run that
+      # failed between its tags can leave the line on a digest that no longer
+      # carries its release tag, and a lookup there would read as no line at
+      # all. The job runs the tags in the order they were pushed (the
+      # concurrency group above), so a newer tag is published after this one.
+      - name: Decide whether the line moves
+        id: line
+        run: |
+          set -euo pipefail
+          release="${GITHUB_REF_NAME}"
+          line="v${release#v}"
+          line="${line%%.*}"
+          newest="$(git ls-remote --tags --refs origin "refs/tags/${line}.*" | sed 's|.*refs/tags/||' | grep -Ex 'v[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -n 1)"
+          move=yes
+          newer=""
+          if [ "$newest" != "$release" ]; then
+            move=no
+            newer="$newest"
+            echo "${newer} is a newer release of the ${line} line: ${release} is published under its own tag, and the line does not move back to it." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          {
+            echo "move=${move}"
+            echo "name=${line}"
+            echo "newer=${newer}"
+          } >> "$GITHUB_OUTPUT"
+
+      # Only now the tags a host can see: the release tag and the line tag,
+      # put on the verified digests themselves (the same index, so the
+      # signatures and the provenance stay with it; the digest is checked
+      # after each tag, and a registry hiccup is retried). The release tags
+      # of both images first, the line tags last, in one step of seconds: a
+      # failure before this step leaves nothing but sha-<commit>; a failure
+      # between the line tags is healed by running the job again, which tags
+      # the same verified digests.
+      - name: Tag the verified images
+        env:
+          APP_DIGEST: ${{ steps.build.outputs.digest }}
+          POSTGRES_DIGEST: ${{ steps.build-postgres.outputs.digest }}
+          MOVE_LINE: ${{ steps.line.outputs.move }}
+          LINE: ${{ steps.line.outputs.name }}
+        run: |
+          set -euo pipefail
+          release="${GITHUB_REF_NAME}"
+          tag() {
+            local image="$1" name="$2" digest="$3" attempt=1 actual
+            until docker buildx imagetools create --tag "${image}:${name}" "${image}@${digest}"; do
+              if [ "$attempt" -ge 3 ]; then echo "Giving up on ${image}:${name} after ${attempt} attempts" >&2; exit 1; fi
+              attempt=$((attempt + 1))
+              sleep 5
+            done
+            actual="$(docker buildx imagetools inspect "${image}:${name}" --format '{{.Manifest.Digest}}')"
+            if [ "$actual" != "$digest" ]; then
+              echo "Refusing to go on: ${image}:${name} is ${actual}, not the verified ${digest}" >&2
+              exit 1
+            fi
+          }
+          tags="$release"
+          if [ "$MOVE_LINE" = "yes" ]; then tags="$release $LINE"; fi
+          for which in $tags; do
+            tag "$APP_IMAGE" "$which" "$APP_DIGEST"
+            tag "$POSTGRES_IMAGE" "$which" "$POSTGRES_DIGEST"
+          done
+
       # Expansions go through env rather than straight into the script body:
       # inlining ${{ ... }} splices the value into the shell source before it
       # runs, which is how a crafted value becomes executable code.
@@ -161,14 +250,19 @@ jobs:
         env:
           APP_DIGEST: ${{ steps.build.outputs.digest }}
           POSTGRES_DIGEST: ${{ steps.build-postgres.outputs.digest }}
+          MOVE_LINE: ${{ steps.line.outputs.move }}
+          LINE: ${{ steps.line.outputs.name }}
+          LINE_NEWER: ${{ steps.line.outputs.newer }}
         run: |
           set -euo pipefail
-          line="v${GITHUB_REF_NAME#v}"
-          line="${line%%.*}"
           {
             echo "### school-election ${GITHUB_REF_NAME}"
             echo
-            echo "Deployments follow the \`${line}\` line of both images (deploy/README.md) and pick this release up with their next nightly update."
+            if [ "$MOVE_LINE" = "yes" ]; then
+              echo "Deployments follow the \`${LINE}\` line of both images (deploy/README.md) and pick this release up with their next nightly update."
+            else
+              echo "The \`${LINE}\` line does not move to this release: ${LINE_NEWER} is newer. A host runs this release only with \`${GITHUB_REF_NAME}\` in place of \`${LINE}\` in its unit files."
+            fi
             echo
             echo '```'
             echo "${APP_IMAGE}:${GITHUB_REF_NAME}@${APP_DIGEST}"
@@ -213,11 +307,12 @@ jobs:
         env:
           APP_DIGEST: ${{ needs.publish.outputs.app-digest }}
           POSTGRES_DIGEST: ${{ needs.publish.outputs.postgres-digest }}
+          LINE: ${{ needs.publish.outputs.line }}
+          LINE_MOVED: ${{ needs.publish.outputs.line-moved }}
+          LINE_NEWER: ${{ needs.publish.outputs.line-newer }}
         run: |
           set -euo pipefail
           release="${GITHUB_REF_NAME}"
-          line="v${release#v}"
-          line="${line%%.*}"
           # The release tags the remote has now, in version order; this one must
           # be among them. The remote's, not the checkout's: a tag pushed since
           # the checkout decides "Latest" as much as the ones before.
@@ -238,7 +333,7 @@ jobs:
             --tag="$release" --previous="$previous" \
             --app="${APP_IMAGE}:${release}@${APP_DIGEST}" \
             --postgres="${POSTGRES_IMAGE}:${release}@${POSTGRES_DIGEST}" \
-            --line="$line" \
+            --line="$LINE" --line-moved="$LINE_MOVED" --line-newer="$LINE_NEWER" \
             --migrations="$(migrations_at "$release")" --previous-migrations="$previous_migrations" \
             --repository="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" > notes.md
           echo "previous=${previous}" >> "$GITHUB_OUTPUT"

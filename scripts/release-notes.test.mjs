@@ -11,6 +11,8 @@ const base = {
   previous: 'v1.1.0',
   images,
   line: 'v1',
+  lineMoved: true,
+  lineNewer: '',
   migrations: ['0001_baseline.sql', '0002_lead_transfer.sql'],
   previousMigrations: ['0001_baseline.sql', '0002_lead_transfer.sql'],
   repositoryUrl: 'https://github.com/cmiicbrg/school-election',
@@ -46,6 +48,12 @@ test('a patch on an earlier line after a new major still reaches that line night
   assert.match(notes, /a host can go back to v1\.4\.0 on the same database/)
 })
 
+test('a release older than the newest of its line says the line does not move back, and how a host runs it', () => {
+  const notes = releaseNotes({ ...base, tag: 'v1.1.1', previous: 'v1.1.0', lineMoved: false, lineNewer: 'v1.2.0' })
+  assert.match(notes, /The `v1` line does not move to this release: v1\.2\.0 is newer\. A host runs this release only with `v1\.1\.1` in place of `v1` in its unit files\./)
+  assert.doesNotMatch(notes, /nightly/)
+})
+
 test('the first release names its migrations and has no previous one to compare with', () => {
   const notes = releaseNotes({ ...base, tag: 'v1.0.0', previous: '', migrations: ['0001_baseline.sql'], previousMigrations: [] })
   assert.match(notes, /The first release, with `0001_baseline\.sql`\./)
@@ -57,6 +65,8 @@ const argv = [
   `--app=${images.app}`,
   `--postgres=${images.postgres}`,
   '--line=v1',
+  '--line-moved=yes',
+  '--line-newer=',
   '--migrations=0001_baseline.sql,0002_lead_transfer.sql',
   '--previous-migrations=0001_baseline.sql,0002_lead_transfer.sql',
   '--repository=https://github.com/cmiicbrg/school-election',
@@ -76,6 +86,8 @@ test('a missing, repeated, unknown or malformed argument is refused with its nam
   assert.throws(() => parseArgs([...argv, '--tag=v9.9.9']), /Given twice: --tag/)
   assert.throws(() => parseArgs([...argv, '--latest=yes']), /Unexpected argument: --latest=yes/)
   assert.throws(() => parseArgs([...argv, 'v1.2.0']), /Unexpected argument: v1\.2\.0/)
+  assert.throws(() => parseArgs(replace('--line-moved=yes', '--line-moved=maybe')), /--line-moved must be yes or no/)
+  assert.throws(() => parseArgs(replace('--line-moved=yes', '--line-moved=no')), /--line-newer names the newer release of the line/)
   assert.throws(() => parseArgs(replace('--migrations=0001_baseline.sql,0002_lead_transfer.sql', '--migrations=0001_baseline.sql,README.md')), /--migrations: not a migration file name: README\.md/)
   assert.throws(() => parseArgs(replace('--migrations=0001_baseline.sql,0002_lead_transfer.sql', '--migrations=')), /--migrations names no migration/)
 })
