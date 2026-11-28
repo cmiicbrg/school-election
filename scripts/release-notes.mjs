@@ -52,8 +52,8 @@ function migrationLine({ previous, migrations, previousMigrations, updatesUrl })
   return `New since ${previous}: ${code(added)}. The migrator of an earlier release refuses a database this release has migrated, so a host does not go back behind it; the way back is the backup taken before the update ([Updates](${updatesUrl})).`
 }
 
-const FLAGS = ['tag', 'previous', 'app', 'postgres', 'line', 'migrations', 'previous-migrations', 'repository']
-const MIGRATION = /^[0-9]{4}_[a-z0-9_]+\.sql$/
+const FLAGS = new Set(['tag', 'previous', 'app', 'postgres', 'line', 'migrations', 'previous-migrations', 'repository'])
+const MIGRATION = /^\d{4}_[a-z0-9_]+\.sql$/
 
 /** A comma-separated list of migration file names; every name as the migrator's directory holds them. */
 function migrationList(flag, value) {
@@ -68,7 +68,7 @@ export function parseArgs(argv) {
   const values = {}
   for (const arg of argv) {
     const match = /^--([a-z-]+)=(.*)$/s.exec(arg)
-    if (match === null || !FLAGS.includes(match[1])) throw new Error(`Unexpected argument: ${arg}`)
+    if (match === null || !FLAGS.has(match[1])) throw new Error(`Unexpected argument: ${arg}`)
     if (Object.hasOwn(values, match[1])) throw new Error(`Given twice: --${match[1]}`)
     values[match[1]] = match[2]
   }

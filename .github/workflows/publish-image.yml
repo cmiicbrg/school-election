@@ -226,7 +226,8 @@ jobs:
           # The migrations a release brings, as its migrator reads them
           # (apps/api/scripts/migrate.ts): the .sql files of apps/api/migrations.
           migrations_at() {
-            git ls-tree --name-only "$1" -- apps/api/migrations/ | grep '\.sql$' | sed 's|.*/||' | paste -sd, -
+            local ref="$1"
+            git ls-tree --name-only "$ref" -- apps/api/migrations/ | grep '\.sql$' | sed 's|.*/||' | paste -sd, -
           }
           previous_migrations=""
           if [ -n "$previous" ]; then previous_migrations="$(migrations_at "$previous")"; fi
