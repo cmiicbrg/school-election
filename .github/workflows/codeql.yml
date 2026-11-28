@@ -1,0 +1,59 @@
+name: CodeQL
+
+# Advanced setup instead of GitHub's default setup: default setup never runs
+# for a push by Dependabot, so its pull requests reached the ruleset's code
+# scanning rule without any analysis. A workflow on pull_request runs for them
+# too, and its upload succeeds because of the event: code scanning accepts
+# results from a pull_request run even with Dependabot's read-only token, which
+# a push by Dependabot would not get past. security-events: write is for
+# everyone else's runs.
+#
+# security-extended rather than security-and-quality: code quality is covered
+# by GitHub Code Quality and SonarQube.
+'on':
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '27 3 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - actions
+          - javascript-typescript
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          queries: security-extended
+
+      # The category keeps default setup's name for each language.
+      - name: Analyze
+        uses: github/codeql-action/analyze@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        with:
+          category: /language:${{ matrix.language }}
