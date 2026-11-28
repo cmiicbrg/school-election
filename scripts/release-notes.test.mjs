@@ -33,6 +33,19 @@ test('new migrations are named, with the backup as the way back', () => {
   assert.doesNotMatch(notes, /No migration/)
 })
 
+test('the first release of a major line is taken by hand, and the way back is the backup even without a migration', () => {
+  const notes = releaseNotes({ ...base, tag: 'v2.0.0', previous: 'v1.4.0', line: 'v2' })
+  assert.match(notes, /The first release of the `v2` line\. Deployments following `v1` stay on it: a major is the one update done by hand \(\[Updates\]\(https:\/\/github\.com\/cmiicbrg\/school-election\/blob\/v2\.0\.0\/deploy\/README\.md#updates\)\)\./)
+  assert.match(notes, /No migration since v1\.4\.0, but a new major: the way back to v1\.4\.0 is the backup taken before the update \(\[Updates\]\(https:\/\/github\.com\/cmiicbrg\/school-election\/blob\/v2\.0\.0\/deploy\/README\.md#updates\)\)\./)
+  assert.doesNotMatch(notes, /nightly|same database/)
+})
+
+test('a patch on an earlier line after a new major still reaches that line nightly', () => {
+  const notes = releaseNotes({ ...base, tag: 'v1.4.1', previous: 'v1.4.0' })
+  assert.match(notes, /Deployments following the `v1` line pick this release up with their next nightly update/)
+  assert.match(notes, /a host can go back to v1\.4\.0 on the same database/)
+})
+
 test('the first release names its migrations and has no previous one to compare with', () => {
   const notes = releaseNotes({ ...base, tag: 'v1.0.0', previous: '', migrations: ['0001_baseline.sql'], previousMigrations: [] })
   assert.match(notes, /The first release, with `0001_baseline\.sql`\./)

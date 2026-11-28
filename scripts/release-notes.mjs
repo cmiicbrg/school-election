@@ -18,6 +18,9 @@ import { fileURLToPath } from 'node:url'
 /** The notes above GitHub's generated part, as Markdown. */
 export function releaseNotes({ tag, previous, images, line, migrations, previousMigrations, repositoryUrl }) {
   const guide = (anchor) => `${repositoryUrl}/blob/${tag}/deploy/README.md#${anchor}`
+  // The first release of a major line: no host follows it yet, and the way back to the line before
+  // is never the same database, since a PostgreSQL major comes only with an app major.
+  const newMajor = previous !== '' && major(previous) !== major(tag)
   return [
     '## What a host pulls',
     '',
@@ -26,11 +29,13 @@ export function releaseNotes({ tag, previous, images, line, migrations, previous
     images.postgres,
     '```',
     '',
-    `Deployments following the \`${line}\` line pick this release up with their next nightly update, never while a round accepts ballots ([Updates](${guide('updates')})).`,
+    newMajor
+      ? `The first release of the \`${line}\` line. Deployments following \`${major(previous)}\` stay on it: a major is the one update done by hand ([Updates](${guide('updates')})).`
+      : `Deployments following the \`${line}\` line pick this release up with their next nightly update, never while a round accepts ballots ([Updates](${guide('updates')})).`,
     '',
     '## Migrations',
     '',
-    migrationLine({ previous, migrations, previousMigrations, updatesUrl: guide('updates') }),
+    migrationLine({ previous, newMajor, migrations, previousMigrations, updatesUrl: guide('updates') }),
     '',
     '## Verify',
     '',
@@ -44,10 +49,12 @@ export function releaseNotes({ tag, previous, images, line, migrations, previous
 }
 
 const code = (names) => names.map((name) => `\`${name}\``).join(', ')
+const major = (tag) => tag.split('.')[0]
 
-function migrationLine({ previous, migrations, previousMigrations, updatesUrl }) {
+function migrationLine({ previous, newMajor, migrations, previousMigrations, updatesUrl }) {
   if (previous === '') return `The first release, with ${code(migrations)}.`
   const added = migrations.filter((name) => !previousMigrations.includes(name))
+  if (added.length === 0 && newMajor) return `No migration since ${previous}, but a new major: the way back to ${previous} is the backup taken before the update ([Updates](${updatesUrl})).`
   if (added.length === 0) return `No migration since ${previous}: a host can go back to ${previous} on the same database.`
   return `New since ${previous}: ${code(added)}. The migrator of an earlier release refuses a database this release has migrated, so a host does not go back behind it; the way back is the backup taken before the update ([Updates](${updatesUrl})).`
 }

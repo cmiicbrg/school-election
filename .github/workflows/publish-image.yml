@@ -185,10 +185,13 @@ jobs:
       contents: write
     # One at a time: "Latest" is decided from the tags the remote has at
     # that moment, and two jobs deciding it at once could leave it on the
-    # older release.
+    # older release. Every job waits its turn: by default a group keeps one
+    # pending job and cancels the one before it, which would leave a tag
+    # pushed with two others without its Release.
     concurrency:
       group: release-notes
       cancel-in-progress: false
+      queue: max
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
