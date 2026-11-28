@@ -9,7 +9,10 @@ name: Publish Image
 # alone. No `latest`: it would move across major lines. Each image is
 # signed with the repository's cosign key, which a host's policy requires
 # (deploy/policy.json), so an image that did not come through this
-# workflow is refused there.
+# workflow is refused there. Then the release's notes go to a GitHub
+# Release on the tag (scripts/release-notes.mjs: the images with their
+# digests, the migrations new since the previous release, the pull
+# requests merged since it).
 
 'on':
   workflow_dispatch: {}
@@ -32,6 +35,10 @@ jobs:
     permissions:
       contents: read
       packages: write
+    # What the release job writes into the notes: the verified digests.
+    outputs:
+      app-digest: ${{ steps.build.outputs.digest }}
+      postgres-digest: ${{ steps.build-postgres.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -168,6 +175,103 @@ jobs:
             echo "${POSTGRES_IMAGE}:${GITHUB_REF_NAME}@${POSTGRES_DIGEST}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Release notes
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    # One at a time: "Latest" is decided from the tags the remote has at
+    # that moment, and two jobs deciding it at once could leave it on the
+    # older release. Every job waits its turn: by default a group keeps one
+    # pending job and cancels the one before it, which would leave a tag
+    # pushed with two others without its Release.
+    concurrency:
+      group: release-notes
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Every tag, for the previous release and its migrations.
+          fetch-depth: 0
+
+      # No npm cache: the script has no dependencies, and a release run
+      # takes nothing from a cache another run could have filled.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          package-manager-cache: false
+
+      # Expansions go through env rather than straight into the script body
+      # (see "Report the release").
+      - name: Write the release notes
+        id: notes
+        env:
+          APP_DIGEST: ${{ needs.publish.outputs.app-digest }}
+          POSTGRES_DIGEST: ${{ needs.publish.outputs.postgres-digest }}
+        run: |
+          set -euo pipefail
+          release="${GITHUB_REF_NAME}"
+          line="v${release#v}"
+          line="${line%%.*}"
+          # The release tags the remote has now, in version order; this one must
+          # be among them. The remote's, not the checkout's: a tag pushed since
+          # the checkout decides "Latest" as much as the ones before.
+          git ls-remote --tags --refs origin 'refs/tags/v[0-9]*' | sed 's|.*refs/tags/||' | grep -Ex 'v[0-9]+\.[0-9]+\.[0-9]+' | sort -V > tags.txt
+          grep -qx "$release" tags.txt || { echo "Refusing to write notes: ${release} is not a tag of the repository" >&2; exit 1; }
+          previous="$(grep -x -B1 "$release" tags.txt | head -n 1 | grep -vx "$release" || true)"
+          latest=false
+          if [ "$(tail -n 1 tags.txt)" = "$release" ]; then latest=true; fi
+          # The migrations a release brings, as its migrator reads them
+          # (apps/api/scripts/migrate.ts): the .sql files of apps/api/migrations.
+          migrations_at() {
+            local ref="$1"
+            git ls-tree --name-only "$ref" -- apps/api/migrations/ | grep '\.sql$' | sed 's|.*/||' | paste -sd, -
+          }
+          previous_migrations=""
+          if [ -n "$previous" ]; then previous_migrations="$(migrations_at "$previous")"; fi
+          node scripts/release-notes.mjs \
+            --tag="$release" --previous="$previous" \
+            --app="${APP_IMAGE}:${release}@${APP_DIGEST}" \
+            --postgres="${POSTGRES_IMAGE}:${release}@${POSTGRES_DIGEST}" \
+            --line="$line" \
+            --migrations="$(migrations_at "$release")" --previous-migrations="$previous_migrations" \
+            --repository="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" > notes.md
+          echo "previous=${previous}" >> "$GITHUB_OUTPUT"
+          echo "latest=${latest}" >> "$GITHUB_OUTPUT"
+
+      # The generated part comes from the API, so a Release that exists
+      # (a re-run) gets the same notes as a new one. Latest is the highest
+      # release tag, not the newest Release: a patch on an older line is
+      # never "Latest".
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREVIOUS: ${{ steps.notes.outputs.previous }}
+          LATEST: ${{ steps.notes.outputs.latest }}
+        run: |
+          set -euo pipefail
+          release="${GITHUB_REF_NAME}"
+          {
+            cat notes.md
+            echo
+            if [ -n "$PREVIOUS" ]; then
+              gh api --method POST "/repos/${GITHUB_REPOSITORY}/releases/generate-notes" -f tag_name="$release" -f previous_tag_name="$PREVIOUS" -f target_commitish="$GITHUB_SHA" --jq .body
+            else
+              gh api --method POST "/repos/${GITHUB_REPOSITORY}/releases/generate-notes" -f tag_name="$release" -f target_commitish="$GITHUB_SHA" --jq .body
+            fi
+          } > release.md
+          if gh release view "$release" --json id >/dev/null 2>&1; then
+            gh release edit "$release" --title "$release" --notes-file release.md --latest="$LATEST"
+            echo "Replaced the notes of the Release ${release}" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            gh release create "$release" --verify-tag --title "$release" --notes-file release.md --latest="$LATEST"
+          fi
+          echo "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${release}" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # Bound registry growth. Each release adds an index per image, tagged
   # with the release, the immutable sha-<commit> and the moving line tag,
